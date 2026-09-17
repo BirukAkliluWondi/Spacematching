@@ -1,0 +1,14 @@
+{
+  "800701176": {
+    "telegram_id": 800701176,
+    "step": "awaiting_title",
+    "draft_data": {},
+    "updated_at": "2026-09-17T17:18:17.576Z"
+  },
+  "2115296299": {
+    "telegram_id": 2115296299,
+    "step": "idle",
+    "draft_data": {},
+    "updated_at": "2026-09-17T15:34:16.455Z"
+  }
+}
