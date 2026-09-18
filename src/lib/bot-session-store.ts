@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 export interface BotSession {
   telegram_id: number;
@@ -27,23 +28,40 @@ export interface SpaceDraft {
   updated_at: string;
 }
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const SESSIONS_FILE = path.join(DATA_DIR, 'bot_sessions.json');
-const DRAFTS_FILE = path.join(DATA_DIR, 'pending_space_drafts.json');
-
-function ensureDataDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+function getDataDir(): string {
+  try {
+    const localDir = path.join(process.cwd(), 'data');
+    if (!fs.existsSync(localDir)) {
+      fs.mkdirSync(localDir, { recursive: true });
+    }
+    const testFile = path.join(localDir, '.write_test');
+    fs.writeFileSync(testFile, 'test');
+    fs.unlinkSync(testFile);
+    return localDir;
+  } catch {
+    const tmpDir = path.join(os.tmpdir(), 'spacematch_data');
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+    return tmpDir;
   }
 }
 
+function getSessionsFile(): string {
+  return path.join(getDataDir(), 'bot_sessions.json');
+}
+
+function getDraftsFile(): string {
+  return path.join(getDataDir(), 'pending_space_drafts.json');
+}
+
 export function getSession(telegramId: number): BotSession {
-  ensureDataDir();
-  if (!fs.existsSync(SESSIONS_FILE)) {
+  const sessionsFile = getSessionsFile();
+  if (!fs.existsSync(sessionsFile)) {
     return { telegram_id: telegramId, step: 'idle', draft_data: {}, updated_at: new Date().toISOString() };
   }
   try {
-    const raw = fs.readFileSync(SESSIONS_FILE, 'utf-8');
+    const raw = fs.readFileSync(sessionsFile, 'utf-8');
     const sessions: Record<string, BotSession> = JSON.parse(raw);
     return sessions[String(telegramId)] || { telegram_id: telegramId, step: 'idle', draft_data: {}, updated_at: new Date().toISOString() };
   } catch {
@@ -52,16 +70,20 @@ export function getSession(telegramId: number): BotSession {
 }
 
 export function saveSession(session: BotSession): void {
-  ensureDataDir();
+  const sessionsFile = getSessionsFile();
   let sessions: Record<string, BotSession> = {};
-  if (fs.existsSync(SESSIONS_FILE)) {
+  if (fs.existsSync(sessionsFile)) {
     try {
-      sessions = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
+      sessions = JSON.parse(fs.readFileSync(sessionsFile, 'utf-8'));
     } catch {}
   }
   session.updated_at = new Date().toISOString();
   sessions[String(session.telegram_id)] = session;
-  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2), 'utf-8');
+  try {
+    fs.writeFileSync(sessionsFile, JSON.stringify(sessions, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save session to disk:', err);
+  }
 }
 
 export function clearSession(telegramId: number): void {
@@ -69,23 +91,27 @@ export function clearSession(telegramId: number): void {
 }
 
 export function saveDraft(draft: SpaceDraft): void {
-  ensureDataDir();
+  const draftsFile = getDraftsFile();
   let drafts: Record<string, SpaceDraft> = {};
-  if (fs.existsSync(DRAFTS_FILE)) {
+  if (fs.existsSync(draftsFile)) {
     try {
-      drafts = JSON.parse(fs.readFileSync(DRAFTS_FILE, 'utf-8'));
+      drafts = JSON.parse(fs.readFileSync(draftsFile, 'utf-8'));
     } catch {}
   }
   draft.updated_at = new Date().toISOString();
   drafts[draft.id] = draft;
-  fs.writeFileSync(DRAFTS_FILE, JSON.stringify(drafts, null, 2), 'utf-8');
+  try {
+    fs.writeFileSync(draftsFile, JSON.stringify(drafts, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save draft to disk:', err);
+  }
 }
 
 export function getDraft(draftId: string): SpaceDraft | null {
-  ensureDataDir();
-  if (!fs.existsSync(DRAFTS_FILE)) return null;
+  const draftsFile = getDraftsFile();
+  if (!fs.existsSync(draftsFile)) return null;
   try {
-    const drafts: Record<string, SpaceDraft> = JSON.parse(fs.readFileSync(DRAFTS_FILE, 'utf-8'));
+    const drafts: Record<string, SpaceDraft> = JSON.parse(fs.readFileSync(draftsFile, 'utf-8'));
     return drafts[draftId] || null;
   } catch {
     return null;
