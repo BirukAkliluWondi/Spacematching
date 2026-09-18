@@ -73,6 +73,16 @@ ${space.description}
       inline_keyboard: [
         [
           {
+            text: '🏠 I Have a Space',
+            url: `https://t.me/${botUsername}?start=property_type`,
+          },
+          {
+            text: '🔍 I Need a Space',
+            url: `https://t.me/${botUsername}?start=seeker_flow`,
+          },
+        ],
+        [
+          {
             text: `🛒 በቦት እዘዝ (${space.unlock_fee} ብር)`,
             url: `https://t.me/${botUsername}?start=order_${space.id}`,
           },
@@ -193,6 +203,10 @@ export async function postCustomToChannel(
 
   const inlineKeyboard = {
     inline_keyboard: [
+      [
+        { text: '🏠 I Have a Space', url: `https://t.me/${botUsername}?start=property_type` },
+        { text: '🔍 I Need a Space', url: `https://t.me/${botUsername}?start=seeker_flow` },
+      ],
       [
         { text: '🛒 በቦት እዘዝ (Order in Bot)', url: orderUrl },
       ],
