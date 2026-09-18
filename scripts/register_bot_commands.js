@@ -1,4 +1,9 @@
-const botToken = '8415131791:AAFQ1ozuyXyxPm3Zdr50T9gqeR8sVeoQNS4';
+const botToken = process.env.TELEGRAM_BOT_TOKEN;
+
+if (!botToken) {
+  console.error('ERROR: TELEGRAM_BOT_TOKEN environment variable is missing.');
+  process.exit(1);
+}
 
 async function main() {
   console.log('Registering Telegram Bot Commands...');

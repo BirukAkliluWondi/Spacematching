@@ -1,5 +1,10 @@
-const botToken = '8415131791:AAFQ1ozuyXyxPm3Zdr50T9gqeR8sVeoQNS4';
-const appUrl = 'https://43d4-196-189-152-158.ngrok-free.app';
+const botToken = process.env.TELEGRAM_BOT_TOKEN;
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.argv[2];
+
+if (!botToken || !appUrl) {
+  console.error('ERROR: TELEGRAM_BOT_TOKEN and appUrl (via NEXT_PUBLIC_APP_URL or argument) are required.');
+  process.exit(1);
+}
 
 async function main() {
   console.log('Updating Telegram Bot Menu Button to:', appUrl);

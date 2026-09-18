@@ -6,7 +6,12 @@ const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXB
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 async function main() {
-  const telegramPhotoUrl = 'https://api.telegram.org/file/bot8415131791:AAFQ1ozuyXyxPm3Zdr50T9gqeR8sVeoQNS4/photos/file_6.jpg';
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.error('ERROR: TELEGRAM_BOT_TOKEN environment variable required.');
+    process.exit(1);
+  }
+  const telegramPhotoUrl = `https://api.telegram.org/file/bot${token}/photos/file_6.jpg`;
   console.log('Downloading photo from Telegram...');
   const res = await fetch(telegramPhotoUrl);
   const arrayBuffer = await res.arrayBuffer();

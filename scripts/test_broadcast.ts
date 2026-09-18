@@ -1,4 +1,7 @@
-process.env.TELEGRAM_BOT_TOKEN = '8415131791:AAFQ1ozuyXyxPm3Zdr50T9gqeR8sVeoQNS4';
+if (!process.env.TELEGRAM_BOT_TOKEN) {
+  console.error('ERROR: TELEGRAM_BOT_TOKEN environment variable is required.');
+  process.exit(1);
+}
 process.env.NEXT_PUBLIC_BOT_USERNAME = 'Spacematchaddis_bot';
 process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME = 'roommatch';
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://lzatfklszrovfqoyufnt.supabase.co';

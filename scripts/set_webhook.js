@@ -1,5 +1,16 @@
-const botToken = '8415131791:AAFQ1ozuyXyxPm3Zdr50T9gqeR8sVeoQNS4';
-const webhookUrl = 'https://43d4-196-189-152-158.ngrok-free.app/api/telegram/webhook';
+const botToken = process.env.TELEGRAM_BOT_TOKEN;
+const domain = process.env.NEXT_PUBLIC_APP_URL || process.argv[2];
+const webhookUrl = domain ? `${domain.replace(/\/$/, '')}/api/telegram/webhook` : null;
+
+if (!botToken) {
+  console.error('ERROR: TELEGRAM_BOT_TOKEN environment variable is missing.');
+  process.exit(1);
+}
+
+if (!webhookUrl) {
+  console.error('ERROR: Please provide domain via NEXT_PUBLIC_APP_URL or command argument (e.g. node scripts/set_webhook.js https://your-app.vercel.app)');
+  process.exit(1);
+}
 
 async function main() {
   console.log('Setting Telegram webhook to:', webhookUrl);
