@@ -640,6 +640,34 @@ ${space.description}
     };
 
     // =========================================================================
+    // SECURITY PROTECTION: Auto-leave unauthorized groups or channels
+    // =========================================================================
+    const adminIdsList = await getAdminIds();
+
+    if (update.my_chat_member) {
+      const addedBy = update.my_chat_member.from?.id;
+      const chatType = update.my_chat_member.chat?.type;
+      const chatId = update.my_chat_member.chat?.id;
+
+      if ((chatType === 'group' || chatType === 'supergroup' || chatType === 'channel') && (!addedBy || !adminIdsList.includes(Number(addedBy)))) {
+        console.warn(`[SECURITY] Bot added to unauthorized ${chatType} (${chatId}) by ${addedBy}. Leaving chat...`);
+        await sendTelegram('leaveChat', { chat_id: chatId });
+        return NextResponse.json({ ok: true });
+      }
+    }
+
+    if (update.message && (update.message.chat?.type === 'group' || update.message.chat?.type === 'supergroup')) {
+      const groupSenderId = update.message.from?.id;
+      const groupChatId = update.message.chat?.id;
+
+      if (!groupSenderId || !adminIdsList.includes(Number(groupSenderId))) {
+        console.warn(`[SECURITY] Message in unauthorized group (${groupChatId}) from ${groupSenderId}. Leaving group...`);
+        await sendTelegram('leaveChat', { chat_id: groupChatId });
+        return NextResponse.json({ ok: true });
+      }
+    }
+
+    // =========================================================================
     // 1. HANDLE INLINE CALLBACK QUERIES
     // =========================================================================
     if (update.callback_query) {
