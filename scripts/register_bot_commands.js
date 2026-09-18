@@ -5,12 +5,15 @@ async function main() {
 
   const commands = [
     { command: 'start', description: 'Welcome screen and main menu' },
+    { command: 'match', description: '🎯 Find & match rooms by neighborhood & budget' },
     { command: 'browse', description: 'Open SpaceMatch Mini App storefront' },
     { command: 'post', description: 'List a room/space for rent' },
     { command: 'myorders', description: 'View your unlocked room contacts' },
     { command: 'verify', description: 'Check Fayda National ID verification' },
     { command: 'help', description: 'User guide and platform instructions' },
     { command: 'support', description: 'Contact admin support team' },
+    { command: 'admin', description: '[Admin] Channel post manager & controls' },
+    { command: 'cancel', description: 'Cancel active process & return to menu' },
     { command: 'stats', description: '[Admin] View platform statistics' },
     { command: 'broadcast', description: '[Admin] Broadcast listing to channel' },
   ];

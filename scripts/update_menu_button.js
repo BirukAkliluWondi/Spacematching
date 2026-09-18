@@ -1,5 +1,5 @@
 const botToken = '8415131791:AAFQ1ozuyXyxPm3Zdr50T9gqeR8sVeoQNS4';
-const appUrl = 'https://895b-164-160-184-214.ngrok-free.app';
+const appUrl = 'https://43d4-196-189-152-158.ngrok-free.app';
 
 async function main() {
   console.log('Updating Telegram Bot Menu Button to:', appUrl);
