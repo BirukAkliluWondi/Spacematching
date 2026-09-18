@@ -1197,55 +1197,147 @@ ${space.description}
 
       const session = getSession(chatId);
 
-      // Handle Contact Shared / Phone Registration Step for Homeowners
-      if (message.contact || session.step === 'awaiting_phone_registration') {
-        const phoneNumber = message.contact?.phone_number || text;
+      // ALWAYS intercept /start or /cancel commands first and reset active sessions to start fresh from beginning
+      if (text.startsWith('/start') || text === '/start') {
+        clearSession(chatId);
 
-        if (phoneNumber && phoneNumber !== '/cancel' && phoneNumber !== '❌ ሰርዝ / Cancel') {
-          await supabaseAdmin
-            .from('users')
-            .upsert(
-              {
-                telegram_id: chatId,
-                first_name: fromUser?.first_name || 'User',
-                last_name: fromUser?.last_name || null,
-                username: fromUser?.username || null,
-                phone_number: phoneNumber,
-                role: 'homeowner',
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: 'telegram_id' }
-            );
+        // 2.1.0 General /start order
+        if (text === '/start order' || text === '/start order_' || text === '/order') {
+          const { data: spaces } = await supabaseAdmin
+            .from('spaces')
+            .select('id, title, neighborhood, price_per_month, unlock_fee')
+            .eq('status', 'published')
+            .order('created_at', { ascending: false })
+            .limit(6);
 
-          saveSession({
-            telegram_id: chatId,
-            step: 'awaiting_title',
-            draft_data: { homeowner_phone: phoneNumber, contact_phone: phoneNumber },
-            updated_at: new Date().toISOString(),
-          });
+          if (!spaces || spaces.length === 0) {
+            await sendTelegram('sendMessage', {
+              chat_id: chatId,
+              text: '⚠️ በአሁኑ ጊዜ የሚገኙ ክፍሎች የሉም። እባክዎን በኋላ እንደገና ይሞክሩ።',
+            });
+            return NextResponse.json({ ok: true });
+          }
 
-          const successMsg = `
-<b>✅ የስልክ ቁጥርዎ በስኬት ተመዝግቧል! (${phoneNumber})</b>
-
-አሁን የቤትዎን መረጃ መመዝገብ መጀመር ይችላሉ።
-----------------------------------
-<b>🏠 ደረጃ 1/6፡ የቤቱ/ክፍሉ ስም (ርዕስ)</b>
-
-እባክዎን የክፍልዎን ወይም የቤትዎን አጭር መግለጫ ስም ያስገቡ።
-<i>ምሳሌ፡ "በቦሌ የሚከራይ ባለ 1 መኝታ ቤት" ወይም "በካዛንችስ የሚከራይ ስቱዲዮ"</i>
-
-<i>(ለማቆም /cancel ይፃፉ)</i>
-          `.trim();
+          const buttons = spaces.map((s) => [
+            {
+              text: `🛒 ${s.title} - ${s.neighborhood} (${s.unlock_fee || 50} ብር)`,
+              callback_data: `start_order_direct:${s.id}`,
+            },
+          ]);
 
           await sendTelegram('sendMessage', {
             chat_id: chatId,
-            text: successMsg,
+            text: '<b>🛒 ለማዘዝ የሚፈልጉትን ክፍል ይምረጡ፡</b>\n\nከታች ከተዘረዘሩት ክፍሎች አንዱን በመጫን የባለቤቱን ስልክ ቁጥር በቴሌብር ክፍያ ማግኘት ይችላሉ።',
             parse_mode: 'HTML',
-            reply_markup: { remove_keyboard: true },
+            reply_markup: { inline_keyboard: buttons },
           });
 
           return NextResponse.json({ ok: true });
         }
+
+        // 2.1.1 /start order_{listing_id}
+        if (text.startsWith('/start order_')) {
+          const listingId = text.replace('/start order_', '').trim();
+          await sendOrderCheckoutPrompt(chatId, listingId);
+          return NextResponse.json({ ok: true });
+        }
+
+        // 2.1.2 /start pay_{order_id}
+        if (text.startsWith('/start pay_')) {
+          const orderId = text.replace('/start pay_', '').trim();
+          const { data: order } = await supabaseAdmin
+            .from('orders')
+            .select('*, spaces(*)')
+            .eq('id', orderId)
+            .single();
+
+          if (!order) {
+            await sendTelegram('sendMessage', {
+              chat_id: chatId,
+              text: '⚠️ የትዕዛዝ መረጃ አልተገኘም።',
+            });
+            return NextResponse.json({ ok: true });
+          }
+
+          const space = order.spaces;
+
+          if (order.payment_status === 'completed') {
+            await sendUnlockedContactDetails(chatId, space);
+            return NextResponse.json({ ok: true });
+          }
+
+          saveSession({
+            telegram_id: chatId,
+            step: `awaiting_payment_for_order:${order.id}`,
+            draft_data: { order_id: order.id, space_id: order.space_id },
+            updated_at: new Date().toISOString(),
+          });
+
+          const payMessage = `
+🏠 <b>የቴሌብር ክፍያ ማረጋገጫ</b>
+
+<b>ቤት፡</b> ${space?.title || 'የሚከራይ ክፍል'}
+💵 <b>የአገልግሎት ክፍያ፡</b> ${order.amount} ብር
+
+💳 <b>የቴሌብር አካውንት፡</b>
+<code>${receiverPhone}</code>
+
+እባክዎን <b>${order.amount} ብር</b> ወደ ቴሌብር ቁጥር <code>${receiverPhone}</code> አስተላልፈው የላኩበትን <b>የትራንዛክሽን ቁጥር (Txn Ref / FT...)</b> እዚህ መልሰው ይፃፉ፡
+          `.trim();
+
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: payMessage,
+            parse_mode: 'HTML',
+          });
+
+          return NextResponse.json({ ok: true });
+        }
+
+        // Standard /start Welcome Screen
+        const welcomeText = `
+<b>👋 እንኳን ወደ SpaceMatch ኢትዮጵያ በደህና መጡ!</b>
+
+ክፍል መከራየት ቢፈልጉ ወይም የእርስዎን ቤት ማከራየት ቢፈልጉ፣ በአንድ ቦታ ያገኛሉ።
+
+ለመጀመር ከታች ካሉት አማራጮች አንዱን ይምረጡ፡
+        `.trim();
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: welcomeText,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🔍 ክፍል እፈልጋለሁ (ሚኒ አፕ ክፈት)',
+                  web_app: { url: appUrl },
+                },
+              ],
+              [
+                {
+                  text: '🎯 ክፍል አጣጣሚ (Match Rooms - /match)',
+                  callback_data: 'start_matching_wizard',
+                },
+              ],
+              [
+                {
+                  text: '🏠 ማከራየት እፈልጋለሁ (ቤት መዝግብ)',
+                  callback_data: 'start_listing',
+                },
+              ],
+              [
+                {
+                  text: '💬 አስተዳዳሪውን ያናግሩ',
+                  url: 'https://t.me/birukadiyee',
+                },
+              ],
+            ],
+          },
+        });
+
+        return NextResponse.json({ ok: true });
       }
 
       // Handle Cancel Command
