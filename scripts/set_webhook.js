@@ -1,5 +1,5 @@
 const botToken = '8415131791:AAFQ1ozuyXyxPm3Zdr50T9gqeR8sVeoQNS4';
-const webhookUrl = 'https://cd9e-196-189-152-158.ngrok-free.app/api/telegram/webhook';
+const webhookUrl = 'https://895b-164-160-184-214.ngrok-free.app/api/telegram/webhook';
 
 async function main() {
   console.log('Setting Telegram webhook to:', webhookUrl);

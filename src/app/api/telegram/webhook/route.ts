@@ -950,8 +950,239 @@ We will notify you here as soon as an admin approves or reviews your listing!
       }
 
       // -----------------------------------------------------------------------
-      // 2.5 STANDARD COMMANDS & TRIGGER WORDS
+      // 2.5 EXTENDED TELEGRAM BOT COMMAND HANDLERS
       // -----------------------------------------------------------------------
+
+      // /browse or /rooms
+      if (text === '/browse' || text === '/rooms') {
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: `<b>🔍 Browse Rooms in Addis Ababa</b>\n\nTap the button below to launch the SpaceMatch Mini App storefront!`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🏪 Open SpaceMatch Mini App',
+                  web_app: { url: appUrl },
+                },
+              ],
+            ],
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // /post or /addroom
+      if (text === '/post' || text === '/addroom') {
+        saveSession({
+          telegram_id: chatId,
+          step: 'awaiting_title',
+          draft_data: {},
+          updated_at: new Date().toISOString(),
+        });
+        const promptText = `
+<b>🏠 Step 1/6: Property Title</b>
+
+Please enter a clear title for your room or property.
+<i>Example: "Cozy 1BR Apartment in Bole" or "Furnished Private Room near Kazanchis"</i>
+
+<i>(Type /cancel at any point to stop)</i>
+        `.trim();
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: promptText,
+          parse_mode: 'HTML',
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // /myorders or /unlocked
+      if (text === '/myorders' || text === '/unlocked') {
+        const { data: userOrders } = await supabaseAdmin
+          .from('orders')
+          .select('*, spaces(*)')
+          .eq('renter_telegram_id', chatId)
+          .eq('payment_status', 'completed');
+
+        if (!userOrders || userOrders.length === 0) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `<b>📂 My Unlocked Rooms</b>\n\nYou have not unlocked any room contacts yet.\n\nBrowse available rooms in the Mini App and unlock contacts for ETB 50!`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔍 Browse Rooms Now', web_app: { url: appUrl } }],
+              ],
+            },
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        let msg = `<b>📂 My Unlocked Room Contacts (${userOrders.length})</b>\n\n`;
+        userOrders.forEach((o: any, idx: number) => {
+          const s = o.spaces;
+          if (s) {
+            msg += `${idx + 1}. <b>${s.title}</b> (${s.neighborhood})\n`;
+            msg += `📍 Address: ${s.exact_address}\n`;
+            msg += `📞 Host: ${s.contact_name} (${s.contact_phone})\n`;
+            msg += `💬 Telegram: ${s.contact_telegram || 'N/A'}\n\n`;
+          }
+        });
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: msg.trim(),
+          parse_mode: 'HTML',
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // /verify or /fayda
+      if (text === '/verify' || text === '/fayda') {
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('fayda_status')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
+
+        const status = user?.fayda_status || 'pending';
+        const statusBadge = status === 'verified' ? '✅ Verified' : '⚠️ Pending Verification';
+
+        const verifyMsg = `
+<b>🆔 Fayda National ID Verification</b>
+
+<b>Current Status:</b> ${statusBadge}
+
+Verified users get full access to unlock room contact details and fast-track landlord inquiries.
+        `.trim();
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: verifyMsg,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🆔 Upload Fayda ID in Mini App', web_app: { url: appUrl } }],
+            ],
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // /help
+      if (text === '/help') {
+        const helpText = `
+<b>❓ SpaceMatch Help & Guide</b>
+
+<b>🔍 For Renters:</b>
+1. Tap <b>"Browse Rooms"</b> or type /browse to open the Mini App.
+2. Filter rooms by location (Bole, Kazanchis, etc.) and category.
+3. Tap <b>"Unlock Contacts"</b> to pay the ETB 50 fee via Telebirr.
+4. Once verified, host phone number and Google Maps location are unlocked!
+
+<b>🏠 For Homeowners:</b>
+1. Tap <b>"I Have a Space"</b> or type /post to start listing.
+2. Enter room title, description, price, neighborhood, and exact address.
+3. Upload a photo.
+4. Once an admin approves, your space is live on the Mini App & Telegram Channel!
+
+<b>📜 Commands List:</b>
+/start - Welcome screen & main menu
+/browse - Open Mini App Storefront
+/post - List a room for rent
+/myorders - View your unlocked room contacts
+/verify - Check Fayda ID verification status
+/support - Contact Admin Support
+        `.trim();
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: helpText,
+          parse_mode: 'HTML',
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // /support
+      if (text === '/support') {
+        const supportText = `
+<b>💬 SpaceMatch Admin Support</b>
+
+Have questions or need assistance with a room listing or payment?
+
+<b>Admins:</b>
+• @birukadiyee
+• @WWEHID
+
+<i>Working hours: 8:00 AM - 10:00 PM EAT</i>
+        `.trim();
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: supportText,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '💬 Message Support Admin', url: 'https://t.me/birukadiyee' }],
+            ],
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // /broadcast <listing_id> (Admin Only)
+      if (text.startsWith('/broadcast ')) {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', { chat_id: chatId, text: '⚠️ Admin permission required.' });
+          return NextResponse.json({ ok: true });
+        }
+
+        const listingId = text.replace('/broadcast ', '').trim();
+        const broadcastRes = await broadcastListingToChannel(listingId);
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: broadcastRes.success
+            ? `<b>✅ Broadcast Sent!</b>\n\n${broadcastRes.message}`
+            : `<b>❌ Broadcast Failed</b>\n\n${broadcastRes.message}`,
+          parse_mode: 'HTML',
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // /stats (Admin Only)
+      if (text === '/stats') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', { chat_id: chatId, text: '⚠️ Admin permission required.' });
+          return NextResponse.json({ ok: true });
+        }
+
+        const { count: publishedCount } = await supabaseAdmin.from('spaces').select('*', { count: 'exact', head: true }).eq('status', 'published');
+        const { count: completedOrdersCount } = await supabaseAdmin.from('orders').select('*', { count: 'exact', head: true }).eq('payment_status', 'completed');
+        const { count: verifiedUsersCount } = await supabaseAdmin.from('users').select('*', { count: 'exact', head: true }).eq('fayda_status', 'verified');
+
+        const totalRevenue = (completedOrdersCount || 0) * 50;
+
+        const statsText = `
+<b>📊 SpaceMatch Admin Platform Statistics</b>
+
+🏠 <b>Published Spaces:</b> ${publishedCount || 0}
+🔓 <b>Completed Orders:</b> ${completedOrdersCount || 0}
+💵 <b>Total Revenue:</b> ETB ${totalRevenue.toLocaleString()}
+🆔 <b>Verified Users:</b> ${verifiedUsersCount || 0}
+        `.trim();
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: statsText,
+          parse_mode: 'HTML',
+        });
+        return NextResponse.json({ ok: true });
+      }
+
       if (
         text.includes('Have a Space') ||
         text.includes('List') ||
