@@ -415,6 +415,8 @@ Reply to this message with a short description including:
         updated_at: new Date().toISOString(),
       });
 
+      const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
+
       const cardCaption = `
 🏠 <b>የመረጡት ክፍል መረጃ (Selected Room Post)</b>
 
@@ -429,8 +431,11 @@ ${space.description}
 ----------------------------------
 💳 <b>የቤት ባለቤቱን ስልክና አድራሻ ለማግኘት</b>
 
-1. <b>${unlockFee} ብር</b> ወደ ቴሌብር ቁጥር <code>${receiverPhone}</code> ያስተላልፉ።
-2. የላኩበትን <b>የቴሌብር ትራንዛክሽን ቁጥር (Txn Ref / FT...)</b> እዚህ መልሰው ይፃፉ።
+1. <b>${unlockFee} ብር</b> በቴሌብር ወይም በኢትዮጵያ ንግድ ባንክ (CBE) ያስተላልፉ፡
+📱 <b>ቴሌብር (Telebirr)፡</b> <code>${receiverPhone}</code>
+🏦 <b>ንግድ ባንክ (CBE Account)፡</b> <code>${cbeAccount}</code>
+
+2. የላኩበትን <b>የትራንዛክሽን ቁጥር (Txn Ref / FT... / CBE Txn)</b> እዚህ መልሰው ይፃፉ።
 
 <i>(ለማቆም /cancel ይፃፉ)</i>
       `.trim();
