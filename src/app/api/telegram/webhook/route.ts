@@ -314,24 +314,19 @@ Reply to this message with 1 to 5 photos of the space and write these details in
       });
     };
 
-    // Helper: Seeker Step 4 (/upload_seeker_profile)
-    const sendUploadSeekerProfilePrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+    // Helper: Seeker Question 1 of 5 (Preferred Sub-Cities)
+    const sendSeekerSubcitiesPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
       saveSession({
         telegram_id: chatId,
-        step: 'awaiting_upload_seeker_profile',
+        step: 'awaiting_seeker_subcities',
         draft_data: currentDraft,
         updated_at: new Date().toISOString(),
       });
       const promptMsg = `
-<b>📝 Almost done! Send your preferences</b>
+<b>📝 Almost done! (4 questions left)</b>
 
-Reply to this message with a short description including:
-
-📍 Preferred Sub-Cities: (e.g., Bole, Yeka, CMC, Sarbet)
-💰 Max Budget (ETB): (e.g., Up to 8,000 ETB/month)
-🚪 Space Requirements: (e.g., Private Bathroom, Furnished)
-⚡ Must-Haves: (e.g., Wi-Fi, Parking, Kitchen access)
-📞 Contact: (e.g., 0911xxxxxx or @username)
+📍 <b>Preferred Sub-Cities / Areas:</b>
+<i>(e.g., Bole, Yeka, CMC, Sarbet)</i>
 
 🔄 Start over anytime: /start
       `.trim();
@@ -341,6 +336,100 @@ Reply to this message with a short description including:
         parse_mode: 'HTML',
       });
     };
+
+    // Helper: Seeker Question 2 of 5 (Max Budget)
+    const sendSeekerBudgetPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_budget',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+      const promptMsg = `
+<b>📝 (3 questions left)</b>
+
+💰 <b>Max Monthly Budget (ETB):</b>
+<i>(e.g., Up to 8,000 ETB/month)</i>
+
+🔄 Start over anytime: /start
+      `.trim();
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: promptMsg,
+        parse_mode: 'HTML',
+      });
+    };
+
+    // Helper: Seeker Question 3 of 5 (Space Requirements)
+    const sendSeekerRequirementsPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_requirements',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+      const promptMsg = `
+<b>📝 (Only 2 questions left!)</b>
+
+🚪 <b>Space Requirements:</b>
+<i>(e.g., Private Bathroom, Furnished, Studio)</i>
+
+🔄 Start over anytime: /start
+      `.trim();
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: promptMsg,
+        parse_mode: 'HTML',
+      });
+    };
+
+    // Helper: Seeker Question 4 of 5 (Must-Haves)
+    const sendSeekerMusthavesPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_musthaves',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+      const promptMsg = `
+<b>📝 (Almost there! Only 1 question left)</b>
+
+⚡️ <b>Must-Haves & Amenities:</b>
+<i>(e.g., Wi-Fi, Parking, Kitchen access, Dogs allowed)</i>
+
+🔄 Start over anytime: /start
+      `.trim();
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: promptMsg,
+        parse_mode: 'HTML',
+      });
+    };
+
+    // Helper: Seeker Question 5 of 5 (Contact Information)
+    const sendSeekerContactPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_contact',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+      const promptMsg = `
+<b>📝 (Final Question!)</b>
+
+📞 <b>Contact Information:</b>
+<i>(e.g., 0911xxxxxx or @username)</i>
+
+🔄 Start over anytime: /start
+      `.trim();
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: promptMsg,
+        parse_mode: 'HTML',
+      });
+    };
+
+    const sendUploadSeekerProfilePrompt = sendSeekerSubcitiesPrompt;
 
     // Helper to send Order Checkout Card (with exact post photo & details) in Bot DM
     const sendOrderCheckoutPrompt = async (chatId: number, spaceId: string) => {
@@ -2152,16 +2241,42 @@ ${captionOrText}
         return NextResponse.json({ ok: true });
       }
 
-      // Step 4: Seeker Profile Submission
-      if (session.step === 'awaiting_upload_seeker_profile') {
-        const seekerText = text || message.caption || '';
-        if (!seekerText) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ Please send your preferences description (Sub-Cities, Budget, Requirements, Contact).',
-          });
-          return NextResponse.json({ ok: true });
-        }
+      // Seeker Step 4.1: Preferred Sub-Cities (Question 1 of 5)
+      if (session.step === 'awaiting_seeker_subcities') {
+        const subcities = text.trim();
+        const draft = { ...session.draft_data, seeker_subcities: subcities };
+        await sendSeekerBudgetPrompt(chatId, draft);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Seeker Step 4.2: Max Budget (Question 2 of 5)
+      if (session.step === 'awaiting_seeker_budget') {
+        const budget = text.trim();
+        const draft = { ...session.draft_data, seeker_budget: budget };
+        await sendSeekerRequirementsPrompt(chatId, draft);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Seeker Step 4.3: Space Requirements (Question 3 of 5)
+      if (session.step === 'awaiting_seeker_requirements') {
+        const reqs = text.trim();
+        const draft = { ...session.draft_data, seeker_requirements: reqs };
+        await sendSeekerMusthavesPrompt(chatId, draft);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Seeker Step 4.4: Must-Haves (Question 4 of 5)
+      if (session.step === 'awaiting_seeker_musthaves') {
+        const musthaves = text.trim();
+        const draft = { ...session.draft_data, seeker_musthaves: musthaves };
+        await sendSeekerContactPrompt(chatId, draft);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Seeker Step 4.5: Contact & Final Submission (Question 5 of 5)
+      if (session.step === 'awaiting_seeker_contact' || session.step === 'awaiting_upload_seeker_profile') {
+        const contactInfo = text.trim() || message.caption || '';
+        const draft: Record<string, any> = { ...session.draft_data, seeker_contact: contactInfo };
 
         const seekerName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || 'Seeker';
 
@@ -2169,6 +2284,12 @@ ${captionOrText}
 
         const seekerConfirmation = `
 <b>✅ Your space preferences have been submitted!</b>
+
+📍 <b>Preferred Sub-Cities:</b> ${draft.seeker_subcities || 'N/A'}
+💰 <b>Max Budget:</b> ${draft.seeker_budget || 'N/A'}
+🚪 <b>Requirements:</b> ${draft.seeker_requirements || 'N/A'}
+⚡️ <b>Must-Haves:</b> ${draft.seeker_musthaves || 'N/A'}
+📞 <b>Contact:</b> ${draft.seeker_contact || 'N/A'}
 
 Our system and team will match your request with available spaces and notify you as soon as a match is found.
 
@@ -2185,10 +2306,14 @@ Our system and team will match your request with available spaces and notify you
         const adminNotice = `
 <b>🔍 New Seeker Profile Request</b>
 
-<b>Space Type:</b> ${session.draft_data.seeker_property_type || 'N/A'}
-<b>Gender/Age Preference:</b> ${session.draft_data.seeker_gender_grid || 'Any'} / ${session.draft_data.seeker_age_range || 'Any'}
-<b>Preferences & Details:</b>
-${seekerText}
+<b>Space Type:</b> ${draft.seeker_property_type || 'N/A'}
+<b>Gender/Age Preference:</b> ${draft.seeker_gender_grid || 'Any'} / ${draft.seeker_age_range || 'Any'}
+
+📍 <b>Preferred Sub-Cities:</b> ${draft.seeker_subcities || 'N/A'}
+💰 <b>Max Budget:</b> ${draft.seeker_budget || 'N/A'}
+🚪 <b>Requirements:</b> ${draft.seeker_requirements || 'N/A'}
+⚡️ <b>Must-Haves:</b> ${draft.seeker_musthaves || 'N/A'}
+📞 <b>Contact:</b> ${draft.seeker_contact || 'N/A'}
 
 <b>Submitted By:</b> ${seekerName} (@${fromUser?.username || 'N/A'})
         `.trim();
