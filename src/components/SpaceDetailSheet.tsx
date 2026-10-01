@@ -19,6 +19,9 @@ import {
   CheckCircle2,
   ShieldCheck,
   Send,
+  Building,
+  CreditCard,
+  Sparkles,
 } from 'lucide-react';
 import { SpaceSummary } from './FeedView';
 
@@ -43,10 +46,12 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
   const [step, setStep] = useState<'details' | 'payment' | 'unlocked'>('details');
   const [orderId, setOrderId] = useState<string | null>(null);
   const [receiverPhone, setReceiverPhone] = useState<string>('0987310978');
+  const [cbeAccount, setCbeAccount] = useState<string>('1000054066094');
   const [txRefInput, setTxRefInput] = useState<string>('');
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedPhone, setCopiedPhone] = useState(false);
+  const [copiedCbe, setCopiedCbe] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [unlockedData, setUnlockedData] = useState<UnlockedDetails | null>(null);
   const [botPayUrl, setBotPayUrl] = useState<string | null>(null);
@@ -107,7 +112,6 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
       const payUrl = `https://t.me/${cleanBotUsername}?start=pay_${data.order_id}`;
       setBotPayUrl(payUrl);
 
-      // Attempt Telegram Mini App WebApp redirect if running inside Telegram
       const tg = (window as any).Telegram?.WebApp;
       if (tg && typeof tg.openTelegramLink === 'function') {
         try {
@@ -117,7 +121,6 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
         }
       }
 
-      // Transition to payment step in-app
       setStep('payment');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -129,7 +132,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
 
   const handleVerifyReceipt = async () => {
     if (!orderId || !txRefInput.trim()) {
-      setErrorMsg('Please enter your Telebirr transaction reference number.');
+      setErrorMsg('Please enter your Telebirr or CBE transaction reference number.');
       return;
     }
 
@@ -165,8 +168,14 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
 
   const copyPhone = () => {
     navigator.clipboard.writeText(receiverPhone);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedPhone(true);
+    setTimeout(() => setCopiedPhone(false), 2000);
+  };
+
+  const copyCbe = () => {
+    navigator.clipboard.writeText(cbeAccount);
+    setCopiedCbe(true);
+    setTimeout(() => setCopiedCbe(false), 2000);
   };
 
   return (
@@ -178,288 +187,239 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+          className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
         />
 
-        {/* Crisp Light Modal Sheet Wrapper */}
+        {/* Modal Sheet Wrapper */}
         <motion.div
           initial={{ y: '100%' }}
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-          className="relative w-full max-w-md sm:max-w-lg max-h-[90vh] rounded-t-3xl bg-white overflow-y-auto no-scrollbar shadow-2xl border-t border-slate-200 text-slate-900 z-10"
+          className="relative w-full max-w-md sm:max-w-lg max-h-[90vh] rounded-t-3xl bg-[#0D1424] border-t border-white/10 text-white overflow-y-auto no-scrollbar shadow-2xl z-10"
         >
-          {/* Sticky Header Drag Handle */}
-          <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-md py-3 px-4 flex items-center justify-between border-b border-slate-200/80">
-            <div className="w-12 h-1.5 rounded-full bg-slate-300 mx-auto" />
+          {/* Top Bar Header */}
+          <div className="sticky top-0 z-20 bg-[#0D1424]/95 backdrop-blur-md py-3 px-4 flex items-center justify-between border-b border-white/10">
+            <div className="w-12 h-1.5 rounded-full bg-slate-700 mx-auto" />
             <button
               onClick={onClose}
-              className="absolute right-4 top-2.5 p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+              className="absolute right-4 top-2.5 p-2 rounded-full bg-white/[0.06] hover:bg-white/10 text-slate-300 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Photo Carousel Container */}
-          <div className="relative w-full h-64 bg-slate-100">
-            <img
-              src={images[currentImageIndex]}
-              alt={space.title}
-              className="w-full h-full object-cover transition-all duration-300"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 via-transparent to-transparent" />
+          <div className="p-4 space-y-4">
+            {/* Image Gallery Slider */}
+            <div className="relative w-full h-56 rounded-3xl bg-slate-900 overflow-hidden border border-white/10 shadow-inner">
+              <img
+                src={images[currentImageIndex]}
+                alt={space.title}
+                className="w-full h-full object-cover transition-all duration-300"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent" />
 
-            {/* Carousel Controls */}
-            {images.length > 1 && (
-              <>
-                <button
-                  onClick={() => setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : images.length - 1))}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-slate-900/50 backdrop-blur-md text-white hover:bg-slate-900/80 transition-all"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setCurrentImageIndex((prev) => (prev < images.length - 1 ? prev + 1 : 0))}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-slate-900/50 backdrop-blur-md text-white hover:bg-slate-900/80 transition-all"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-                <div className="absolute bottom-3 right-4 px-2 py-0.5 rounded-md bg-slate-900/70 text-[10px] text-white font-mono">
-                  {currentImageIndex + 1} / {images.length}
-                </div>
-              </>
-            )}
+              {/* Navigation Arrows */}
+              {images.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setCurrentImageIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1))}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-slate-950/60 backdrop-blur-md text-white border border-white/10 hover:bg-slate-950/80"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setCurrentImageIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-slate-950/60 backdrop-blur-md text-white border border-white/10 hover:bg-slate-950/80"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </>
+              )}
 
-            {/* Price Tag Badge */}
-            <div className="absolute bottom-3 left-4 px-3 py-1.5 rounded-xl bg-slate-900/90 backdrop-blur-md text-white font-extrabold text-sm shadow-lg border border-slate-700/60">
-              ETB {Number(space.price_per_month).toLocaleString()} <span className="text-xs font-normal text-slate-300">/ month</span>
-            </div>
-          </div>
-
-          {/* Sheet Body Content */}
-          <div className="p-5 space-y-5">
-            {/* Title & Neighborhood */}
-            <div>
-              <div className="flex items-center gap-1.5 text-xs text-rose-600 font-bold mb-1">
-                <MapPin className="w-3.5 h-3.5" />
-                <span>{space.neighborhood}, Addis Ababa</span>
+              {/* Image Counter Indicator */}
+              <div className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-md border border-white/10 text-[10px] font-bold text-slate-200">
+                {currentImageIndex + 1} / {images.length}
               </div>
-              <h2 className="text-xl font-extrabold text-slate-900 leading-snug">{space.title}</h2>
             </div>
 
-            {/* Privacy Locked Notice */}
-            {step !== 'unlocked' && (
-              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3 shadow-sm">
-                <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <strong className="block font-bold text-amber-950">Zero-Trust Contact Protection</strong>
-                  Exact address, homeowner phone number, and Telegram handle remain locked until payment confirmation.
-                </div>
-              </div>
-            )}
-
-            {/* Description */}
-            <div className="space-y-1">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Property Details</h4>
-              <p className="text-xs text-slate-700 leading-relaxed font-normal">{space.description}</p>
-            </div>
-
-            {/* Amenities List */}
-            {space.amenities && space.amenities.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Amenities</h4>
-                <div className="flex flex-wrap gap-2">
-                  {space.amenities.map((item, idx) => (
-                    <span
-                      key={idx}
-                      className="px-3 py-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-800 text-xs font-semibold"
-                    >
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Error Message Container */}
+            {/* Error Message Alert */}
             {errorMsg && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
                 <span>{errorMsg}</span>
               </div>
             )}
 
-            {/* STEP 1: INITIAL UNLOCK CONTACTS BUTTON */}
+            {/* STEP 1: SPACE DETAILS */}
             {step === 'details' && (
-              <button
-                onClick={handleStartUnlock}
-                disabled={isCreatingOrder}
-                className="w-full py-3.5 rounded-2xl bg-[#800020] hover:bg-[#990011] text-white font-extrabold text-sm shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-              >
-                {isCreatingOrder ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-white" />
-                    <span>Creating Payment Order...</span>
-                  </>
-                ) : (
-                  <>
-                    <Unlock className="w-4 h-4 text-white" />
-                    <span>Unlock Contacts (ETB {space.unlock_fee})</span>
-                  </>
-                )}
-              </button>
+              <div className="space-y-4">
+                {/* Title & Price Row */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xl font-black text-emerald-400">
+                      ETB {Number(space.price_per_month).toLocaleString()}
+                      <span className="text-xs font-normal text-slate-400">/mo</span>
+                    </span>
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
+                      Unlock Fee: {space.unlock_fee || 50} ETB
+                    </span>
+                  </div>
+                  <h2 className="text-lg font-black text-white leading-snug">{space.title}</h2>
+                  <p className="text-xs text-slate-400 flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{space.neighborhood}, Addis Ababa</span>
+                  </p>
+                </div>
+
+                {/* Description */}
+                <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1">
+                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">About This Space</h4>
+                  <p className="text-xs text-slate-300 leading-relaxed">{space.description}</p>
+                </div>
+
+                {/* Unlock Contact Call to Action */}
+                <button
+                  onClick={handleStartUnlock}
+                  disabled={isCreatingOrder}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isCreatingOrder ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                      <span>Initializing Order...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Unlock className="w-4 h-4 stroke-[3]" />
+                      <span>Unlock Contact Information ({space.unlock_fee || 50} ETB)</span>
+                    </>
+                  )}
+                </button>
+              </div>
             )}
 
-            {/* STEP 2: PAYMENT HAND-OFF & RECEIPT VERIFICATION */}
+            {/* STEP 2: PAYMENT RECEIPT INSTRUCTIONS & VERIFICATION */}
             {step === 'payment' && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-4 p-4 rounded-2xl bg-slate-50 border border-slate-200 shadow-sm"
-              >
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <h3 className="font-extrabold text-sm text-slate-900">Complete Contact Unlock</h3>
-                  <span className="text-xs text-[#800020] font-black">ETB {space.unlock_fee}</span>
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-1">
+                  <h3 className="font-extrabold text-sm text-emerald-300">Payment Verification Required</h3>
+                  <p className="text-xs text-slate-300">
+                    Transfer <strong>{space.unlock_fee || 50} ETB</strong> via Telebirr or CBE to unlock homeowner details instantly.
+                  </p>
                 </div>
 
-                {/* Return to Bot Button */}
-                {botPayUrl && (
-                  <a
-                    href={botPayUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all active:scale-95"
-                  >
-                    <Send className="w-4 h-4" />
-                    <span>Return to Telegram Bot to Pay</span>
-                  </a>
-                )}
-
-                <div className="relative flex py-1 items-center">
-                  <div className="flex-grow border-t border-slate-300"></div>
-                  <span className="flex-shrink mx-3 text-[10px] text-slate-400 font-bold uppercase">or verify telebirr receipt in app</span>
-                  <div className="flex-grow border-t border-slate-300"></div>
-                </div>
-
-                {/* Telebirr Platform Account Number */}
-                <div className="space-y-1">
-                  <label className="text-[11px] text-slate-600 font-semibold">Telebirr Merchant Account Number</label>
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-white border border-slate-200 shadow-sm">
-                    <span className="font-mono text-base font-extrabold text-slate-900">{receiverPhone}</span>
+                {/* Telebirr Account Box */}
+                <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">📱 Telebirr Merchant Phone</span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-base font-black text-emerald-400">{receiverPhone}</span>
                     <button
                       onClick={copyPhone}
-                      className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      className="px-3 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white flex items-center gap-1 transition-colors"
                     >
-                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copied ? 'Copied' : 'Copy'}</span>
+                      {copiedPhone ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedPhone ? 'Copied' : 'Copy'}</span>
                     </button>
                   </div>
                 </div>
 
-                {/* TxRef Input */}
-                <div className="space-y-1">
-                  <label className="text-[11px] text-slate-600 font-semibold">Telebirr Transaction Reference Number</label>
+                {/* CBE Account Box */}
+                <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">🏦 Commercial Bank of Ethiopia (CBE)</span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-base font-black text-amber-400">{cbeAccount}</span>
+                    <button
+                      onClick={copyCbe}
+                      className="px-3 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white flex items-center gap-1 transition-colors"
+                    >
+                      {copiedCbe ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedCbe ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Receipt Ref Input */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300">Enter Transaction Reference (Txn Ref / FT...):</label>
                   <input
                     type="text"
                     value={txRefInput}
                     onChange={(e) => setTxRefInput(e.target.value)}
-                    placeholder="e.g. 9AC4827X19"
-                    className="w-full p-3 rounded-xl bg-white border border-slate-300 focus:border-rose-500 focus:outline-none text-xs font-mono font-bold text-slate-900 placeholder-slate-400 shadow-sm"
+                    placeholder="e.g. 9AC4827X19 or FT24..."
+                    className="w-full p-3.5 rounded-2xl bg-white/[0.06] border border-white/15 text-xs text-white placeholder-slate-500 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                   />
                 </div>
 
-                {/* Verify Receipt Button */}
                 <button
                   onClick={handleVerifyReceipt}
-                  disabled={isVerifying || !txRefInput.trim()}
-                  className="w-full py-3.5 rounded-xl bg-[#800020] hover:bg-[#990011] text-white font-extrabold text-xs shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                  disabled={isVerifying}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
                 >
                   {isVerifying ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
                       <span>Verifying Receipt with verify.et...</span>
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="w-4 h-4 text-white" />
-                      <span>Verify Receipt & Unlock Immediately</span>
+                      <ShieldCheck className="w-4 h-4 stroke-[3]" />
+                      <span>Submit & Verify Receipt</span>
                     </>
                   )}
                 </button>
-              </motion.div>
+              </div>
             )}
 
-            {/* STEP 3: UNLOCKED CONTACT & LOCATION DATA */}
+            {/* STEP 3: UNLOCKED DETAILS VIEW */}
             {step === 'unlocked' && unlockedData && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="space-y-4 p-5 rounded-2xl bg-emerald-50 border border-emerald-300 shadow-sm"
-              >
-                <div className="flex items-center gap-2 text-emerald-900 text-sm font-extrabold pb-2 border-b border-emerald-200">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  <span>Verified & Unlocked Successfully!</span>
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-center space-y-1">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+                  <h3 className="font-black text-base text-white">Contact Details Unlocked!</h3>
+                  <p className="text-xs text-slate-300">You can now contact the homeowner directly.</p>
                 </div>
 
-                {/* Address */}
-                <div className="space-y-0.5">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Exact Location Address</span>
-                  <p className="text-xs font-bold text-slate-900">{unlockedData.exact_address}</p>
-                </div>
-
-                {/* Host Info */}
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-0.5">
-                    <span className="text-[10px] text-slate-500 font-semibold">Homeowner</span>
-                    <p className="text-xs font-bold text-slate-900">{unlockedData.contact_name}</p>
+                <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3">
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">Homeowner Name</span>
+                    <p className="text-sm font-bold text-white">{unlockedData.contact_name}</p>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-0.5">
-                    <span className="text-[10px] text-slate-500 font-semibold">Phone Number</span>
-                    <p className="text-xs font-mono font-bold text-emerald-700">{unlockedData.contact_phone}</p>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">Phone Number</span>
+                    <p className="text-sm font-mono font-bold text-emerald-400">{unlockedData.contact_phone}</p>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">Exact Address</span>
+                    <p className="text-xs text-slate-300">{unlockedData.exact_address}</p>
                   </div>
                 </div>
 
-                {/* Call & Telegram Buttons */}
-                <div className="grid grid-cols-2 gap-2 pt-1">
+                {/* Direct Action Buttons */}
+                <div className="grid grid-cols-2 gap-3 pt-2">
                   <a
                     href={`tel:${unlockedData.contact_phone}`}
-                    className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"
+                    className="py-3 px-4 rounded-2xl bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
                   >
                     <Phone className="w-4 h-4" />
-                    <span>Call Host</span>
+                    <span>Call Homeowner</span>
                   </a>
 
-                  {unlockedData.contact_telegram ? (
+                  {unlockedData.google_maps_url && (
                     <a
-                      href={`https://t.me/${unlockedData.contact_telegram.replace('@', '')}`}
+                      href={unlockedData.google_maps_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"
+                      className="py-3 px-4 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center justify-center gap-2 border border-white/10"
                     >
-                      <MessageCircle className="w-4 h-4" />
-                      <span>Telegram DM</span>
+                      <MapPin className="w-4 h-4 text-emerald-400" />
+                      <span>Google Maps</span>
                     </a>
-                  ) : (
-                    <div className="py-3 px-4 rounded-xl bg-slate-200 text-slate-500 text-xs font-medium flex items-center justify-center">
-                      No Telegram DM
-                    </div>
                   )}
                 </div>
-
-                {/* Google Maps Directions */}
-                {unlockedData.latitude && unlockedData.longitude && (
-                  <a
-                    href={`https://www.google.com/maps?q=${unlockedData.latitude},${unlockedData.longitude}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all active:scale-95"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    <span>Open Directions on Google Maps</span>
-                  </a>
-                )}
-              </motion.div>
+              </div>
             )}
           </div>
         </motion.div>

@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import imageCompression from 'browser-image-compression';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldCheck, Upload, AlertCircle, CheckCircle, Clock, X, FileText, Loader2 } from 'lucide-react';
+import { ShieldCheck, Upload, AlertCircle, CheckCircle, Clock, X, FileText, Loader2, Lock } from 'lucide-react';
 
 interface FaydaUploadModalProps {
   isOpen: boolean;
@@ -36,9 +36,8 @@ export function FaydaUploadModal({
     setIsCompressing(true);
 
     try {
-      // 1. Device-side compression options (WebP, <= 300KB)
       const options = {
-        maxSizeMB: 0.3, // 300KB
+        maxSizeMB: 0.3,
         maxWidthOrHeight: 1200,
         useWebWorker: true,
         fileType: 'image/webp',
@@ -69,7 +68,6 @@ export function FaydaUploadModal({
     setUploadProgress(20);
 
     try {
-      // 2. Request presigned upload URL from API
       const res = await fetch('/api/user/fayda-upload-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -86,7 +84,6 @@ export function FaydaUploadModal({
         throw new Error(data.error || 'Failed to generate upload URL.');
       }
 
-      // 3. Upload directly to Supabase Storage via PUT
       setUploadProgress(75);
       const uploadRes = await fetch(data.signed_upload_url, {
         method: 'PUT',
@@ -122,13 +119,13 @@ export function FaydaUploadModal({
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        {/* Backdrop */}
+        {/* Dark Backdrop */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
+          className="absolute inset-0 bg-slate-950/85 backdrop-blur-md"
         />
 
         {/* Modal Window */}
@@ -136,132 +133,117 @@ export function FaydaUploadModal({
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          className="relative w-full max-w-md rounded-2xl glass-panel p-6 shadow-2xl border border-white/10 z-10 text-white"
+          className="relative w-full max-w-md rounded-3xl bg-[#0D1424] p-6 shadow-2xl border border-white/10 z-10 text-white space-y-4"
         >
           {/* Header */}
           <div className="flex items-center justify-between pb-4 border-b border-white/10">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-md">
                 <ShieldCheck className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-semibold text-lg text-white">Fayda ID Verification</h3>
-                <p className="text-xs text-slate-400">Required identity upload for renters</p>
+                <h3 className="font-black text-base text-white">Fayda ID Verification</h3>
+                <p className="text-[11px] text-slate-400">Official Ethiopian National ID Verification</p>
               </div>
             </div>
+
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-full bg-white/[0.06] hover:bg-white/10 text-slate-300 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Current Verification Status */}
-          <div className="my-4">
-            {currentStatus === 'verified' && (
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-sm">
-                <CheckCircle className="w-4 h-4 shrink-0" />
-                <span>Fayda ID is <strong>Verified</strong>.</span>
+          {/* Verification Status Alert Banner */}
+          {currentStatus === 'verified' ? (
+            <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center gap-3">
+              <CheckCircle className="w-6 h-6 text-emerald-400 shrink-0" />
+              <div>
+                <h4 className="font-bold text-sm text-emerald-300">Identity Verified</h4>
+                <p className="text-xs text-slate-300">Your Fayda National ID is verified and active.</p>
               </div>
-            )}
-            {currentStatus === 'pending' && (
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 text-sm">
-                <Clock className="w-4 h-4 shrink-0 animate-pulse" />
-                <span>Verification <strong>Pending Review</strong> by admin team.</span>
+            </div>
+          ) : currentStatus === 'pending' && !selectedFile ? (
+            <div className="p-4 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center gap-3">
+              <Clock className="w-6 h-6 text-amber-400 shrink-0" />
+              <div>
+                <h4 className="font-bold text-sm text-amber-300">Verification Under Review</h4>
+                <p className="text-xs text-slate-300">Your document has been submitted and is currently being verified.</p>
               </div>
-            )}
-            {currentStatus === 'rejected' && (
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-sm">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>ID Rejected. Please re-upload a clean photo of your ID.</span>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : null}
 
-          {/* Upload Box */}
-          <div className="space-y-4">
-            <div className="relative border-2 border-dashed border-slate-700 hover:border-indigo-500/50 rounded-2xl p-6 text-center bg-slate-900/40 transition-colors group">
+          {/* Error Message */}
+          {errorMsg && (
+            <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {/* Document Upload Area */}
+          <div className="space-y-3">
+            <label className="block text-xs font-bold text-slate-300">
+              Upload Front Photo of Fayda ID / Passport:
+            </label>
+
+            <div className="relative border-2 border-dashed border-white/15 hover:border-emerald-500/50 rounded-2xl p-6 text-center bg-white/[0.03] transition-colors group cursor-pointer">
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/*"
                 onChange={handleFileChange}
                 disabled={isCompressing || isUploading}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
 
               {previewUrl ? (
-                <div className="space-y-3">
-                  <img
-                    src={previewUrl}
-                    alt="Fayda ID Preview"
-                    className="max-h-40 mx-auto rounded-xl object-contain border border-white/10 shadow-md"
-                  />
-                  <p className="text-xs text-slate-400">
-                    WebP Size: {(selectedFile!.size / 1024).toFixed(1)} KB (Target &lt; 300KB)
-                  </p>
+                <div className="space-y-2">
+                  <div className="relative w-full h-36 rounded-xl overflow-hidden border border-white/10 mx-auto max-w-xs">
+                    <img src={previewUrl} alt="ID Preview" className="w-full h-full object-cover" />
+                  </div>
+                  <p className="text-[11px] text-emerald-400 font-bold">Photo ready for encrypted upload</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto text-slate-400 group-hover:text-indigo-400 group-hover:bg-indigo-500/20 transition-all">
-                    <Upload className="w-6 h-6" />
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
+                    {isCompressing ? <Loader2 className="w-6 h-6 animate-spin" /> : <Upload className="w-6 h-6" />}
                   </div>
-                  <p className="text-sm font-medium text-slate-300">
-                    Tap to upload your Fayda National ID
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Auto-compressed to WebP under 300KB
-                  </p>
+                  <p className="text-xs font-bold text-white">Tap to upload or take a photo</p>
+                  <p className="text-[10px] text-slate-400">PNG, JPG, WebP supported (Auto-compressed to &lt;300KB)</p>
                 </div>
               )}
             </div>
+          </div>
 
-            {/* Error Message */}
-            {errorMsg && (
-              <div className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-lg flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{errorMsg}</span>
-              </div>
-            )}
+          {/* Encryption Note */}
+          <div className="flex items-center gap-2 text-[10px] text-slate-400 bg-white/[0.03] p-3 rounded-xl border border-white/[0.06]">
+            <Lock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>Your document is encrypted and accessible only to verification admins.</span>
+          </div>
 
-            {/* Upload Progress Bar */}
-            {isUploading && (
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs text-slate-400">
-                  <span>Uploading to identity vault...</span>
-                  <span>{uploadProgress}%</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
-                  <motion.div
-                    className="h-full bg-indigo-500"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
-              </div>
-            )}
+          {/* Action Buttons */}
+          <div className="flex items-center gap-3 pt-2">
+            <button
+              onClick={onClose}
+              disabled={isUploading}
+              className="flex-1 py-3 rounded-2xl bg-white/[0.06] hover:bg-white/10 text-slate-300 font-bold text-xs border border-white/10"
+            >
+              Cancel
+            </button>
 
-            {/* Action Button */}
             <button
               onClick={handleUpload}
-              disabled={!selectedFile || isCompressing || isUploading}
-              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-medium shadow-lg glow-indigo disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+              disabled={!selectedFile || isUploading || isCompressing}
+              className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 disabled:opacity-50 transition-all active:scale-95"
             >
-              {isCompressing ? (
+              {isUploading ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Compressing Image...</span>
-                </>
-              ) : isUploading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Uploading ID Document...</span>
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                  <span>Uploading ({uploadProgress}%)...</span>
                 </>
               ) : (
-                <>
-                  <FileText className="w-4 h-4" />
-                  <span>Submit Fayda ID</span>
-                </>
+                <span>Submit Verification</span>
               )}
             </button>
           </div>
