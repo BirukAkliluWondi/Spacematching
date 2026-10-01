@@ -211,24 +211,18 @@ export async function POST(request: Request) {
       });
     };
 
-    // Helper: Homeowner Step 5 (/upload_listing)
-    const sendUploadListingPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+    // Helper: Homeowner Question 1 of 5 (Photos)
+    const sendListingPhotosPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
       saveSession({
         telegram_id: chatId,
-        step: 'awaiting_upload_listing',
+        step: 'awaiting_listing_photos',
         draft_data: currentDraft,
         updated_at: new Date().toISOString(),
       });
       const promptMsg = `
-<b>📸 Almost done! Send your photos & details</b>
+<b>📸 Almost done! (4 questions left)</b>
 
-Reply to this message with 1 to 5 photos of the space and write these details in the photo caption:
-
-📍 Sub-City / Area: (e.g., Bole, Kazanchis, CMC)
-💰 Monthly Price (ETB): (e.g., 9,000 ETB)
-🚪 Room & Bath: (e.g., 1 Room, Shared Bath)
-⚡ What’s Included: (Wi-Fi, Kitchen, Dogs allowed, Parking)
-📞 Contact: (e.g., 0911xxxxxx or @username)
+Please send 1 to 5 photos of the space.
 
 🔄 Start over anytime: /start
       `.trim();
@@ -238,6 +232,100 @@ Reply to this message with 1 to 5 photos of the space and write these details in
         parse_mode: 'HTML',
       });
     };
+
+    // Helper: Homeowner Question 2 of 5 (Sub-City / Area)
+    const sendListingSubcityPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_listing_subcity',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+      const promptMsg = `
+<b>📍 (3 questions left)</b>
+
+<b>Sub-City / Area:</b>
+<i>(e.g., Bole, Kazanchis, CMC, Sarbet)</i>
+
+🔄 Start over anytime: /start
+      `.trim();
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: promptMsg,
+        parse_mode: 'HTML',
+      });
+    };
+
+    // Helper: Homeowner Question 3 of 5 (Monthly Price)
+    const sendListingPricePrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_listing_price',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+      const promptMsg = `
+<b>💰 (Only 2 questions left!)</b>
+
+<b>Monthly Price (ETB):</b>
+<i>(e.g., 9,000 ETB / month)</i>
+
+🔄 Start over anytime: /start
+      `.trim();
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: promptMsg,
+        parse_mode: 'HTML',
+      });
+    };
+
+    // Helper: Homeowner Question 4 of 5 (Room & Bath Details)
+    const sendListingRoomsPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_listing_rooms',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+      const promptMsg = `
+<b>🚪 (Almost there! Only 1 question left)</b>
+
+<b>Room & Bath Details:</b>
+<i>(e.g., 1 Room, Shared Bath, Studio, Master Bedroom)</i>
+
+🔄 Start over anytime: /start
+      `.trim();
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: promptMsg,
+        parse_mode: 'HTML',
+      });
+    };
+
+    // Helper: Homeowner Question 5 of 5 (Included Amenities & Contact)
+    const sendListingContactPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_listing_contact',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+      const promptMsg = `
+<b>⚡️ (Final Question!)</b>
+
+<b>What’s Included & 📞 Contact Information:</b>
+<i>(e.g., Wi-Fi, Kitchen, Parking, Contact: 0911xxxxxx or @username)</i>
+
+🔄 Start over anytime: /start
+      `.trim();
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: promptMsg,
+        parse_mode: 'HTML',
+      });
+    };
+
+    const sendUploadListingPrompt = sendListingPhotosPrompt;
 
     // Helper: Seeker Step 1 (/seeker_property_type)
     const sendSeekerPropertyTypePrompt = async (chatId: number) => {
@@ -2120,18 +2208,10 @@ Choose an option to begin:
         return NextResponse.json({ ok: true });
       }
 
-      // Step 5: Homeowner Media & Listing Details Submission
-      if (session.step === 'awaiting_upload_listing' || session.step === 'awaiting_photo') {
+      // Step 5.1: Homeowner Photos (Question 1 of 5)
+      if (session.step === 'awaiting_listing_photos' || session.step === 'awaiting_upload_listing') {
         const photoArray = message.photo;
         const captionOrText = message.caption || text || '';
-
-        if (!photoArray && !captionOrText) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ Please send 1 to 5 photos of the space and write the details (Sub-City, Price, Contact) in the caption.',
-          });
-          return NextResponse.json({ ok: true });
-        }
 
         let photoFileId: string | null = null;
         let photoUrl: string | null = null;
@@ -2151,17 +2231,54 @@ Choose an option to begin:
           }
         }
 
-        const lines = captionOrText.split('\n').map((l: string) => l.trim()).filter(Boolean);
-        const title = lines[0] || `${session.draft_data.property_type || 'Space'} Listing`;
+        const draft = {
+          ...session.draft_data,
+          photo_file_id: photoFileId || session.draft_data.photo_file_id,
+          photo_url: photoUrl || session.draft_data.photo_url,
+          photo_caption: captionOrText,
+        };
 
-        const priceMatch = captionOrText.match(/(\d[\d,]+)\s*(?:etb|birr|ብር)?/i);
+        await sendListingSubcityPrompt(chatId, draft);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Step 5.2: Homeowner Sub-City (Question 2 of 5)
+      if (session.step === 'awaiting_listing_subcity') {
+        const neighborhood = text.trim();
+        const draft = { ...session.draft_data, neighborhood };
+        await sendListingPricePrompt(chatId, draft);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Step 5.3: Homeowner Monthly Price (Question 3 of 5)
+      if (session.step === 'awaiting_listing_price') {
+        const priceMatch = text.match(/(\d[\d,]+)/);
         const price = priceMatch ? parseInt(priceMatch[1].replace(/,/g, ''), 10) : 0;
+        const draft = { ...session.draft_data, price_per_month: price };
+        await sendListingRoomsPrompt(chatId, draft);
+        return NextResponse.json({ ok: true });
+      }
 
-        const hoodMatch = captionOrText.match(/(?:sub-city|area|አካባቢ|location)[:\s]*([^\n]+)/i);
-        const neighborhood = hoodMatch ? hoodMatch[1].trim() : 'Addis Ababa';
+      // Step 5.4: Homeowner Room & Bath Details (Question 4 of 5)
+      if (session.step === 'awaiting_listing_rooms') {
+        const roomDetails = text.trim();
+        const draft = { ...session.draft_data, room_details: roomDetails };
+        await sendListingContactPrompt(chatId, draft);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Step 5.5: Homeowner Included & Contact Info (Question 5 of 5)
+      if (session.step === 'awaiting_listing_contact') {
+        const contactAndIncluded = text.trim() || message.caption || '';
+        const homeownerName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || 'Homeowner';
+        const neighborhood = session.draft_data.neighborhood || 'Addis Ababa';
+        const price = session.draft_data.price_per_month || 0;
+        const roomDetails = session.draft_data.room_details || 'Space Listing';
+
+        const title = `${session.draft_data.property_type || 'Space'} in ${neighborhood}`;
+        const description = `🚪 Room & Bath: ${roomDetails}\n⚡ Included & Contact: ${contactAndIncluded}`;
 
         const draftId = `draft_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const homeownerName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || 'Homeowner';
 
         const draft: SpaceDraft = {
           id: draftId,
@@ -2171,11 +2288,11 @@ Choose an option to begin:
           title,
           neighborhood,
           price_per_month: price,
-          description: captionOrText,
+          description,
           exact_address: `${neighborhood}, Addis Ababa`,
           contact_phone: fromUser?.username ? `@${fromUser.username}` : String(chatId),
-          photo_file_id: photoFileId,
-          photo_url: photoUrl,
+          photo_file_id: session.draft_data.photo_file_id || null,
+          photo_url: session.draft_data.photo_url || null,
           status: 'pending',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -2187,7 +2304,13 @@ Choose an option to begin:
         const userConfirmation = `
 <b>✅ Your listing has been submitted for admin approval!</b>
 
-We will review <b>${draft.title}</b> and publish it to the channel shortly.
+🏠 <b>Title:</b> ${draft.title}
+📍 <b>Sub-City / Area:</b> ${neighborhood}
+💰 <b>Monthly Price:</b> ${price.toLocaleString()} ETB / mo
+🚪 <b>Rooms & Bath:</b> ${roomDetails}
+⚡️ <b>Included & Contact:</b> ${contactAndIncluded}
+
+We will review your listing and publish it to the channel shortly.
 
 🔄 Start over anytime: /start
         `.trim();
@@ -2204,8 +2327,11 @@ We will review <b>${draft.title}</b> and publish it to the channel shortly.
 
 <b>Property Type:</b> ${session.draft_data.property_type || 'N/A'}
 <b>Gender/Age Preference:</b> ${session.draft_data.gender_grid || 'Any'} / ${session.draft_data.age_range || 'Any'}
-<b>Details:</b>
-${captionOrText}
+
+📍 <b>Sub-City:</b> ${neighborhood}
+💰 <b>Price:</b> ${price.toLocaleString()} ETB / mo
+🚪 <b>Rooms & Bath:</b> ${roomDetails}
+⚡️ <b>Included & Contact:</b> ${contactAndIncluded}
 
 <b>Submitted By:</b> ${draft.homeowner_name} (@${draft.homeowner_username || 'N/A'})
         `.trim();
@@ -2220,10 +2346,10 @@ ${captionOrText}
         };
 
         for (const adminId of adminIds) {
-          if (photoFileId) {
+          if (draft.photo_file_id) {
             await sendTelegram('sendPhoto', {
               chat_id: adminId,
-              photo: photoFileId,
+              photo: draft.photo_file_id,
               caption: adminCaption,
               parse_mode: 'HTML',
               reply_markup: adminKeyboard,
