@@ -201,21 +201,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#EBECEF] text-slate-900 flex justify-center selection:bg-rose-500 selection:text-white">
       <div className="w-full max-w-md sm:max-w-lg min-h-screen bg-[#F5F5F7] shadow-2xl border-x border-slate-300/60 relative flex flex-col">
-      {/* Top Fayda ID Banner */}
-      {faydaStatus !== 'verified' && !isAuthLoading && (
-        <div className="sticky top-0 z-40 bg-gradient-to-r from-amber-600/90 to-amber-500/90 backdrop-blur-md px-4 py-2 text-xs font-medium text-slate-950 flex items-center justify-between shadow-md">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 shrink-0 text-slate-950" />
-            <span>Fayda ID Required: Upload National ID to unlock rooms</span>
-          </div>
-          <button
-            onClick={() => setIsFaydaModalOpen(true)}
-            className="px-2.5 py-1 rounded-lg bg-slate-950 text-amber-400 font-bold hover:bg-slate-900 transition-colors shadow-sm text-[11px]"
-          >
-            Upload ID
-          </button>
-        </div>
-      )}
+
 
       {/* Main Feed View */}
       <FeedView
