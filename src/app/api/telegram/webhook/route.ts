@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       return defaultAdminIds;
     };
 
-    // Helper: Send Primary Start / Main Menu Screen
+    // Helper: Send Primary Start / Main Menu Screen with Blue Theme Accents
     const sendPrimaryWelcomeMenu = async (chatId: number) => {
       const welcomeText = `
 👥 <b>SpaceMatch Addis — Roommate & Housing Ecosystem</b>
@@ -90,35 +90,35 @@ Select an option below to begin:
         inline_keyboard: [
           [
             {
-              text: '⚡ Find Compatible Roommate (Matchmaker)',
+              text: '🔵 ⚡ Find Compatible Roommate (Matchmaker)',
               callback_data: 'execute_matchmaking',
             },
           ],
           [
             {
-              text: '👥 Post Seeker Profile (Looking for Roommate)',
+              text: '🔷 👥 Post Seeker Profile (Looking for Roommate)',
               callback_data: 'seeker_subcity_menu',
             },
           ],
           [
             {
-              text: '🏠 Share Space / Room for Rent',
+              text: '🔷 🏠 Share Space / Room for Rent',
               callback_data: 'property_type',
             },
           ],
           [
             {
-              text: '📱 Open SpaceMatch Mini App',
+              text: '💎 📱 Open SpaceMatch Mini App',
               web_app: { url: appUrl },
             },
           ],
           [
             {
-              text: '🛡️ Verify Fayda ID',
+              text: '💙 🛡️ Verify Fayda ID',
               callback_data: 'fayda_upload_prompt',
             },
             {
-              text: '📂 My Unlocked Contacts',
+              text: '🔹 📂 My Unlocked Contacts',
               callback_data: 'my_orders_menu',
             },
           ],
@@ -157,7 +157,7 @@ Select an option below to begin:
       gridRows.push([
         {
           text: isAllSelected
-            ? '✅ ALL Sub-Cities Selected (Click to Clear)'
+            ? '🔹 ✅ ALL Sub-Cities Selected (Click to Clear)'
             : '🌐 Select ALL Sub-Cities at Once',
           callback_data: 'seeker_toggle_all_subs',
         },
@@ -169,7 +169,7 @@ Select an option below to begin:
         const item1 = ALL_SUBCITIES[i];
         const isSel1 = selectedList.includes(item1);
         row.push({
-          text: `${isSel1 ? '✅' : '📍'} ${item1}`,
+          text: `${isSel1 ? '🔹 ✅' : '📍'} ${item1}`,
           callback_data: `seeker_toggle_sub:${item1}`,
         });
 
@@ -177,7 +177,7 @@ Select an option below to begin:
           const item2 = ALL_SUBCITIES[i + 1];
           const isSel2 = selectedList.includes(item2);
           row.push({
-            text: `${isSel2 ? '✅' : '📍'} ${item2}`,
+            text: `${isSel2 ? '🔹 ✅' : '📍'} ${item2}`,
             callback_data: `seeker_toggle_sub:${item2}`,
           });
         }
@@ -187,7 +187,7 @@ Select an option below to begin:
       // Action buttons
       gridRows.push([
         {
-          text: `⚡ Quick Match Roommates Now (${selectedList.length === ALL_SUBCITIES.length ? 'All Selected' : `${selectedList.length} Selected`})`,
+          text: `🔵 ⚡ Quick Match Roommates Now (${selectedList.length === ALL_SUBCITIES.length ? 'All Selected' : `${selectedList.length} Selected`})`,
           callback_data: 'execute_matchmaking',
         },
       ]);
@@ -204,7 +204,7 @@ Select an option below to begin:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 📍 <b>Preferred Sub-Cities Selection</b> [██▒▒▒▒▒▒▒▒] 20%
 
-Tap <b>"Select ALL Sub-Cities at Once"</b> or pick individual sub-cities below:
+Tap <b>"🌐 Select ALL Sub-Cities at Once"</b> or pick individual sub-cities below:
       `.trim();
 
       await sendTelegram('sendMessage', {
@@ -308,15 +308,15 @@ Tap your maximum monthly budget (ETB) below:
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '💰 8,000 ETB', callback_data: 'seeker_budget_val:8000' },
-              { text: '💰 10,000 ETB', callback_data: 'seeker_budget_val:10000' },
+              { text: '🔹 💰 8,000 ETB', callback_data: 'seeker_budget_val:8000' },
+              { text: '🔹 💰 10,000 ETB', callback_data: 'seeker_budget_val:10000' },
             ],
             [
-              { text: '💰 12,000 ETB', callback_data: 'seeker_budget_val:12000' },
-              { text: '💰 15,000 ETB', callback_data: 'seeker_budget_val:15000' },
+              { text: '🔹 💰 12,000 ETB', callback_data: 'seeker_budget_val:12000' },
+              { text: '🔹 💰 15,000 ETB', callback_data: 'seeker_budget_val:15000' },
             ],
             [
-              { text: '💰 20,000+ ETB', callback_data: 'seeker_budget_val:20000' },
+              { text: '🔹 💰 20,000+ ETB', callback_data: 'seeker_budget_val:20000' },
             ],
           ],
         },
@@ -355,7 +355,7 @@ Your profile will be verified via Fayda National ID before publishing to the cha
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '✅ Submit Seeker Profile', callback_data: 'seeker_final_submit' },
+              { text: '🔹 ✅ Submit Seeker Profile', callback_data: 'seeker_final_submit' },
             ],
             [{ text: '❌ Cancel & Main Menu', callback_data: 'nav_start' }],
           ],
@@ -546,13 +546,13 @@ Found <b>${scoredMatches.length} Compatible Roommate Matches</b>:
           inline_keyboard: [
             [
               {
-                text: `💬 Unlock Contact Info (${match.unlock_fee || 50} ETB)`,
+                text: `🔵 💬 Unlock Contact Info (${match.unlock_fee || 50} ETB)`,
                 callback_data: `start_unlock_seeker:${match.id}`,
               },
             ],
             [
               {
-                text: '📱 Open Profile in Mini App',
+                text: '💎 📱 Open Profile in Mini App',
                 web_app: { url: `${appUrl}?startapp=seeker_${match.id}` },
               },
             ],
@@ -571,10 +571,10 @@ Found <b>${scoredMatches.length} Compatible Roommate Matches</b>:
       const footerKeyboard = {
         inline_keyboard: [
           [
-            { text: '➕ Post My Own Seeker Profile', callback_data: 'seeker_subcity_menu' },
+            { text: '🔹 ➕ Post My Own Seeker Profile', callback_data: 'seeker_subcity_menu' },
           ],
           [
-            { text: '🏠 Share Space to Rent', callback_data: 'property_type' },
+            { text: '🔹 🏠 Share Space to Rent', callback_data: 'property_type' },
             { text: '🏠 Main Menu', callback_data: 'nav_start' },
           ],
         ],
@@ -728,10 +728,10 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🛏️ Shared Room / Roommate Space', callback_data: 'prop_type:shared' }],
-            [{ text: '🏠 Entire House / Apartment', callback_data: 'prop_type:entire' }],
-            [{ text: '🏢 Office / Commercial Space', callback_data: 'prop_type:office' }],
-            [{ text: '🏬 Shop / Commercial Venue', callback_data: 'prop_type:shop' }],
+            [{ text: '🔹 🛏️ Shared Room / Roommate Space', callback_data: 'prop_type:shared' }],
+            [{ text: '🔹 🏠 Entire House / Apartment', callback_data: 'prop_type:entire' }],
+            [{ text: '🔹 🏢 Office / Commercial Space', callback_data: 'prop_type:office' }],
+            [{ text: '🔹 🏬 Shop / Commercial Venue', callback_data: 'prop_type:shop' }],
             [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
           ],
         },
@@ -899,7 +899,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         const adminKeyboard = {
           inline_keyboard: [
             [
-              { text: '✅ Approve & Post to Channel', callback_data: `seeker_approve:${profileId}` },
+              { text: '🔹 ✅ Approve & Post to Channel', callback_data: `seeker_approve:${profileId}` },
               { text: '❌ Reject Profile', callback_data: `seeker_reject:${profileId}` },
             ],
           ],
@@ -961,7 +961,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '📢 Post Custom Announcement', callback_data: 'admin_custom_prompt' }],
+              [{ text: '🔹 📢 Post Custom Announcement', callback_data: 'admin_custom_prompt' }],
               [{ text: '❌ Exit Admin Menu', callback_data: 'admin_cancel' }],
             ],
           },
@@ -1059,7 +1059,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '📢 Admin Dashboard', callback_data: 'admin_menu' }],
+              [{ text: '🔹 📢 Admin Dashboard', callback_data: 'admin_menu' }],
             ],
           },
         });
