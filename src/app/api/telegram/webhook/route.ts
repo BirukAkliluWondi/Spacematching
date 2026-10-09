@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       return defaultAdminIds;
     };
 
-    // Helper: Send Primary Start / Main Menu Screen with Solid Blue WebApp Buttons & Reply Keyboard
+    // Helper: Send Primary Start / Main Menu Screen
     const sendPrimaryWelcomeMenu = async (chatId: number) => {
       const welcomeText = `
 👥 <b>SpaceMatch Addis — Roommate & Housing Ecosystem</b>
@@ -86,40 +86,39 @@ Addis Ababa's primary roommate matching platform backed by <b>Fayda National ID 
 Select an option below to begin:
       `.trim();
 
-      // Inline Web App buttons: Telegram renders WebApp buttons with solid Blue backgrounds!
       const inlineKeyboard = {
         inline_keyboard: [
           [
             {
-              text: '🔍 Find Roommate (Interactive Matchmaker)',
+              text: '🔵 🔍 Find Roommate (Interactive Matchmaker)',
               web_app: { url: `${appUrl}?startapp=matchmaker` },
             },
           ],
           [
             {
-              text: '👥 Post Seeker Profile (Looking for Roommate)',
+              text: '🔵 👥 Post Seeker Profile (Looking for Roommate)',
               web_app: { url: `${appUrl}?startapp=seeker_flow` },
             },
           ],
           [
             {
-              text: '🏠 Share Space / Room for Rent',
+              text: '🔵 🏠 Share Space / Room for Rent',
               web_app: { url: `${appUrl}?startapp=property_type` },
             },
           ],
           [
             {
-              text: '📱 Open SpaceMatch Mini App',
+              text: '🔵 📱 Open SpaceMatch Mini App',
               web_app: { url: appUrl },
             },
           ],
           [
             {
-              text: '🛡️ Verify Fayda ID',
+              text: '🔵 🛡️ Verify Fayda ID',
               callback_data: 'fayda_upload_prompt',
             },
             {
-              text: '📂 My Unlocked Contacts',
+              text: '🔵 📂 My Unlocked Contacts',
               callback_data: 'my_orders_menu',
             },
           ],
@@ -132,7 +131,6 @@ Select an option below to begin:
         ],
       };
 
-      // Custom Reply Keyboard: Renders solid blue action buttons in the user's Telegram chat input bar!
       const replyKeyboard = {
         keyboard: [
           [{ text: '🔍 Find Roommate (Matchmaker)' }, { text: '👥 Post Seeker Profile' }],
@@ -182,7 +180,7 @@ Select an option below to begin:
       gridRows.push([
         {
           text: isAllSelected
-            ? '✅ ALL Sub-Cities Selected (Proceed ➡️)'
+            ? '🔵 ✅ ALL Sub-Cities Selected (Proceed ➡️)'
             : '🌐 Select ALL Sub-Cities & Proceed ➡️',
           callback_data: 'match_select_all_subs',
         },
@@ -193,7 +191,7 @@ Select an option below to begin:
         const item1 = ALL_SUBCITIES[i];
         const isSel1 = selectedList.includes(item1);
         row.push({
-          text: `${isSel1 ? '✅' : '📍'} ${item1}`,
+          text: `${isSel1 ? '🔵 ✅' : '📍'} ${item1}`,
           callback_data: `match_toggle_sub:${item1}`,
         });
 
@@ -201,7 +199,7 @@ Select an option below to begin:
           const item2 = ALL_SUBCITIES[i + 1];
           const isSel2 = selectedList.includes(item2);
           row.push({
-            text: `${isSel2 ? '✅' : '📍'} ${item2}`,
+            text: `${isSel2 ? '🔵 ✅' : '📍'} ${item2}`,
             callback_data: `match_toggle_sub:${item2}`,
           });
         }
@@ -361,7 +359,7 @@ Please type your max budget directly in chat below:
       gridRows.push([
         {
           text: isAllSelected
-            ? '✅ ALL Sub-Cities Selected (Proceed ➡️)'
+            ? '🔵 ✅ ALL Sub-Cities Selected (Proceed ➡️)'
             : '🌐 Select ALL Sub-Cities & Proceed ➡️',
           callback_data: 'seeker_select_all_and_proceed',
         },
@@ -372,7 +370,7 @@ Please type your max budget directly in chat below:
         const item1 = ALL_SUBCITIES[i];
         const isSel1 = selectedList.includes(item1);
         row.push({
-          text: `${isSel1 ? '✅' : '📍'} ${item1}`,
+          text: `${isSel1 ? '🔵 ✅' : '📍'} ${item1}`,
           callback_data: `seeker_toggle_sub:${item1}`,
         });
 
@@ -380,7 +378,7 @@ Please type your max budget directly in chat below:
           const item2 = ALL_SUBCITIES[i + 1];
           const isSel2 = selectedList.includes(item2);
           row.push({
-            text: `${isSel2 ? '✅' : '📍'} ${item2}`,
+            text: `${isSel2 ? '🔵 ✅' : '📍'} ${item2}`,
             callback_data: `seeker_toggle_sub:${item2}`,
           });
         }
