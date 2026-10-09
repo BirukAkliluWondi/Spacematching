@@ -91,22 +91,26 @@ export async function broadcastRoommateProfileToChannel(
           {
             text: `💬 Unlock Contact Info (${profile.unlock_fee || 50} ETB)`,
             url: `https://t.me/${botUsername}?start=unlock_seeker_${profile.id}`,
+            style: 'success',
           },
         ],
         [
           {
             text: '🏠 I Have a Space to Rent',
             url: `https://t.me/${botUsername}?start=property_type`,
+            style: 'primary',
           },
           {
             text: '🔍 I Need a Roommate',
             url: `https://t.me/${botUsername}?start=seeker_flow`,
+            style: 'primary',
           },
         ],
         [
           {
             text: '📱 View Profile in Mini App',
             url: `https://t.me/${botUsername}/${appName}?startapp=seeker_${profile.id}`,
+            style: 'primary',
           },
         ],
       ],
@@ -231,22 +235,26 @@ ${space.description}
           {
             text: `🔑 Unlock Host Contact (${space.unlock_fee || 50} ETB)`,
             url: `https://t.me/${botUsername}?start=order_${space.id}`,
+            style: 'success',
           },
         ],
         [
           {
             text: '👥 I Need a Roommate',
             url: `https://t.me/${botUsername}?start=seeker_flow`,
+            style: 'primary',
           },
           {
             text: '🏠 List Another Space',
             url: `https://t.me/${botUsername}?start=property_type`,
+            style: 'primary',
           },
         ],
         [
           {
             text: '🔍 Open in Mini App',
             url: `https://t.me/${botUsername}/${appName}?startapp=listing_${space.id}`,
+            style: 'primary',
           },
         ],
       ],
@@ -317,14 +325,14 @@ export async function postCustomToChannel(
   const inlineKeyboard = {
     inline_keyboard: [
       [
-        { text: '🏠 I Have a Space', url: `https://t.me/${botUsername}?start=property_type` },
-        { text: '🔍 I Need a Space', url: `https://t.me/${botUsername}?start=seeker_flow` },
+        { text: '🏠 I Have a Space', url: `https://t.me/${botUsername}?start=property_type`, style: 'primary' },
+        { text: '🔍 I Need a Space', url: `https://t.me/${botUsername}?start=seeker_flow`, style: 'primary' },
       ],
       [
-        { text: '🛒 በቦት እዘዝ (Order in Bot)', url: orderUrl },
+        { text: '🛒 በቦት እዘዝ (Order in Bot)', url: orderUrl, style: 'success' },
       ],
       [
-        { text: '🔍 በሚኒ አፕ ተመልከት (View in Mini App)', url: miniAppUrl },
+        { text: '🔍 በሚኒ አፕ ተመልከት (View in Mini App)', url: miniAppUrl, style: 'primary' },
       ],
     ],
   };

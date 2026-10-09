@@ -86,46 +86,54 @@ Addis Ababa's primary roommate matching platform backed by <b>Fayda National ID 
 Select an option below to begin:
       `.trim();
 
+      // Telegram Mini App Deep Links: Telegram renders Mini App buttons as prominent colored action buttons!
       const inlineKeyboard = {
         inline_keyboard: [
           [
             {
-              text: '🔵 🔍 Find Roommate (Interactive Matchmaker)',
-              web_app: { url: `${appUrl}?startapp=matchmaker` },
+              text: '🔍 Find Roommate (Interactive Matchmaker)',
+              url: `https://t.me/${botUsername}/${appName}?startapp=matchmaker`,
+              style: 'primary',
             },
           ],
           [
             {
-              text: '🔵 👥 Post Seeker Profile (Looking for Roommate)',
-              web_app: { url: `${appUrl}?startapp=seeker_flow` },
+              text: '👥 Post Seeker Profile (Looking for Roommate)',
+              url: `https://t.me/${botUsername}/${appName}?startapp=seeker_flow`,
+              style: 'primary',
             },
           ],
           [
             {
-              text: '🔵 🏠 Share Space / Room for Rent',
-              web_app: { url: `${appUrl}?startapp=property_type` },
+              text: '🏠 Share Space / Room for Rent',
+              url: `https://t.me/${botUsername}/${appName}?startapp=property_type`,
+              style: 'primary',
             },
           ],
           [
             {
-              text: '🔵 📱 Open SpaceMatch Mini App',
+              text: '📱 Open SpaceMatch Mini App',
               web_app: { url: appUrl },
+              style: 'primary',
             },
           ],
           [
             {
-              text: '🔵 🛡️ Verify Fayda ID',
-              callback_data: 'fayda_upload_prompt',
+              text: '🛡️ Verify Fayda ID',
+              url: `https://t.me/${botUsername}/${appName}?startapp=fayda`,
+              style: 'primary',
             },
             {
-              text: '🔵 📂 My Unlocked Contacts',
-              callback_data: 'my_orders_menu',
+              text: '📂 My Unlocked Contacts',
+              url: `https://t.me/${botUsername}/${appName}?startapp=my_orders`,
+              style: 'primary',
             },
           ],
           [
             {
               text: '💬 Live Admin Support',
               url: 'https://t.me/birukadiyee',
+              style: 'primary',
             },
           ],
         ],
@@ -180,9 +188,10 @@ Select an option below to begin:
       gridRows.push([
         {
           text: isAllSelected
-            ? '🔵 ✅ ALL Sub-Cities Selected (Proceed ➡️)'
+            ? '✅ ALL Sub-Cities Selected (Proceed ➡️)'
             : '🌐 Select ALL Sub-Cities & Proceed ➡️',
           callback_data: 'match_select_all_subs',
+          style: 'primary',
         },
       ]);
 
@@ -191,16 +200,18 @@ Select an option below to begin:
         const item1 = ALL_SUBCITIES[i];
         const isSel1 = selectedList.includes(item1);
         row.push({
-          text: `${isSel1 ? '🔵 ✅' : '📍'} ${item1}`,
+          text: `${isSel1 ? '✅' : '📍'} ${item1}`,
           callback_data: `match_toggle_sub:${item1}`,
+          style: isSel1 ? 'primary' : undefined,
         });
 
         if (i + 1 < ALL_SUBCITIES.length) {
           const item2 = ALL_SUBCITIES[i + 1];
           const isSel2 = selectedList.includes(item2);
           row.push({
-            text: `${isSel2 ? '🔵 ✅' : '📍'} ${item2}`,
+            text: `${isSel2 ? '✅' : '📍'} ${item2}`,
             callback_data: `match_toggle_sub:${item2}`,
+            style: isSel2 ? 'primary' : undefined,
           });
         }
         gridRows.push(row);
@@ -210,6 +221,7 @@ Select an option below to begin:
         {
           text: `➡️ Next: Roommate Gender (${selectedList.length} Selected)`,
           callback_data: 'match_goto_gender',
+          style: 'primary',
         },
       ]);
       gridRows.push([{ text: '🏠 Main Menu', callback_data: 'nav_start' }]);
@@ -262,11 +274,11 @@ Tap <b>"🌐 Select ALL Sub-Cities & Proceed"</b> or select preferred areas belo
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '👩 Female Roommate Only', callback_data: 'match_pref_gender:Female' },
-              { text: '👨 Male Roommate Only', callback_data: 'match_pref_gender:Male' },
+              { text: '👩 Female Roommate Only', callback_data: 'match_pref_gender:Female', style: 'primary' },
+              { text: '👨 Male Roommate Only', callback_data: 'match_pref_gender:Male', style: 'primary' },
             ],
             [
-              { text: '👫 Any Gender Compatible', callback_data: 'match_pref_gender:Any' },
+              { text: '👫 Any Gender Compatible', callback_data: 'match_pref_gender:Any', style: 'primary' },
             ],
             [{ text: '⬅️ Back to Sub-Cities', callback_data: 'matchmaker_start' }],
           ],
@@ -326,8 +338,8 @@ Please type your max budget directly in chat below:
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '👩 Female', callback_data: 'match_my_gender:Female' },
-              { text: '👨 Male', callback_data: 'match_my_gender:Male' },
+              { text: '👩 Female', callback_data: 'match_my_gender:Female', style: 'primary' },
+              { text: '👨 Male', callback_data: 'match_my_gender:Male', style: 'primary' },
             ],
           ],
         },
@@ -359,9 +371,10 @@ Please type your max budget directly in chat below:
       gridRows.push([
         {
           text: isAllSelected
-            ? '🔵 ✅ ALL Sub-Cities Selected (Proceed ➡️)'
+            ? '✅ ALL Sub-Cities Selected (Proceed ➡️)'
             : '🌐 Select ALL Sub-Cities & Proceed ➡️',
           callback_data: 'seeker_select_all_and_proceed',
+          style: 'primary',
         },
       ]);
 
@@ -370,16 +383,18 @@ Please type your max budget directly in chat below:
         const item1 = ALL_SUBCITIES[i];
         const isSel1 = selectedList.includes(item1);
         row.push({
-          text: `${isSel1 ? '🔵 ✅' : '📍'} ${item1}`,
+          text: `${isSel1 ? '✅' : '📍'} ${item1}`,
           callback_data: `seeker_toggle_sub:${item1}`,
+          style: isSel1 ? 'primary' : undefined,
         });
 
         if (i + 1 < ALL_SUBCITIES.length) {
           const item2 = ALL_SUBCITIES[i + 1];
           const isSel2 = selectedList.includes(item2);
           row.push({
-            text: `${isSel2 ? '🔵 ✅' : '📍'} ${item2}`,
+            text: `${isSel2 ? '✅' : '📍'} ${item2}`,
             callback_data: `seeker_toggle_sub:${item2}`,
+            style: isSel2 ? 'primary' : undefined,
           });
         }
         gridRows.push(row);
@@ -389,6 +404,7 @@ Please type your max budget directly in chat below:
         {
           text: `➡️ Next: My Gender (${selectedList.length} Selected)`,
           callback_data: 'seeker_goto_gender',
+          style: 'primary',
         },
       ]);
       gridRows.push([{ text: '🏠 Main Menu', callback_data: 'nav_start' }]);
@@ -443,8 +459,8 @@ Choose your gender below:
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '👩 Female', callback_data: 'seeker_my_gender:Female' },
-              { text: '👨 Male', callback_data: 'seeker_my_gender:Male' },
+              { text: '👩 Female', callback_data: 'seeker_my_gender:Female', style: 'primary' },
+              { text: '👨 Male', callback_data: 'seeker_my_gender:Male', style: 'primary' },
             ],
             [{ text: '⬅️ Back to Sub-Cities', callback_data: 'seeker_subcity_menu' }],
           ],
@@ -476,11 +492,11 @@ What gender roommate are you looking to share a space with?
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '👩 Female Only', callback_data: 'seeker_pref_gender:Female' },
-              { text: '👨 Male Only', callback_data: 'seeker_pref_gender:Male' },
+              { text: '👩 Female Only', callback_data: 'seeker_pref_gender:Female', style: 'primary' },
+              { text: '👨 Male Only', callback_data: 'seeker_pref_gender:Male', style: 'primary' },
             ],
             [
-              { text: '👫 Any Gender Compatible', callback_data: 'seeker_pref_gender:Any' },
+              { text: '👫 Any Gender Compatible', callback_data: 'seeker_pref_gender:Any', style: 'primary' },
             ],
             [{ text: '⬅️ Back', callback_data: 'seeker_goto_gender' }],
           ],
@@ -581,9 +597,9 @@ Your profile will be verified via Fayda National ID before publishing to the cha
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '✅ Submit Seeker Profile', callback_data: 'seeker_final_submit' },
+              { text: '✅ Submit Seeker Profile', callback_data: 'seeker_final_submit', style: 'primary' },
             ],
-            [{ text: '❌ Cancel & Main Menu', callback_data: 'nav_start' }],
+            [{ text: '❌ Cancel & Main Menu', callback_data: 'nav_start', style: 'danger' }],
           ],
         },
       });
@@ -773,12 +789,14 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
               {
                 text: `💬 Unlock Contact Details (${match.unlock_fee || 50} ETB)`,
                 callback_data: `start_unlock_seeker:${match.id}`,
+                style: 'primary',
               },
             ],
             [
               {
                 text: '📱 Open Profile in Mini App',
                 web_app: { url: `${appUrl}?startapp=seeker_${match.id}` },
+                style: 'primary',
               },
             ],
           ],
@@ -796,10 +814,10 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
       const footerKeyboard = {
         inline_keyboard: [
           [
-            { text: '➕ Post My Seeker Profile', callback_data: 'seeker_subcity_menu' },
+            { text: '➕ Post My Seeker Profile', callback_data: 'seeker_subcity_menu', style: 'primary' },
           ],
           [
-            { text: '🏠 Share Space to Rent', callback_data: 'property_type' },
+            { text: '🏠 Share Space to Rent', callback_data: 'property_type', style: 'primary' },
             { text: '🏠 Main Menu', callback_data: 'nav_start' },
           ],
         ],
@@ -926,7 +944,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🔍 Return to Roommate Matchmaker', callback_data: 'matchmaker_start' },
+              { text: '🔍 Return to Roommate Matchmaker', callback_data: 'matchmaker_start', style: 'primary' },
               { text: '🏠 Main Menu', callback_data: 'nav_start' },
             ],
           ],
@@ -953,10 +971,10 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🛏️ Shared Room / Roommate Space', callback_data: 'prop_type:shared' }],
-            [{ text: '🏠 Entire House / Apartment', callback_data: 'prop_type:entire' }],
-            [{ text: '🏢 Office / Commercial Space', callback_data: 'prop_type:office' }],
-            [{ text: '🏬 Shop / Commercial Venue', callback_data: 'prop_type:shop' }],
+            [{ text: '🛏️ Shared Room / Roommate Space', callback_data: 'prop_type:shared', style: 'primary' }],
+            [{ text: '🏠 Entire House / Apartment', callback_data: 'prop_type:entire', style: 'primary' }],
+            [{ text: '🏢 Office / Commercial Space', callback_data: 'prop_type:office', style: 'primary' }],
+            [{ text: '🏬 Shop / Commercial Venue', callback_data: 'prop_type:shop', style: 'primary' }],
             [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
           ],
         },
@@ -1245,7 +1263,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         return NextResponse.json({ ok: true });
       }
 
-      if (text === '👥 Post Seeker Profile') {
+      if (text === '👥 Post Seeker Profile' || text === '👥 Post Seeker Profile (Looking for Roommate)') {
         clearSession(chatId);
         await sendSeekerSubcityStep(chatId);
         return NextResponse.json({ ok: true });
