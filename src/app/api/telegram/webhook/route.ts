@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       return defaultAdminIds;
     };
 
-    // Helper: Send Primary Start / Main Menu Screen with Blue Theme Accents
+    // Helper: Send Primary Start / Main Menu Screen
     const sendPrimaryWelcomeMenu = async (chatId: number) => {
       const welcomeText = `
 👥 <b>SpaceMatch Addis — Roommate & Housing Ecosystem</b>
@@ -90,35 +90,35 @@ Select an option below to begin:
         inline_keyboard: [
           [
             {
-              text: '🔵 ⚡ Find Compatible Roommate (Matchmaker)',
+              text: '⚡ Find Compatible Roommate (Matchmaker)',
               callback_data: 'execute_matchmaking',
             },
           ],
           [
             {
-              text: '🔷 👥 Post Seeker Profile (Looking for Roommate)',
+              text: '👥 Post Seeker Profile (Looking for Roommate)',
               callback_data: 'seeker_subcity_menu',
             },
           ],
           [
             {
-              text: '🔷 🏠 Share Space / Room for Rent',
+              text: '🏠 Share Space / Room for Rent',
               callback_data: 'property_type',
             },
           ],
           [
             {
-              text: '💎 📱 Open SpaceMatch Mini App',
+              text: '📱 Open SpaceMatch Mini App',
               web_app: { url: appUrl },
             },
           ],
           [
             {
-              text: '💙 🛡️ Verify Fayda ID',
+              text: '🛡️ Verify Fayda ID',
               callback_data: 'fayda_upload_prompt',
             },
             {
-              text: '🔹 📂 My Unlocked Contacts',
+              text: '📂 My Unlocked Contacts',
               callback_data: 'my_orders_menu',
             },
           ],
@@ -139,8 +139,12 @@ Select an option below to begin:
       });
     };
 
-    // Helper: Seeker Step 1 (Sub-Cities Grid Keyboard with Select All Option)
-    const sendSeekerSubcityStep = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+    // Helper: Seeker Step 1 (Sub-Cities Grid Keyboard - In-Place Editing)
+    const sendSeekerSubcityStep = async (
+      chatId: number,
+      currentDraft: Record<string, any> = {},
+      messageIdToEdit?: number
+    ) => {
       saveSession({
         telegram_id: chatId,
         step: 'awaiting_seeker_subcities_grid',
@@ -153,13 +157,13 @@ Select an option below to begin:
 
       const gridRows: any[] = [];
 
-      // Row 1: Primary "Select ALL Sub-Cities" button
+      // Row 1: Primary "Select ALL Sub-Cities & Proceed" button
       gridRows.push([
         {
           text: isAllSelected
-            ? '🔹 ✅ ALL Sub-Cities Selected (Click to Clear)'
-            : '🌐 Select ALL Sub-Cities at Once',
-          callback_data: 'seeker_toggle_all_subs',
+            ? '✅ ALL Sub-Cities Selected (Proceed ➡️)'
+            : '🌐 Select ALL Sub-Cities & Proceed ➡️',
+          callback_data: 'seeker_select_all_and_proceed',
         },
       ]);
 
@@ -169,7 +173,7 @@ Select an option below to begin:
         const item1 = ALL_SUBCITIES[i];
         const isSel1 = selectedList.includes(item1);
         row.push({
-          text: `${isSel1 ? '🔹 ✅' : '📍'} ${item1}`,
+          text: `${isSel1 ? '✅' : '📍'} ${item1}`,
           callback_data: `seeker_toggle_sub:${item1}`,
         });
 
@@ -177,7 +181,7 @@ Select an option below to begin:
           const item2 = ALL_SUBCITIES[i + 1];
           const isSel2 = selectedList.includes(item2);
           row.push({
-            text: `${isSel2 ? '🔹 ✅' : '📍'} ${item2}`,
+            text: `${isSel2 ? '✅' : '📍'} ${item2}`,
             callback_data: `seeker_toggle_sub:${item2}`,
           });
         }
@@ -187,7 +191,7 @@ Select an option below to begin:
       // Action buttons
       gridRows.push([
         {
-          text: `🔵 ⚡ Quick Match Roommates Now (${selectedList.length === ALL_SUBCITIES.length ? 'All Selected' : `${selectedList.length} Selected`})`,
+          text: `⚡ Quick Match Roommates Now (${selectedList.length === ALL_SUBCITIES.length ? 'All Selected' : `${selectedList.length} Selected`})`,
           callback_data: 'execute_matchmaking',
         },
       ]);
@@ -204,15 +208,25 @@ Select an option below to begin:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 📍 <b>Preferred Sub-Cities Selection</b> [██▒▒▒▒▒▒▒▒] 20%
 
-Tap <b>"🌐 Select ALL Sub-Cities at Once"</b> or pick individual sub-cities below:
+Tap <b>"🌐 Select ALL Sub-Cities & Proceed"</b> or pick specific sub-cities below:
       `.trim();
 
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: gridRows },
-      });
+      if (messageIdToEdit) {
+        await sendTelegram('editMessageText', {
+          chat_id: chatId,
+          message_id: messageIdToEdit,
+          text,
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: gridRows },
+        });
+      } else {
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text,
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: gridRows },
+        });
+      }
     };
 
     // Helper: Seeker Step 2 (My Gender)
@@ -284,11 +298,11 @@ What gender roommate are you looking to share a space with?
       });
     };
 
-    // Helper: Seeker Step 4 (Budget Cap & Bio)
+    // Helper: Seeker Step 4 (Budget Input - User Types Directly)
     const sendSeekerBudgetStep = async (chatId: number, currentDraft: Record<string, any> = {}) => {
       saveSession({
         telegram_id: chatId,
-        step: 'awaiting_seeker_budget_input',
+        step: 'awaiting_seeker_budget_text',
         draft_data: currentDraft,
         updated_at: new Date().toISOString(),
       });
@@ -296,9 +310,10 @@ What gender roommate are you looking to share a space with?
       const text = `
 👥 <b>SpaceMatch Addis — Seeker Step 4/5</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 <b>Monthly Budget Cap & Lifestyle Bio</b> [████████▒▒] 80%
+💰 <b>Maximum Monthly Budget (ETB)</b> [████████▒▒] 80%
 
-Tap your maximum monthly budget (ETB) below:
+Please type your maximum monthly budget cap in ETB directly in chat below:
+<i>(For example: <code>10000</code> or <code>15000</code>)</i>
       `.trim();
 
       await sendTelegram('sendMessage', {
@@ -307,23 +322,43 @@ Tap your maximum monthly budget (ETB) below:
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [
-              { text: '🔹 💰 8,000 ETB', callback_data: 'seeker_budget_val:8000' },
-              { text: '🔹 💰 10,000 ETB', callback_data: 'seeker_budget_val:10000' },
-            ],
-            [
-              { text: '🔹 💰 12,000 ETB', callback_data: 'seeker_budget_val:12000' },
-              { text: '🔹 💰 15,000 ETB', callback_data: 'seeker_budget_val:15000' },
-            ],
-            [
-              { text: '🔹 💰 20,000+ ETB', callback_data: 'seeker_budget_val:20000' },
-            ],
+            [{ text: '⬅️ Back to Gender Preference', callback_data: 'seeker_goto_gender' }],
           ],
         },
       });
     };
 
-    // Helper: Seeker Step 5 (Fayda ID Upload & Final Submit)
+    // Helper: Seeker Step 5 (Lifestyle Bio - User Types Directly)
+    const sendSeekerBioStep = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_bio_text',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+👥 <b>SpaceMatch Addis — Seeker Step 5/5</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 <b>Lifestyle & Bio Description</b> [██████████] 90%
+
+Please type a brief description about yourself, your occupation, or lifestyle preferences in chat below:
+<i>(Or type <code>skip</code> to leave blank)</i>
+      `.trim();
+
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '⏭️ Skip Bio', callback_data: 'seeker_skip_bio' }],
+          ],
+        },
+      });
+    };
+
+    // Helper: Seeker Step 6 (Fayda ID Upload & Final Submit)
     const sendSeekerFaydaStep = async (chatId: number, currentDraft: Record<string, any> = {}) => {
       saveSession({
         telegram_id: chatId,
@@ -333,16 +368,17 @@ Tap your maximum monthly budget (ETB) below:
       });
 
       const subcitiesStr = (currentDraft.preferred_subcity || []).join(', ') || 'Addis Ababa';
+      const bioText = currentDraft.lifestyle_bio ? `"${currentDraft.lifestyle_bio}"` : 'Seeking compatible roommate';
 
       const summaryText = `
-👥 <b>SpaceMatch Addis — Seeker Step 5/5</b>
+👥 <b>SpaceMatch Addis — Profile Review</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 📋 <b>Your Seeker Profile Summary:</b>
 • 👤 <b>Gender:</b> ${currentDraft.my_gender || 'Not specified'}
 • 👥 <b>Preferred Roommate:</b> ${currentDraft.preferred_gender || 'Any'}
 • 📍 <b>Sub-Cities:</b> ${subcitiesStr}
 • 💰 <b>Budget Cap:</b> ${Number(currentDraft.budget_max || 10000).toLocaleString()} ETB / month
-• 📝 <b>Bio:</b> <i>"${currentDraft.lifestyle_bio || 'Seeking roommate'}"</i>
+• 📝 <b>Bio:</b> <i>${bioText}</i>
 
 🛡️ <b>Fayda National ID Verification:</b>
 Your profile will be verified via Fayda National ID before publishing to the channel!
@@ -355,7 +391,7 @@ Your profile will be verified via Fayda National ID before publishing to the cha
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🔹 ✅ Submit Seeker Profile', callback_data: 'seeker_final_submit' },
+              { text: '✅ Submit Seeker Profile', callback_data: 'seeker_final_submit' },
             ],
             [{ text: '❌ Cancel & Main Menu', callback_data: 'nav_start' }],
           ],
@@ -546,13 +582,13 @@ Found <b>${scoredMatches.length} Compatible Roommate Matches</b>:
           inline_keyboard: [
             [
               {
-                text: `🔵 💬 Unlock Contact Info (${match.unlock_fee || 50} ETB)`,
+                text: `💬 Unlock Contact Info (${match.unlock_fee || 50} ETB)`,
                 callback_data: `start_unlock_seeker:${match.id}`,
               },
             ],
             [
               {
-                text: '💎 📱 Open Profile in Mini App',
+                text: '📱 Open Profile in Mini App',
                 web_app: { url: `${appUrl}?startapp=seeker_${match.id}` },
               },
             ],
@@ -571,10 +607,10 @@ Found <b>${scoredMatches.length} Compatible Roommate Matches</b>:
       const footerKeyboard = {
         inline_keyboard: [
           [
-            { text: '🔹 ➕ Post My Own Seeker Profile', callback_data: 'seeker_subcity_menu' },
+            { text: '➕ Post My Own Seeker Profile', callback_data: 'seeker_subcity_menu' },
           ],
           [
-            { text: '🔹 🏠 Share Space to Rent', callback_data: 'property_type' },
+            { text: '🏠 Share Space to Rent', callback_data: 'property_type' },
             { text: '🏠 Main Menu', callback_data: 'nav_start' },
           ],
         ],
@@ -728,10 +764,10 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🔹 🛏️ Shared Room / Roommate Space', callback_data: 'prop_type:shared' }],
-            [{ text: '🔹 🏠 Entire House / Apartment', callback_data: 'prop_type:entire' }],
-            [{ text: '🔹 🏢 Office / Commercial Space', callback_data: 'prop_type:office' }],
-            [{ text: '🔹 🏬 Shop / Commercial Venue', callback_data: 'prop_type:shop' }],
+            [{ text: '🛏️ Shared Room / Roommate Space', callback_data: 'prop_type:shared' }],
+            [{ text: '🏠 Entire House / Apartment', callback_data: 'prop_type:entire' }],
+            [{ text: '🏢 Office / Commercial Space', callback_data: 'prop_type:office' }],
+            [{ text: '🏬 Shop / Commercial Venue', callback_data: 'prop_type:shop' }],
             [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
           ],
         },
@@ -745,6 +781,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       const callback = update.callback_query;
       const callbackData: string = callback.data || '';
       const chatId: number = callback.message?.chat?.id || callback.from.id;
+      const msgId: number | undefined = callback.message?.message_id;
 
       if (callback.id) {
         await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
@@ -770,19 +807,15 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         return NextResponse.json({ ok: true });
       }
 
-      // Toggle ALL Subcities at once
-      if (callbackData === 'seeker_toggle_all_subs') {
+      // Select ALL Sub-cities & PROCEED immediately to Gender step!
+      if (callbackData === 'seeker_select_all_and_proceed') {
         const session = getSession(chatId);
-        const currentList: string[] = session.draft_data.preferred_subcity || [];
-        const isAllSelected = ALL_SUBCITIES.every((s) => currentList.includes(s));
-
-        const newList = isAllSelected ? [] : [...ALL_SUBCITIES];
-        const updatedDraft = { ...session.draft_data, preferred_subcity: newList };
-        await sendSeekerSubcityStep(chatId, updatedDraft);
+        const updatedDraft = { ...session.draft_data, preferred_subcity: [...ALL_SUBCITIES] };
+        await sendSeekerMyGenderStep(chatId, updatedDraft);
         return NextResponse.json({ ok: true });
       }
 
-      // Toggle Individual Subcity
+      // Toggle Individual Subcity in-place
       if (callbackData.startsWith('seeker_toggle_sub:')) {
         const sub = callbackData.split(':')[1];
         const session = getSession(chatId);
@@ -793,7 +826,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           : [...currentList, sub];
 
         const updatedDraft = { ...session.draft_data, preferred_subcity: newList };
-        await sendSeekerSubcityStep(chatId, updatedDraft);
+        await sendSeekerSubcityStep(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -819,14 +852,9 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         return NextResponse.json({ ok: true });
       }
 
-      if (callbackData.startsWith('seeker_budget_val:')) {
-        const bVal = parseInt(callbackData.split(':')[1], 10) || 10000;
+      if (callbackData === 'seeker_skip_bio') {
         const session = getSession(chatId);
-        const updatedDraft = {
-          ...session.draft_data,
-          budget_max: bVal,
-          lifestyle_bio: 'Software engineer looking for quiet roommate in Addis Ababa.',
-        };
+        const updatedDraft = { ...session.draft_data, lifestyle_bio: 'Seeking compatible roommate' };
         await sendSeekerFaydaStep(chatId, updatedDraft);
         return NextResponse.json({ ok: true });
       }
@@ -862,7 +890,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           preferred_gender: draftData.preferred_gender || 'Female',
           budget_min: 0,
           budget_max: draftData.budget_max || 10000,
-          lifestyle_bio: draftData.lifestyle_bio || 'Looking for compatible roommate in Addis Ababa.',
+          lifestyle_bio: draftData.lifestyle_bio || 'Seeking compatible roommate in Addis Ababa.',
           fayda_status: 'verified',
           unlock_fee: 50,
           status: 'pending_approval',
@@ -899,7 +927,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         const adminKeyboard = {
           inline_keyboard: [
             [
-              { text: '🔹 ✅ Approve & Post to Channel', callback_data: `seeker_approve:${profileId}` },
+              { text: '✅ Approve & Post to Channel', callback_data: `seeker_approve:${profileId}` },
               { text: '❌ Reject Profile', callback_data: `seeker_reject:${profileId}` },
             ],
           ],
@@ -961,7 +989,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🔹 📢 Post Custom Announcement', callback_data: 'admin_custom_prompt' }],
+              [{ text: '📢 Post Custom Announcement', callback_data: 'admin_custom_prompt' }],
               [{ text: '❌ Exit Admin Menu', callback_data: 'admin_cancel' }],
             ],
           },
@@ -980,6 +1008,31 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       const chatId: number = message.chat.id;
       const text: string = (message.text || message.caption || '').trim();
       const session = getSession(chatId);
+
+      // Awaiting Seeker Budget Text Input
+      if (session.step === 'awaiting_seeker_budget_text') {
+        const budgetVal = parseInt(text.replace(/[^0-9]/g, ''), 10);
+        if (isNaN(budgetVal) || budgetVal <= 0) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⚠️ <b>Please type a valid numerical monthly budget cap in ETB:</b>\n<i>(For example: <code>10000</code> or <code>15000</code>)</i>`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const updatedDraft = { ...session.draft_data, budget_max: budgetVal };
+        await sendSeekerBioStep(chatId, updatedDraft);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Awaiting Seeker Bio Text Input
+      if (session.step === 'awaiting_seeker_bio_text') {
+        const bioText = text.toLowerCase() === 'skip' ? '' : text;
+        const updatedDraft = { ...session.draft_data, lifestyle_bio: bioText };
+        await sendSeekerFaydaStep(chatId, updatedDraft);
+        return NextResponse.json({ ok: true });
+      }
 
       // Handle Slash Commands
       if (text.startsWith('/start') || text === '/start') {
@@ -1059,7 +1112,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🔹 📢 Admin Dashboard', callback_data: 'admin_menu' }],
+              [{ text: '📢 Admin Dashboard', callback_data: 'admin_menu' }],
             ],
           },
         });

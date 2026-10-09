@@ -191,29 +191,28 @@ export function FeedView({
   const cleanBotUrl = `https://t.me/${botUsername.replace('@', '')}`;
 
   return (
-    <div className="min-h-screen bg-[#080D1A] text-slate-100 pb-32 selection:bg-sky-500 selection:text-white relative overflow-hidden">
+    <div className="min-h-screen bg-[#080D1A] text-slate-100 pb-32 selection:bg-[#0088CC] selection:text-white relative overflow-hidden">
       {/* Ambient Background Glowing Orbs */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-sky-500/15 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-[#0088CC]/15 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute top-1/3 right-0 w-80 h-80 bg-blue-600/15 rounded-full blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-10 left-0 w-80 h-80 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
 
       {/* Top Header */}
-      <header className="sticky top-0 z-30 luxury-header px-4 pt-4 pb-3 space-y-3 backdrop-blur-xl bg-[#080D1A]/85 border-b border-sky-500/15">
+      <header className="sticky top-0 z-30 luxury-header px-4 pt-4 pb-3 space-y-3 backdrop-blur-xl bg-[#080D1A]/85 border-b border-[#0088CC]/20">
         {/* Top Row: Brand & Post Seeker Action */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-sky-500/25">
+            <div className="w-10 h-10 rounded-2xl bg-[#0088CC] text-white flex items-center justify-center font-black text-lg shadow-lg shadow-[#0088CC]/30">
               SM
             </div>
             <div>
               <div className="flex items-center gap-1.5">
                 <h1 className="font-black text-base tracking-tight text-white">SpaceMatch</h1>
-                <span className="px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-500/40 text-[9px] font-bold text-sky-300">
+                <span className="px-2 py-0.5 rounded-full bg-[#0088CC]/20 border border-[#0088CC]/40 text-[9px] font-bold text-[#0088CC]">
                   Roommate-First
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 flex items-center gap-1">
-                <MapPin className="w-3 h-3 text-sky-400" />
+                <MapPin className="w-3 h-3 text-[#0088CC]" />
                 <span>Addis Ababa • Verified Fayda ID</span>
               </p>
             </div>
@@ -223,7 +222,7 @@ export function FeedView({
             href={`${cleanBotUrl}?start=seeker_flow`}
             target="_blank"
             rel="noreferrer"
-            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-600 hover:from-sky-300 hover:to-blue-400 text-white font-black text-xs shadow-lg shadow-sky-500/30 transition-all active:scale-95 flex items-center gap-1.5"
+            className="px-3.5 py-2 rounded-xl bg-[#0088CC] hover:bg-[#0077BB] text-white font-black text-xs shadow-lg shadow-[#0088CC]/35 transition-all active:scale-95 flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
             <span>Post Seeker</span>
@@ -236,7 +235,7 @@ export function FeedView({
             onClick={() => setActiveMainTab('seekers')}
             className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 ${
               activeMainTab === 'seekers'
-                ? 'bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-600 text-white shadow-lg shadow-sky-500/25 font-black'
+                ? 'bg-[#0088CC] text-white shadow-lg shadow-[#0088CC]/30 font-black'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -248,7 +247,7 @@ export function FeedView({
             onClick={() => setActiveMainTab('spaces')}
             className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 ${
               activeMainTab === 'spaces'
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/25 font-black'
+                ? 'bg-[#0088CC] text-white shadow-lg shadow-[#0088CC]/30 font-black'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -269,7 +268,7 @@ export function FeedView({
                 ? 'Search sub-city, bio, or preferred roommate...'
                 : 'Search sub-city, price, or room type...'
             }
-            className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/[0.05] border border-sky-500/20 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/60 backdrop-blur-xl transition-all shadow-inner"
+            className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/[0.05] border border-[#0088CC]/30 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0088CC]/60 focus:border-[#0088CC] backdrop-blur-xl transition-all shadow-inner"
           />
         </div>
 
@@ -283,7 +282,7 @@ export function FeedView({
                 onClick={() => setSelectedSubcityFilter(sub)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1 ${
                   isActive
-                    ? 'bg-sky-500 text-white shadow-md shadow-sky-500/30'
+                    ? 'bg-[#0088CC] text-white shadow-md shadow-[#0088CC]/30'
                     : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] border border-white/[0.06]'
                 }`}
               >
@@ -304,21 +303,21 @@ export function FeedView({
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span>Showing <strong>{filteredSeekers.length}</strong> verified roommate seekers</span>
-              <span className="text-[10px] text-sky-400 font-bold bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/30">
+              <span className="text-[10px] text-[#0088CC] font-bold bg-[#0088CC]/10 px-2 py-0.5 rounded-md border border-[#0088CC]/30">
                 🛡️ Fayda Verified First
               </span>
             </div>
 
             {filteredSeekers.length === 0 ? (
               <div className="py-16 text-center space-y-3 luxury-card rounded-3xl p-6 text-slate-300">
-                <Users className="w-10 h-10 text-sky-400 mx-auto" />
+                <Users className="w-10 h-10 text-[#0088CC] mx-auto" />
                 <h4 className="font-black text-base text-white">No Roommate Seekers Found</h4>
                 <p className="text-xs text-slate-400">Be the first to post your roommate preference on the channel!</p>
                 <a
                   href={`${cleanBotUrl}?start=seeker_flow`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-block mt-2 px-4 py-2 rounded-xl bg-sky-500 text-white font-black text-xs shadow-lg shadow-sky-500/25"
+                  className="inline-block mt-2 px-4 py-2 rounded-xl bg-[#0088CC] hover:bg-[#0077BB] text-white font-black text-xs shadow-lg shadow-[#0088CC]/30"
                 >
                   Post Your Seeker Profile
                 </a>
@@ -327,12 +326,12 @@ export function FeedView({
               filteredSeekers.map((seeker) => (
                 <div
                   key={seeker.id}
-                  className="luxury-card rounded-3xl p-4 bg-gradient-to-br from-[#121929]/95 via-[#0F1624]/95 to-[#0A101C]/95 border border-sky-500/20 shadow-xl space-y-3 hover:border-sky-500/50 transition-all"
+                  className="luxury-card rounded-3xl p-4 bg-gradient-to-br from-[#121929]/95 via-[#0F1624]/95 to-[#0A101C]/95 border border-[#0088CC]/25 shadow-xl space-y-3 hover:border-[#0088CC]/50 transition-all"
                 >
                   {/* Seeker Header */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-600 text-white font-black text-base flex items-center justify-center shadow-md shadow-sky-500/20">
+                      <div className="w-11 h-11 rounded-2xl bg-[#0088CC] text-white font-black text-base flex items-center justify-center shadow-md shadow-[#0088CC]/30">
                         {seeker.first_name[0]}
                       </div>
                       <div>
@@ -351,7 +350,7 @@ export function FeedView({
                       </div>
                     </div>
 
-                    <span className="text-sm font-black text-sky-400">
+                    <span className="text-sm font-black text-[#0088CC]">
                       ETB {seeker.budget_max.toLocaleString()}
                       <span className="text-[10px] font-normal text-slate-400">/mo</span>
                     </span>
@@ -371,9 +370,11 @@ export function FeedView({
                       ))}
                     </div>
 
-                    <p className="text-xs text-slate-300 italic line-clamp-3 bg-white/[0.02] p-2.5 rounded-xl border border-white/[0.04]">
-                      &quot;{seeker.lifestyle_bio}&quot;
-                    </p>
+                    {seeker.lifestyle_bio && (
+                      <p className="text-xs text-slate-300 italic line-clamp-3 bg-white/[0.02] p-2.5 rounded-xl border border-white/[0.04]">
+                        &quot;{seeker.lifestyle_bio}&quot;
+                      </p>
+                    )}
                   </div>
 
                   {/* Unlock Contact Button */}
@@ -381,7 +382,7 @@ export function FeedView({
                     href={`${cleanBotUrl}?start=unlock_seeker_${seeker.id}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-600 hover:from-sky-300 hover:to-blue-400 text-white font-black text-xs shadow-lg shadow-sky-500/30 flex items-center justify-center gap-2 transition-all active:scale-95"
+                    className="w-full py-2.5 rounded-xl bg-[#0088CC] hover:bg-[#0077BB] text-white font-black text-xs shadow-lg shadow-[#0088CC]/35 flex items-center justify-center gap-2 transition-all active:scale-95"
                   >
                     <Unlock className="w-4 h-4" />
                     <span>Unlock Contact Info ({seeker.unlock_fee || 50} ETB via Telebirr)</span>
@@ -407,7 +408,7 @@ export function FeedView({
                 <div
                   key={space.id}
                   onClick={() => onSelectSpace(space.id)}
-                  className="luxury-card rounded-3xl overflow-hidden border border-sky-500/15 shadow-xl hover:border-sky-500/40 transition-all flex flex-col justify-between group cursor-pointer"
+                  className="luxury-card rounded-3xl overflow-hidden border border-[#0088CC]/20 shadow-xl hover:border-[#0088CC]/50 transition-all flex flex-col justify-between group cursor-pointer"
                 >
                   <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-900">
                     <img
@@ -424,15 +425,15 @@ export function FeedView({
                       <Heart className={`w-4 h-4 ${isSaved ? 'fill-rose-500 text-rose-500' : ''}`} />
                     </button>
 
-                    <span className="absolute bottom-2 left-2.5 px-2 py-0.5 rounded-md bg-slate-950/80 backdrop-blur-md text-[10px] font-bold text-sky-400 border border-sky-500/30 flex items-center gap-1">
-                      <MapPin className="w-2.5 h-2.5 text-sky-400" />
+                    <span className="absolute bottom-2 left-2.5 px-2 py-0.5 rounded-md bg-slate-950/80 backdrop-blur-md text-[10px] font-bold text-[#0088CC] border border-[#0088CC]/30 flex items-center gap-1">
+                      <MapPin className="w-2.5 h-2.5 text-[#0088CC]" />
                       {space.neighborhood}
                     </span>
                   </div>
 
                   <div className="p-3 space-y-2 flex-1 flex flex-col justify-between">
                     <div>
-                      <h3 className="font-bold text-xs text-white line-clamp-1 group-hover:text-sky-300 transition-colors">
+                      <h3 className="font-bold text-xs text-white line-clamp-1 group-hover:text-[#0088CC] transition-colors">
                         {space.title}
                       </h3>
                       <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
@@ -441,7 +442,7 @@ export function FeedView({
                     </div>
 
                     <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
-                      <span className="text-xs font-black text-sky-400">
+                      <span className="text-xs font-black text-[#0088CC]">
                         ETB {Number(space.price_per_month).toLocaleString()}
                         <span className="text-[9px] font-normal text-slate-400">/mo</span>
                       </span>
@@ -451,7 +452,7 @@ export function FeedView({
                         target="_blank"
                         rel="noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-white font-black text-[10px] shadow-md shadow-sky-500/20"
+                        className="px-2.5 py-1 rounded-lg bg-[#0088CC] hover:bg-[#0077BB] text-white font-black text-[10px] shadow-md shadow-[#0088CC]/30"
                       >
                         Unlock
                       </a>
@@ -465,11 +466,11 @@ export function FeedView({
       </main>
 
       {/* Bottom Floating Navigation Dock */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 luxury-dock px-6 py-3 flex items-center justify-around border-t border-sky-500/20 bg-[#080D1A]/95 backdrop-blur-2xl">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 luxury-dock px-6 py-3 flex items-center justify-around border-t border-[#0088CC]/20 bg-[#080D1A]/95 backdrop-blur-2xl">
         <button
           onClick={() => setActiveTab('home')}
           className={`flex flex-col items-center gap-1 transition-all ${
-            activeTab === 'home' ? 'text-sky-400 font-bold scale-105' : 'text-slate-400 hover:text-slate-200'
+            activeTab === 'home' ? 'text-[#0088CC] font-bold scale-105' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <Home className="w-5 h-5" />
@@ -479,13 +480,13 @@ export function FeedView({
         <button
           onClick={() => setActiveTab('wishlist')}
           className={`flex flex-col items-center gap-1 transition-all relative ${
-            activeTab === 'wishlist' ? 'text-sky-400 font-bold scale-105' : 'text-slate-400 hover:text-slate-200'
+            activeTab === 'wishlist' ? 'text-[#0088CC] font-bold scale-105' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <Heart className="w-5 h-5" />
           <span className="text-[10px]">Saved</span>
           {savedIds.length > 0 && (
-            <span className="absolute -top-1 -right-1.5 w-4 h-4 rounded-full bg-sky-500 text-white text-[9px] font-black flex items-center justify-center">
+            <span className="absolute -top-1 -right-1.5 w-4 h-4 rounded-full bg-[#0088CC] text-white text-[9px] font-black flex items-center justify-center">
               {savedIds.length}
             </span>
           )}
@@ -493,10 +494,10 @@ export function FeedView({
 
         <button
           onClick={onOpenFaydaModal}
-          className="flex flex-col items-center gap-1 text-slate-400 hover:text-sky-400 transition-all"
+          className="flex flex-col items-center gap-1 text-slate-400 hover:text-[#0088CC] transition-all"
         >
-          <ShieldCheck className="w-5 h-5 text-sky-400" />
-          <span className="text-[10px] text-sky-400 font-bold">Fayda ID</span>
+          <ShieldCheck className="w-5 h-5 text-[#0088CC]" />
+          <span className="text-[10px] text-[#0088CC] font-bold">Fayda ID</span>
         </button>
 
         <a
