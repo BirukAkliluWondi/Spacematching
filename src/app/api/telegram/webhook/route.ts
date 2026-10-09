@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       return defaultAdminIds;
     };
 
-    // Helper: Send Primary Start / Main Menu Screen
+    // Helper: Send Primary Start / Main Menu Screen with Solid Blue WebApp Buttons & Reply Keyboard
     const sendPrimaryWelcomeMenu = async (chatId: number) => {
       const welcomeText = `
 👥 <b>SpaceMatch Addis — Roommate & Housing Ecosystem</b>
@@ -86,39 +86,40 @@ Addis Ababa's primary roommate matching platform backed by <b>Fayda National ID 
 Select an option below to begin:
       `.trim();
 
+      // Inline Web App buttons: Telegram renders WebApp buttons with solid Blue backgrounds!
       const inlineKeyboard = {
         inline_keyboard: [
           [
             {
-              text: '🟦 🔍 Find Roommate (Interactive Matchmaker)',
-              callback_data: 'matchmaker_start',
+              text: '🔍 Find Roommate (Interactive Matchmaker)',
+              web_app: { url: `${appUrl}?startapp=matchmaker` },
             },
           ],
           [
             {
-              text: '🟦 👥 Post Seeker Profile (Looking for Roommate)',
-              callback_data: 'seeker_subcity_menu',
+              text: '👥 Post Seeker Profile (Looking for Roommate)',
+              web_app: { url: `${appUrl}?startapp=seeker_flow` },
             },
           ],
           [
             {
-              text: '🟦 🏠 Share Space / Room for Rent',
-              callback_data: 'property_type',
+              text: '🏠 Share Space / Room for Rent',
+              web_app: { url: `${appUrl}?startapp=property_type` },
             },
           ],
           [
             {
-              text: '🟦 📱 Open SpaceMatch Mini App',
+              text: '📱 Open SpaceMatch Mini App',
               web_app: { url: appUrl },
             },
           ],
           [
             {
-              text: '🟦 🛡️ Verify Fayda ID',
+              text: '🛡️ Verify Fayda ID',
               callback_data: 'fayda_upload_prompt',
             },
             {
-              text: '🟦 📂 My Unlocked Contacts',
+              text: '📂 My Unlocked Contacts',
               callback_data: 'my_orders_menu',
             },
           ],
@@ -131,11 +132,28 @@ Select an option below to begin:
         ],
       };
 
+      // Custom Reply Keyboard: Renders solid blue action buttons in the user's Telegram chat input bar!
+      const replyKeyboard = {
+        keyboard: [
+          [{ text: '🔍 Find Roommate (Matchmaker)' }, { text: '👥 Post Seeker Profile' }],
+          [{ text: '🏠 Share Space to Rent' }, { text: '🛡️ Verify Fayda ID' }],
+          [{ text: '📱 Open SpaceMatch App' }, { text: '💬 Admin Support' }],
+        ],
+        resize_keyboard: true,
+      };
+
       await sendTelegram('sendMessage', {
         chat_id: chatId,
         text: welcomeText,
         parse_mode: 'HTML',
         reply_markup: inlineKeyboard,
+      });
+
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: '<i>Touch options in the keyboard bar below:</i>',
+        parse_mode: 'HTML',
+        reply_markup: replyKeyboard,
       });
     };
 
@@ -164,7 +182,7 @@ Select an option below to begin:
       gridRows.push([
         {
           text: isAllSelected
-            ? '🟦 ✅ ALL Sub-Cities Selected (Proceed ➡️)'
+            ? '✅ ALL Sub-Cities Selected (Proceed ➡️)'
             : '🌐 Select ALL Sub-Cities & Proceed ➡️',
           callback_data: 'match_select_all_subs',
         },
@@ -175,7 +193,7 @@ Select an option below to begin:
         const item1 = ALL_SUBCITIES[i];
         const isSel1 = selectedList.includes(item1);
         row.push({
-          text: `${isSel1 ? '🟦 ✅' : '📍'} ${item1}`,
+          text: `${isSel1 ? '✅' : '📍'} ${item1}`,
           callback_data: `match_toggle_sub:${item1}`,
         });
 
@@ -183,7 +201,7 @@ Select an option below to begin:
           const item2 = ALL_SUBCITIES[i + 1];
           const isSel2 = selectedList.includes(item2);
           row.push({
-            text: `${isSel2 ? '🟦 ✅' : '📍'} ${item2}`,
+            text: `${isSel2 ? '✅' : '📍'} ${item2}`,
             callback_data: `match_toggle_sub:${item2}`,
           });
         }
@@ -246,11 +264,11 @@ Tap <b>"🌐 Select ALL Sub-Cities & Proceed"</b> or select preferred areas belo
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🟦 👩 Female Roommate Only', callback_data: 'match_pref_gender:Female' },
-              { text: '🟦 👨 Male Roommate Only', callback_data: 'match_pref_gender:Male' },
+              { text: '👩 Female Roommate Only', callback_data: 'match_pref_gender:Female' },
+              { text: '👨 Male Roommate Only', callback_data: 'match_pref_gender:Male' },
             ],
             [
-              { text: '🟦 👫 Any Gender Compatible', callback_data: 'match_pref_gender:Any' },
+              { text: '👫 Any Gender Compatible', callback_data: 'match_pref_gender:Any' },
             ],
             [{ text: '⬅️ Back to Sub-Cities', callback_data: 'matchmaker_start' }],
           ],
@@ -310,8 +328,8 @@ Please type your max budget directly in chat below:
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🟦 👩 Female', callback_data: 'match_my_gender:Female' },
-              { text: '🟦 👨 Male', callback_data: 'match_my_gender:Male' },
+              { text: '👩 Female', callback_data: 'match_my_gender:Female' },
+              { text: '👨 Male', callback_data: 'match_my_gender:Male' },
             ],
           ],
         },
@@ -343,7 +361,7 @@ Please type your max budget directly in chat below:
       gridRows.push([
         {
           text: isAllSelected
-            ? '🟦 ✅ ALL Sub-Cities Selected (Proceed ➡️)'
+            ? '✅ ALL Sub-Cities Selected (Proceed ➡️)'
             : '🌐 Select ALL Sub-Cities & Proceed ➡️',
           callback_data: 'seeker_select_all_and_proceed',
         },
@@ -354,7 +372,7 @@ Please type your max budget directly in chat below:
         const item1 = ALL_SUBCITIES[i];
         const isSel1 = selectedList.includes(item1);
         row.push({
-          text: `${isSel1 ? '🟦 ✅' : '📍'} ${item1}`,
+          text: `${isSel1 ? '✅' : '📍'} ${item1}`,
           callback_data: `seeker_toggle_sub:${item1}`,
         });
 
@@ -362,7 +380,7 @@ Please type your max budget directly in chat below:
           const item2 = ALL_SUBCITIES[i + 1];
           const isSel2 = selectedList.includes(item2);
           row.push({
-            text: `${isSel2 ? '🟦 ✅' : '📍'} ${item2}`,
+            text: `${isSel2 ? '✅' : '📍'} ${item2}`,
             callback_data: `seeker_toggle_sub:${item2}`,
           });
         }
@@ -427,8 +445,8 @@ Choose your gender below:
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🟦 👩 Female', callback_data: 'seeker_my_gender:Female' },
-              { text: '🟦 👨 Male', callback_data: 'seeker_my_gender:Male' },
+              { text: '👩 Female', callback_data: 'seeker_my_gender:Female' },
+              { text: '👨 Male', callback_data: 'seeker_my_gender:Male' },
             ],
             [{ text: '⬅️ Back to Sub-Cities', callback_data: 'seeker_subcity_menu' }],
           ],
@@ -460,11 +478,11 @@ What gender roommate are you looking to share a space with?
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🟦 👩 Female Only', callback_data: 'seeker_pref_gender:Female' },
-              { text: '🟦 👨 Male Only', callback_data: 'seeker_pref_gender:Male' },
+              { text: '👩 Female Only', callback_data: 'seeker_pref_gender:Female' },
+              { text: '👨 Male Only', callback_data: 'seeker_pref_gender:Male' },
             ],
             [
-              { text: '🟦 👫 Any Gender Compatible', callback_data: 'seeker_pref_gender:Any' },
+              { text: '👫 Any Gender Compatible', callback_data: 'seeker_pref_gender:Any' },
             ],
             [{ text: '⬅️ Back', callback_data: 'seeker_goto_gender' }],
           ],
@@ -565,7 +583,7 @@ Your profile will be verified via Fayda National ID before publishing to the cha
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🟦 ✅ Submit Seeker Profile', callback_data: 'seeker_final_submit' },
+              { text: '✅ Submit Seeker Profile', callback_data: 'seeker_final_submit' },
             ],
             [{ text: '❌ Cancel & Main Menu', callback_data: 'nav_start' }],
           ],
@@ -755,13 +773,13 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
           inline_keyboard: [
             [
               {
-                text: `🟦 💬 Unlock Contact Details (${match.unlock_fee || 50} ETB)`,
+                text: `💬 Unlock Contact Details (${match.unlock_fee || 50} ETB)`,
                 callback_data: `start_unlock_seeker:${match.id}`,
               },
             ],
             [
               {
-                text: '🟦 📱 Open Profile in Mini App',
+                text: '📱 Open Profile in Mini App',
                 web_app: { url: `${appUrl}?startapp=seeker_${match.id}` },
               },
             ],
@@ -780,10 +798,10 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
       const footerKeyboard = {
         inline_keyboard: [
           [
-            { text: '🟦 ➕ Post My Seeker Profile', callback_data: 'seeker_subcity_menu' },
+            { text: '➕ Post My Seeker Profile', callback_data: 'seeker_subcity_menu' },
           ],
           [
-            { text: '🟦 🏠 Share Space to Rent', callback_data: 'property_type' },
+            { text: '🏠 Share Space to Rent', callback_data: 'property_type' },
             { text: '🏠 Main Menu', callback_data: 'nav_start' },
           ],
         ],
@@ -910,7 +928,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🟦 🔍 Return to Roommate Matchmaker', callback_data: 'matchmaker_start' },
+              { text: '🔍 Return to Roommate Matchmaker', callback_data: 'matchmaker_start' },
               { text: '🏠 Main Menu', callback_data: 'nav_start' },
             ],
           ],
@@ -937,10 +955,10 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🟦 🛏️ Shared Room / Roommate Space', callback_data: 'prop_type:shared' }],
-            [{ text: '🟦 🏠 Entire House / Apartment', callback_data: 'prop_type:entire' }],
-            [{ text: '🟦 🏢 Office / Commercial Space', callback_data: 'prop_type:office' }],
-            [{ text: '🟦 🏬 Shop / Commercial Venue', callback_data: 'prop_type:shop' }],
+            [{ text: '🛏️ Shared Room / Roommate Space', callback_data: 'prop_type:shared' }],
+            [{ text: '🏠 Entire House / Apartment', callback_data: 'prop_type:entire' }],
+            [{ text: '🏢 Office / Commercial Space', callback_data: 'prop_type:office' }],
+            [{ text: '🏬 Shop / Commercial Venue', callback_data: 'prop_type:shop' }],
             [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
           ],
         },
@@ -1221,6 +1239,34 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       const chatId: number = message.chat.id;
       const text: string = (message.text || message.caption || '').trim();
       const session = getSession(chatId);
+
+      // Reply Keyboard Button Handler
+      if (text === '🔍 Find Roommate (Matchmaker)' || text === '🔍 Find Roommate') {
+        clearSession(chatId);
+        await sendMatchmakerSubcityStep(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '👥 Post Seeker Profile') {
+        clearSession(chatId);
+        await sendSeekerSubcityStep(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '🏠 Share Space to Rent' || text === '🏠 Share Space / Room for Rent') {
+        clearSession(chatId);
+        await sendPropertyTypePrompt(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '🛡️ Verify Fayda ID') {
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: `<b>🛡️ Fayda National ID Verification</b>\n\nPlease attach and send a photo of your Fayda National ID in chat now for verification!`,
+          parse_mode: 'HTML',
+        });
+        return NextResponse.json({ ok: true });
+      }
 
       // Matchmaker Wizard: Budget Text Input
       if (session.step === 'awaiting_match_budget_input') {
