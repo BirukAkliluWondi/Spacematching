@@ -1,21 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "RoomMatch Ethiopia | Peer-to-Peer Room Rental",
-  description: "Curated room rental mini app for Addis Ababa",
+  title: "SpaceMatch Addis | Roommate Matching & Housing Ecosystem",
+  description: "Primary roommate matching and room rentals for Addis Ababa with Fayda National ID verification.",
 };
 
 export default function RootLayout({
@@ -26,7 +15,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className="h-full antialiased"
     >
       <head>
         <Script
@@ -38,7 +27,7 @@ export default function RootLayout({
           content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
         />
       </head>
-      <body className="min-h-full flex flex-col bg-[#090d16] text-white">
+      <body className="min-h-full flex flex-col bg-[#090d16] text-white font-sans">
         {children}
       </body>
     </html>

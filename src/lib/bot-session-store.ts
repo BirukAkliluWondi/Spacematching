@@ -9,6 +9,25 @@ export interface BotSession {
   updated_at: string;
 }
 
+export interface RoommateProfileDraft {
+  id: string;
+  user_telegram_id: number;
+  user_name: string;
+  username: string | null;
+  preferred_subcity: string[];
+  my_gender: 'Male' | 'Female';
+  preferred_gender: 'Male' | 'Female' | 'Any';
+  budget_min: number;
+  budget_max: number;
+  lifestyle_bio: string;
+  fayda_status: 'unverified' | 'pending' | 'verified' | 'rejected';
+  fayda_document_url?: string | null;
+  unlock_fee: number;
+  status: 'pending_approval' | 'approved' | 'rejected';
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SpaceDraft {
   id: string;
   homeowner_telegram_id: number;
@@ -20,6 +39,8 @@ export interface SpaceDraft {
   description: string;
   exact_address: string;
   contact_phone: string;
+  owner_gender?: string;
+  preferred_tenant_gender?: string;
   photo_file_id: string | null;
   photo_url: string | null;
   status: 'pending' | 'approved' | 'rejected';
@@ -53,6 +74,10 @@ function getSessionsFile(): string {
 
 function getDraftsFile(): string {
   return path.join(getDataDir(), 'pending_space_drafts.json');
+}
+
+function getRoommateDraftsFile(): string {
+  return path.join(getDataDir(), 'pending_roommate_drafts.json');
 }
 
 export function getSession(telegramId: number): BotSession {
@@ -112,6 +137,34 @@ export function getDraft(draftId: string): SpaceDraft | null {
   if (!fs.existsSync(draftsFile)) return null;
   try {
     const drafts: Record<string, SpaceDraft> = JSON.parse(fs.readFileSync(draftsFile, 'utf-8'));
+    return drafts[draftId] || null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveRoommateDraft(draft: RoommateProfileDraft): void {
+  const file = getRoommateDraftsFile();
+  let drafts: Record<string, RoommateProfileDraft> = {};
+  if (fs.existsSync(file)) {
+    try {
+      drafts = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch {}
+  }
+  draft.updated_at = new Date().toISOString();
+  drafts[draft.id] = draft;
+  try {
+    fs.writeFileSync(file, JSON.stringify(drafts, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save roommate draft to disk:', err);
+  }
+}
+
+export function getRoommateDraft(draftId: string): RoommateProfileDraft | null {
+  const file = getRoommateDraftsFile();
+  if (!fs.existsSync(file)) return null;
+  try {
+    const drafts: Record<string, RoommateProfileDraft> = JSON.parse(fs.readFileSync(file, 'utf-8'));
     return drafts[draftId] || null;
   } catch {
     return null;
