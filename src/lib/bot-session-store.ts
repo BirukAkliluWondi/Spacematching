@@ -170,3 +170,25 @@ export function getRoommateDraft(draftId: string): RoommateProfileDraft | null {
     return null;
   }
 }
+
+export function getAllSpaceDrafts(): Record<string, SpaceDraft> {
+  const draftsFile = getDraftsFile();
+  if (!fs.existsSync(draftsFile)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(draftsFile, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+export function getAllRoommateDrafts(): Record<string, RoommateProfileDraft> {
+  const file = getRoommateDraftsFile();
+  if (!fs.existsSync(file)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+
