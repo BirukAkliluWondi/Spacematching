@@ -1,38 +1,17 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { FeedView, SpaceSummary } from '@/components/FeedView';
+import { FeedView, SpaceSummary, RoommateSeekerSummary } from '@/components/FeedView';
 import { SpaceDetailSheet } from '@/components/SpaceDetailSheet';
 import { FaydaUploadModal } from '@/components/FaydaUploadModal';
-import { ShieldAlert } from 'lucide-react';
 
 const FALLBACK_SPACES: SpaceSummary[] = [
-  {
-    id: '73d7815e-c01b-4b0d-9bf4-9668cffcdd73',
-    title: 'Hdhhd',
-    description: 'Jdjjd',
-    price_per_month: 25,
-    unlock_fee: 50,
-    neighborhood: 'Jdjjd',
-    amenities: [],
-    rules: [],
-    status: 'published',
-    contact_name: 'Biruk ade',
-    created_at: new Date().toISOString(),
-    space_images: [
-      {
-        id: 'img-approved',
-        image_path: 'https://lzatfklszrovfqoyufnt.supabase.co/storage/v1/object/public/spaces-public/space_test_1789656866406.jpg',
-        display_order: 0,
-      },
-    ],
-  },
   {
     id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
     title: 'Modern Single Studio Room in Bole Atlas',
     description: 'Cozy, fully furnished room with private bathroom, high-speed WiFi, 24/7 security, and generator back-up. Walking distance to Edna Mall.',
     price_per_month: 12500,
-    unlock_fee: 100,
+    unlock_fee: 50,
     neighborhood: 'Bole Atlas',
     amenities: ['WiFi', 'Furnished', 'Private Bath', 'Backup Generator', 'Parking'],
     rules: ['No smoking', 'Quiet hours after 10 PM', 'No pets'],
@@ -52,7 +31,7 @@ const FALLBACK_SPACES: SpaceSummary[] = [
     title: 'Spacious Master Bedroom in Kazanchis',
     description: 'Sunlit room with balcony, dedicated workspace, shared kitchen, and water tanker. Located near UNECA and Intercontinental Hotel.',
     price_per_month: 15000,
-    unlock_fee: 150,
+    unlock_fee: 50,
     neighborhood: 'Kazanchis',
     amenities: ['WiFi', 'Balcony', 'Workspace', 'Shared Kitchen', 'Hot Shower'],
     rules: ['Professional renters preferred', 'No overnight unregistered guests'],
@@ -73,10 +52,10 @@ export default function Home() {
   const [telegramUser, setTelegramUser] = useState<any>(null);
   const [faydaStatus, setFaydaStatus] = useState<string>('pending');
   const [spaces, setSpaces] = useState<SpaceSummary[]>(FALLBACK_SPACES);
+  const [seekers, setSeekers] = useState<RoommateSeekerSummary[]>([]);
   const [isLoadingSpaces, setIsLoadingSpaces] = useState<boolean>(false);
   const [selectedSpace, setSelectedSpace] = useState<SpaceSummary | null>(null);
   const [isFaydaModalOpen, setIsFaydaModalOpen] = useState<boolean>(false);
-  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(false);
 
   // Initialize Telegram Mini App & Authenticate User
   useEffect(() => {
@@ -130,34 +109,42 @@ export default function Home() {
         }
       } catch (err) {
         console.error('TMA Auth Error:', err);
-      } finally {
-        setIsAuthLoading(false);
       }
     }
 
     initTelegramApp();
   }, []);
 
-  // Fetch Public Curated Spaces List from Server
+  // Fetch Public Curated Spaces & Roommates List from Server
   useEffect(() => {
-    async function fetchSpaces() {
+    async function fetchAppData() {
       try {
-        const res = await fetch('/api/spaces');
-        const data = await res.json();
-        if (data.success && Array.isArray(data.spaces) && data.spaces.length > 0) {
-          setSpaces(data.spaces);
+        setIsLoadingSpaces(true);
+        const [spacesRes, roommatesRes] = await Promise.all([
+          fetch('/api/spaces'),
+          fetch('/api/roommates'),
+        ]);
+
+        const spacesData = await spacesRes.json();
+        if (spacesData.success && Array.isArray(spacesData.spaces) && spacesData.spaces.length > 0) {
+          setSpaces(spacesData.spaces);
+        }
+
+        const roommatesData = await roommatesRes.json();
+        if (roommatesData.success && Array.isArray(roommatesData.seekers) && roommatesData.seekers.length > 0) {
+          setSeekers(roommatesData.seekers);
         }
       } catch (err) {
-        console.error('Failed to fetch live spaces:', err);
+        console.error('Failed to fetch live app data:', err);
       } finally {
         setIsLoadingSpaces(false);
       }
     }
 
-    fetchSpaces();
+    fetchAppData();
   }, []);
 
-  // Detect Telegram Mini App Deep Link (startapp=listing_{id} or start_param=listing_{id})
+  // Detect Telegram Mini App Deep Link
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -201,35 +188,34 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#EBECEF] text-slate-900 flex justify-center selection:bg-rose-500 selection:text-white">
       <div className="w-full max-w-md sm:max-w-lg min-h-screen bg-[#F5F5F7] shadow-2xl border-x border-slate-300/60 relative flex flex-col">
+        {/* Main Feed View */}
+        <FeedView
+          spaces={spaces}
+          seekers={seekers}
+          isLoading={isLoadingSpaces}
+          onSelectSpace={handleSelectSpace}
+          botUsername={process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot'}
+          onOpenFaydaModal={() => setIsFaydaModalOpen(true)}
+          faydaStatus={faydaStatus}
+        />
 
+        {/* Space Detail Sheet Drawer */}
+        <SpaceDetailSheet
+          space={selectedSpace}
+          onClose={() => setSelectedSpace(null)}
+          telegramId={currentTelegramId}
+        />
 
-      {/* Main Feed View */}
-      <FeedView
-        spaces={spaces}
-        isLoading={isLoadingSpaces}
-        onSelectSpace={handleSelectSpace}
-        botUsername={process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot'}
-        onOpenFaydaModal={() => setIsFaydaModalOpen(true)}
-        faydaStatus={faydaStatus}
-      />
-
-      {/* Space Detail Sheet Drawer */}
-      <SpaceDetailSheet
-        space={selectedSpace}
-        onClose={() => setSelectedSpace(null)}
-        telegramId={currentTelegramId}
-      />
-
-      {/* Fayda Upload Modal */}
-      <FaydaUploadModal
-        isOpen={isFaydaModalOpen}
-        onClose={() => setIsFaydaModalOpen(false)}
-        telegramId={currentTelegramId}
-        faydaStatus={faydaStatus}
-        onUploadSuccess={() => {
-          setFaydaStatus('pending');
-        }}
-      />
+        {/* Fayda Upload Modal */}
+        <FaydaUploadModal
+          isOpen={isFaydaModalOpen}
+          onClose={() => setIsFaydaModalOpen(false)}
+          telegramId={currentTelegramId}
+          faydaStatus={faydaStatus}
+          onUploadSuccess={() => {
+            setFaydaStatus('pending');
+          }}
+        />
       </div>
     </div>
   );

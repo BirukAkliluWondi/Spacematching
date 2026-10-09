@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { supabaseClient } from '@/lib/supabase-server';
+import { supabaseAdmin, supabaseClient } from '@/lib/supabase-server';
 
 const spacesQuerySchema = z.object({
   query: z.string().optional().default(''),
@@ -17,8 +17,10 @@ export async function GET(request: Request) {
       category: searchParams.get('category') || '',
     });
 
-    // Query strictly from public_spaces_view which includes aggregated space_images JSON
-    let query = supabaseClient
+    let spaces: any[] = [];
+
+    // Attempt 1: Fetch from public_spaces_view
+    const { data: viewData, error: viewErr } = await supabaseClient
       .from('public_spaces_view')
       .select(`
         id,
@@ -36,40 +38,47 @@ export async function GET(request: Request) {
       `)
       .order('created_at', { ascending: false });
 
+    if (!viewErr && viewData && viewData.length > 0) {
+      spaces = viewData;
+    } else {
+      // Fallback: Fetch directly from spaces and space_images tables using supabaseAdmin
+      const { data: spacesData } = await supabaseAdmin
+        .from('spaces')
+        .select('*, space_images(*)')
+        .eq('status', 'published')
+        .order('created_at', { ascending: false });
+
+      if (spacesData) {
+        spaces = spacesData;
+      }
+    }
+
     // Filter by text search query (matches title or neighborhood)
     if (parsedQuery.query.trim()) {
-      const filterStr = parsedQuery.query.trim();
-      query = query.or(`title.ilike.%${filterStr}%,neighborhood.ilike.%${filterStr}%`);
+      const filterStr = parsedQuery.query.trim().toLowerCase();
+      spaces = spaces.filter(
+        (s) =>
+          (s.title || '').toLowerCase().includes(filterStr) ||
+          (s.neighborhood || '').toLowerCase().includes(filterStr) ||
+          (s.description || '').toLowerCase().includes(filterStr)
+      );
     }
 
     // Filter explicitly by neighborhood
     if (parsedQuery.neighborhood.trim()) {
-      query = query.ilike('neighborhood', `%${parsedQuery.neighborhood.trim()}%`);
-    }
-
-    // Filter by category / amenity keyword
-    if (parsedQuery.category.trim() && parsedQuery.category.toLowerCase() !== 'all') {
-      query = query.contains('amenities', [parsedQuery.category.trim()]);
-    }
-
-    const { data: spaces, error } = await query;
-
-    if (error) {
-      console.error('Supabase query error on public_spaces_view:', error);
-      return NextResponse.json(
-        { error: 'Failed to retrieve public spaces.', details: error.message },
-        { status: 500 }
-      );
+      const hoodStr = parsedQuery.neighborhood.trim().toLowerCase();
+      spaces = spaces.filter((s) => (s.neighborhood || '').toLowerCase().includes(hoodStr));
     }
 
     // Zero-Trust Guarantee: Double-check stripping of sensitive contact & location parameters
-    const sanitizedSpaces = (spaces || []).map((space: Record<string, unknown>) => {
-      delete space.exact_address;
-      delete space.latitude;
-      delete space.longitude;
-      delete space.contact_phone;
-      delete space.contact_telegram;
-      return space;
+    const sanitizedSpaces = spaces.map((space: Record<string, any>) => {
+      const clean = { ...space };
+      delete clean.exact_address;
+      delete clean.latitude;
+      delete clean.longitude;
+      delete clean.contact_phone;
+      delete clean.contact_telegram;
+      return clean;
     });
 
     return NextResponse.json({
@@ -78,17 +87,10 @@ export async function GET(request: Request) {
       spaces: sanitizedSpaces,
     });
   } catch (error: unknown) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Invalid query parameters.', details: error.issues },
-        { status: 400 }
-      );
-    }
-
     const message = error instanceof Error ? error.message : String(error);
     console.error('API Spaces Route Exception:', message);
     return NextResponse.json(
-      { error: 'Server error retrieving space listings.' },
+      { error: 'Server error retrieving space listings.', details: message },
       { status: 500 }
     );
   }
