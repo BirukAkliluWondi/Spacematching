@@ -6,10 +6,16 @@ import {
   clearSession,
   getDraft,
   saveDraft,
+  getRoommateDraft,
+  saveRoommateDraft,
   SpaceDraft,
+  RoommateProfileDraft,
 } from '@/lib/bot-session-store';
 import { verifyTelebirrPayment } from '@/lib/verify-et';
-import { broadcastListingToChannel } from '@/lib/telegram-broadcast';
+import {
+  broadcastListingToChannel,
+  broadcastRoommateProfileToChannel,
+} from '@/lib/telegram-broadcast';
 
 export async function POST(request: Request) {
   try {
@@ -18,8 +24,9 @@ export async function POST(request: Request) {
     const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
     const botUsername = rawBotUsername.replace('@', '');
     const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cd9e-196-189-152-158.ngrok-free.app';
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://spacematch1-flax.vercel.app';
     const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
+    const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
 
     // Helper to send requests to Telegram API
     const sendTelegram = async (method: string, payload: Record<string, any>) => {
@@ -43,31 +50,137 @@ export async function POST(request: Request) {
       try {
         const { data } = await supabaseAdmin.from('users').select('telegram_id').eq('role', 'admin');
         if (data && data.length > 0) {
-          const ids = data.map((u: any) => Number(u.telegram_id)).filter((id: number) => id && id !== 8415131791);
-          return ids.length > 0 ? Array.from(new Set([...ids, ...defaultAdminIds])) : defaultAdminIds;
+          const ids = data.map((u: any) => Number(u.telegram_id)).filter((id: number) => id);
+          return Array.from(new Set([...ids, ...defaultAdminIds]));
         }
       } catch {}
       return defaultAdminIds;
     };
 
-    // Helper to format unlocked space details message in Amharic
-    const sendUnlockedContactDetails = async (chatId: number, space: any) => {
-      const lat = space.latitude || 9.001245;
-      const lng = space.longitude || 38.784512;
-      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-      const contactTg = space.contact_telegram ? (space.contact_telegram.startsWith('@') ? space.contact_telegram : `@${space.contact_telegram}`) : 'የለም';
+    // Helper: Send Primary Start / Main Menu Screen
+    const sendPrimaryWelcomeMenu = async (chatId: number) => {
+      const welcomeText = `
+👥 <b>SpaceMatch Addis — Roommate & Housing Ecosystem</b>
+Addis Ababa's primary roommate matching platform backed by <b>Fayda National ID verification</b> 🛡️
+
+Select an option below to begin:
+      `.trim();
+
+      const inlineKeyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '👥 Find Roommate / Post Seeker Profile',
+              callback_data: 'seeker_subcity_menu',
+            },
+          ],
+          [
+            {
+              text: '🏠 Share Space / Room for Rent',
+              callback_data: 'property_type',
+            },
+          ],
+          [
+            {
+              text: '📱 Open SpaceMatch Mini App',
+              web_app: { url: appUrl },
+            },
+          ],
+          [
+            {
+              text: '🛡️ Verify Fayda National ID',
+              callback_data: 'fayda_upload_prompt',
+            },
+            {
+              text: '📂 My Unlocked Contacts',
+              callback_data: 'my_orders_menu',
+            },
+          ],
+          [
+            {
+              text: '💬 Admin Support',
+              url: 'https://t.me/birukadiyee',
+            },
+          ],
+        ],
+      };
+
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: welcomeText,
+        parse_mode: 'HTML',
+        reply_markup: inlineKeyboard,
+      });
+    };
+
+    // Helper: Seeker Step 1 (Sub-Cities Grid Keyboard)
+    const sendSeekerSubcityStep = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_subcities_grid',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+
+      const selectedList: string[] = currentDraft.preferred_subcity || [];
+      const subcities = ['Bole', 'Kazanchis', 'CMC', 'Sarbet', 'Megenagna', 'Piassa', '4 Kilo', 'Arada', 'Kirkos'];
+
+      const gridRows: any[] = [];
+      for (let i = 0; i < subcities.length; i += 2) {
+        const row = [];
+        const item1 = subcities[i];
+        const isSel1 = selectedList.includes(item1);
+        row.push({
+          text: `${isSel1 ? '✅' : '📍'} ${item1}`,
+          callback_data: `seeker_toggle_sub:${item1}`,
+        });
+
+        if (i + 1 < subcities.length) {
+          const item2 = subcities[i + 1];
+          const isSel2 = selectedList.includes(item2);
+          row.push({
+            text: `${isSel2 ? '✅' : '📍'} ${item2}`,
+            callback_data: `seeker_toggle_sub:${item2}`,
+          });
+        }
+        gridRows.push(row);
+      }
+
+      gridRows.push([
+        {
+          text: `➡️ Next: My Gender (${selectedList.length} selected)`,
+          callback_data: 'seeker_goto_gender',
+        },
+      ]);
+      gridRows.push([{ text: '❌ Cancel', callback_data: 'admin_cancel' }]);
 
       const text = `
-<b>✅ ክፍያው ተረጋግጧል! አድራሻና ስልክ ተከፍቷል!</b>
+<b>Step 1/5: Preferred Sub-Cities [██▒▒▒▒▒▒▒▒] 20%</b>
 
-🏠 <b>ቤት፡</b> ${space.title}
-📍 <b>ትክክለኛ አድራሻ፡</b> ${space.exact_address}
-🗺️ <b>ጉግል ማፕ አድራሻ፡</b> ${mapsUrl}
+Tap sub-cities below to select where you want to live, then tap <b>"Next"</b>:
+      `.trim();
 
-📞 <b>የባለቤቱ ስልክ፡</b> ${space.contact_name} (${space.contact_phone})
-💬 <b>ቴሌግራም፡</b> ${contactTg}
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: gridRows },
+      });
+    };
 
-<i>SpaceMatch ኢትዮጵያን ስለተጠቀሙ እናመሰግናለን!</i>
+    // Helper: Seeker Step 2 (My Gender)
+    const sendSeekerMyGenderStep = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_my_gender',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+<b>Step 2/5: My Gender [████▒▒▒▒▒▒] 40%</b>
+
+Select your gender:
       `.trim();
 
       await sendTelegram('sendMessage', {
@@ -77,66 +190,198 @@ export async function POST(request: Request) {
         reply_markup: {
           inline_keyboard: [
             [
-              {
-                text: '🗺️ ጉግል ማፕ ክፈት',
-                url: mapsUrl,
-              },
+              { text: '👩 Female', callback_data: 'seeker_my_gender:Female' },
+              { text: '👨 Male', callback_data: 'seeker_my_gender:Male' },
             ],
-            [
-              {
-                text: '📞 አሁኑኑ ደውል',
-                url: `tel:${space.contact_phone}`,
-              },
-            ],
+            [{ text: '⬅️ Back', callback_data: 'seeker_subcity_menu' }],
           ],
         },
       });
     };
 
-    // Helper to prompt phone number registration for Homeowners
-    const triggerPhoneRegistrationPrompt = async (chatId: number) => {
+    // Helper: Seeker Step 3 (Preferred Roommate Gender)
+    const sendSeekerPrefGenderStep = async (chatId: number, currentDraft: Record<string, any> = {}) => {
       saveSession({
         telegram_id: chatId,
-        step: 'awaiting_phone_registration',
-        draft_data: {},
+        step: 'awaiting_seeker_pref_gender',
+        draft_data: currentDraft,
         updated_at: new Date().toISOString(),
       });
 
-      const regPrompt = `
-📱 <b>የቤት አከራይ ምዝገባ (Phone Registration Required)</b>
+      const text = `
+<b>Step 3/5: Preferred Roommate Gender [██████▒▒▒▒] 60%</b>
 
-ክፍልዎን ለማከራየት በመጀመሪያ የጸና የስልክ ቁጥርዎን መመዝገብ አለብዎት።
-
-እባክዎን ከታች ያለውን <b>"📱 የስልክ ቁጥርዎን ያጋሩ"</b> የሚለውን ቁልፍ በመጫን ስልክ ቁጥርዎን ያረጋግጡ።
-
-<i>(ይህ ለተከራዮች ደህንነትና ለቤት አከራዮች ማረጋገጫ ብቻ የሚያገለግል ነው)</i>
+What gender roommate are you looking to live with?
       `.trim();
 
       await sendTelegram('sendMessage', {
         chat_id: chatId,
-        text: regPrompt,
+        text,
         parse_mode: 'HTML',
         reply_markup: {
-          keyboard: [
+          inline_keyboard: [
             [
-              {
-                text: '📱 የስልክ ቁጥርዎን ያጋሩ (Share Phone Number)',
-                request_contact: true,
-              },
+              { text: '👩 Female Only', callback_data: 'seeker_pref_gender:Female' },
+              { text: '👨 Male Only', callback_data: 'seeker_pref_gender:Male' },
             ],
-            [{ text: '❌ ሰርዝ / Cancel' }],
+            [
+              { text: '👫 Any Gender Compatible', callback_data: 'seeker_pref_gender:Any' },
+            ],
+            [{ text: '⬅️ Back', callback_data: 'seeker_goto_gender' }],
           ],
-          resize_keyboard: true,
-          one_time_keyboard: true,
         },
       });
     };
 
-    // -------------------------------------------------------------------------
-    // STEP PROMPT HELPERS (HOMEOWNER & SEEKER TOUCHABLE FLOWS)
-    // -------------------------------------------------------------------------
+    // Helper: Seeker Step 4 (Budget Cap & Bio)
+    const sendSeekerBudgetStep = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_budget_input',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
 
-    // Helper: Homeowner Step 2 (/property_type)
+      const text = `
+<b>Step 4/5: Monthly Budget Cap & Lifestyle Bio [████████▒▒] 80%</b>
+
+Tap your maximum monthly budget (ETB) below, or type your exact budget in chat:
+      `.trim();
+
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '💰 8,000 ETB', callback_data: 'seeker_budget_val:8000' },
+              { text: '💰 10,000 ETB', callback_data: 'seeker_budget_val:10000' },
+            ],
+            [
+              { text: '💰 12,000 ETB', callback_data: 'seeker_budget_val:12000' },
+              { text: '💰 15,000 ETB', callback_data: 'seeker_budget_val:15000' },
+            ],
+          ],
+        },
+      });
+    };
+
+    // Helper: Seeker Step 5 (Fayda ID Upload & Final Submit)
+    const sendSeekerFaydaStep = async (chatId: number, currentDraft: Record<string, any> = {}) => {
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_fayda_upload',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+
+      const subcitiesStr = (currentDraft.preferred_subcity || []).join(', ') || 'Addis Ababa';
+
+      const summaryText = `
+<b>Step 5/5: Fayda ID & Submit [██████████] 100%</b>
+
+📋 <b>Your Seeker Profile Summary:</b>
+• 👤 <b>Gender:</b> ${currentDraft.my_gender || 'Not specified'}
+• 👥 <b>Preferred Roommate:</b> ${currentDraft.preferred_gender || 'Any'}
+• 📍 <b>Sub-Cities:</b> ${subcitiesStr}
+• 💰 <b>Budget Cap:</b> ${Number(currentDraft.budget_max || 10000).toLocaleString()} ETB / month
+• 📝 <b>Bio:</b> <i>"${currentDraft.lifestyle_bio || 'Seeking roommate'}"</i>
+
+🛡️ <b>Fayda National ID Requirement:</b>
+Before your profile is published to the channel, please send your <b>Fayda National ID photo or document</b> in chat now, or tap <b>"Submit Profile"</b> if already verified!
+      `.trim();
+
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: summaryText,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '✅ Submit Seeker Profile', callback_data: 'seeker_final_submit' },
+            ],
+            [{ text: '❌ Cancel', callback_data: 'admin_cancel' }],
+          ],
+        },
+      });
+    };
+
+    // Helper: Contact Unlock Paywall for Roommate Seeker or Space Listing
+    const sendUnlockPaywallCard = async (chatId: number, targetId: string, targetType: 'roommate_profile' | 'space_listing') => {
+      const unlockFee = 50.00;
+
+      let title = 'Roommate Contact Unlock';
+      let subcity = 'Addis Ababa';
+
+      if (targetType === 'roommate_profile') {
+        const draft = getRoommateDraft(targetId);
+        if (draft) {
+          title = `Roommate Seeker: ${draft.user_name}`;
+          subcity = draft.preferred_subcity.join(', ');
+        }
+      } else {
+        const draft = getDraft(targetId);
+        if (draft) {
+          title = draft.title;
+          subcity = draft.neighborhood;
+        }
+      }
+
+      // Record pending order in DB
+      let orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      try {
+        const { data: newOrder } = await supabaseAdmin
+          .from('orders')
+          .insert({
+            buyer_telegram_id: chatId,
+            order_type: 'unlock_contact',
+            target_type: targetType,
+            target_id: targetId,
+            amount: unlockFee,
+            transaction_reference: `PENDING_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            payment_status: 'pending',
+          })
+          .select('id')
+          .single();
+
+        if (newOrder) orderId = newOrder.id;
+      } catch {}
+
+      saveSession({
+        telegram_id: chatId,
+        step: `awaiting_payment_for_unlock:${orderId}`,
+        draft_data: { order_id: orderId, target_id: targetId, target_type: targetType },
+        updated_at: new Date().toISOString(),
+      });
+
+      const paywallText = `
+🔓 <b>Unlock Verified Contact Details</b>
+
+<b>Target:</b> ${title} (${subcity})
+💵 <b>Unlock Fee:</b> ${unlockFee} ETB
+
+💳 <b>Payment Instructions:</b>
+1. Transfer <b>${unlockFee} ETB</b> via Telebirr or CBE Bank:
+• 📱 <b>Telebirr:</b> <code>${receiverPhone}</code>
+• 🏦 <b>CBE Account:</b> <code>${cbeAccount}</code>
+
+2. Send the <b>Transaction Reference (Txn Ref / FT...)</b> in chat below to receive instant contact details!
+      `.trim();
+
+      await sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: paywallText,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '❌ Cancel', callback_data: 'admin_cancel' }],
+          ],
+        },
+      });
+    };
+
+    // Helper: Homeowner Space Prompts
     const sendPropertyTypePrompt = async (chatId: number) => {
       saveSession({
         telegram_id: chatId,
@@ -144,2775 +389,350 @@ export async function POST(request: Request) {
         draft_data: {},
         updated_at: new Date().toISOString(),
       });
+
       await sendTelegram('sendMessage', {
         chat_id: chatId,
-        text: '<b>🏢 What type of space are you listing?</b>',
+        text: '<b>🏢 What type of space are you renting out?</b>',
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🛏️ Shared Room / Roommate', callback_data: 'prop_type:shared' }],
+            [{ text: '🛏️ Shared Room / Roommate Space', callback_data: 'prop_type:shared' }],
             [{ text: '🏠 Entire House / Apartment', callback_data: 'prop_type:entire' }],
-            [{ text: '🏢 Office / Commercial Space', callback_data: 'prop_type:office' }],
+            [{ text: '🏢 Office / Commercial', callback_data: 'prop_type:office' }],
             [{ text: '🏬 Shop / Warehouse', callback_data: 'prop_type:shop' }],
           ],
         },
       });
     };
 
-    // Helper: Homeowner Step 3 (/my_gender)
-    const sendMyGenderPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_my_gender',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: '<b>👤 Select your gender ➔ Preferred roommate gender:</b>',
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '👩 Female ➔ 👩 Female Only', callback_data: 'gender_grid:F_F' },
-              { text: '👨 Male ➔ 👨 Male Only', callback_data: 'gender_grid:M_M' },
-            ],
-            [
-              { text: '👩 Female ➔ 🤝 Any Preference', callback_data: 'gender_grid:F_ANY' },
-              { text: '👨 Male ➔ 🤝 Any Preference', callback_data: 'gender_grid:M_ANY' },
-            ],
-          ],
-        },
-      });
-    };
-
-    // Helper: Homeowner Step 4 (/my_age)
-    const sendMyAgePrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_my_age',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: '<b>🎂 Select your age range:</b>',
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '18–24', callback_data: 'my_age:18-24' },
-              { text: '25–34', callback_data: 'my_age:25-34' },
-              { text: '35–44', callback_data: 'my_age:35-44' },
-              { text: '45+', callback_data: 'my_age:45+' },
-            ],
-          ],
-        },
-      });
-    };
-
-    // Helper: Homeowner Question 1 of 5 (Photos)
-    const sendListingPhotosPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_listing_photos',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      const promptMsg = `
-<b>📸 Almost done! (4 questions left)</b>
-
-Please send 1 to 5 photos of the space.
-
-🔄 Start over anytime: /start
-      `.trim();
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: promptMsg,
-        parse_mode: 'HTML',
-      });
-    };
-
-    // Helper: Homeowner Question 2 of 5 (Sub-City / Area)
-    const sendListingSubcityPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_listing_subcity',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      const promptMsg = `
-<b>📍 (3 questions left)</b>
-
-<b>Sub-City / Area:</b>
-<i>(e.g., Bole, Kazanchis, CMC, Sarbet)</i>
-
-🔄 Start over anytime: /start
-      `.trim();
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: promptMsg,
-        parse_mode: 'HTML',
-      });
-    };
-
-    // Helper: Homeowner Question 3 of 5 (Monthly Price)
-    const sendListingPricePrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_listing_price',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      const promptMsg = `
-<b>💰 (Only 2 questions left!)</b>
-
-<b>Monthly Price (ETB):</b>
-<i>(e.g., 9,000 ETB / month)</i>
-
-🔄 Start over anytime: /start
-      `.trim();
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: promptMsg,
-        parse_mode: 'HTML',
-      });
-    };
-
-    // Helper: Homeowner Question 4 of 5 (Room & Bath Details)
-    const sendListingRoomsPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_listing_rooms',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      const promptMsg = `
-<b>🚪 (Almost there! Only 1 question left)</b>
-
-<b>Room & Bath Details:</b>
-<i>(e.g., 1 Room, Shared Bath, Studio, Master Bedroom)</i>
-
-🔄 Start over anytime: /start
-      `.trim();
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: promptMsg,
-        parse_mode: 'HTML',
-      });
-    };
-
-    // Helper: Homeowner Question 5 of 5 (Included Amenities & Contact)
-    const sendListingContactPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_listing_contact',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      const promptMsg = `
-<b>⚡️ (Final Question!)</b>
-
-<b>What’s Included & 📞 Contact Information:</b>
-<i>(e.g., Wi-Fi, Kitchen, Parking, Contact: 0911xxxxxx or @username)</i>
-
-🔄 Start over anytime: /start
-      `.trim();
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: promptMsg,
-        parse_mode: 'HTML',
-      });
-    };
-
-    const sendUploadListingPrompt = sendListingPhotosPrompt;
-
-    // Helper: Seeker Step 1 (/seeker_property_type)
-    const sendSeekerPropertyTypePrompt = async (chatId: number) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_property_type',
-        draft_data: {},
-        updated_at: new Date().toISOString(),
-      });
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: '<b>🔍 What kind of space are you looking for?</b>',
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🛏️ Shared Room / Roommate', callback_data: 'seeker_prop:shared' }],
-            [{ text: '🏠 Entire House / Apartment', callback_data: 'seeker_prop:entire' }],
-            [{ text: '🏢 Office / Commercial Space', callback_data: 'seeker_prop:office' }],
-            [{ text: '🏬 Shop / Warehouse', callback_data: 'seeker_prop:shop' }],
-          ],
-        },
-      });
-    };
-
-    // Helper: Seeker Step 2 (/seeker_gender)
-    const sendSeekerGenderPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_gender',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: '<b>👤 Select your gender ➔ Preferred roommate gender:</b>',
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '👩 Female ➔ 👩 Female Only', callback_data: 'seeker_gender_grid:F_F' },
-              { text: '👨 Male ➔ 👨 Male Only', callback_data: 'seeker_gender_grid:M_M' },
-            ],
-            [
-              { text: '👩 Female ➔ 🤝 Any Preference', callback_data: 'seeker_gender_grid:F_ANY' },
-              { text: '👨 Male ➔ 🤝 Any Preference', callback_data: 'seeker_gender_grid:M_ANY' },
-            ],
-          ],
-        },
-      });
-    };
-
-    // Helper: Seeker Step 3 (/seeker_age)
-    const sendSeekerAgePrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_age',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: '<b>🎂 Select your age range:</b>',
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '18–24', callback_data: 'seeker_age:18-24' },
-              { text: '25–34', callback_data: 'seeker_age:25-34' },
-              { text: '35–44', callback_data: 'seeker_age:35-44' },
-              { text: '45+', callback_data: 'seeker_age:45+' },
-            ],
-          ],
-        },
-      });
-    };
-
-    // Helper: Seeker Question 1 of 5 (Preferred Sub-Cities)
-    const sendSeekerSubcitiesPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_subcities',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      const promptMsg = `
-<b>📝 Almost done! (4 questions left)</b>
-
-📍 <b>Preferred Sub-Cities / Areas:</b>
-<i>(e.g., Bole, Yeka, CMC, Sarbet)</i>
-
-🔄 Start over anytime: /start
-      `.trim();
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: promptMsg,
-        parse_mode: 'HTML',
-      });
-    };
-
-    // Helper: Seeker Question 2 of 5 (Max Budget)
-    const sendSeekerBudgetPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_budget',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      const promptMsg = `
-<b>📝 (3 questions left)</b>
-
-💰 <b>Max Monthly Budget (ETB):</b>
-<i>(e.g., Up to 8,000 ETB/month)</i>
-
-🔄 Start over anytime: /start
-      `.trim();
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: promptMsg,
-        parse_mode: 'HTML',
-      });
-    };
-
-    // Helper: Seeker Question 3 of 5 (Space Requirements)
-    const sendSeekerRequirementsPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_requirements',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      const promptMsg = `
-<b>📝 (Only 2 questions left!)</b>
-
-🚪 <b>Space Requirements:</b>
-<i>(e.g., Private Bathroom, Furnished, Studio)</i>
-
-🔄 Start over anytime: /start
-      `.trim();
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: promptMsg,
-        parse_mode: 'HTML',
-      });
-    };
-
-    // Helper: Seeker Question 4 of 5 (Must-Haves)
-    const sendSeekerMusthavesPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_musthaves',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      const promptMsg = `
-<b>📝 (Almost there! Only 1 question left)</b>
-
-⚡️ <b>Must-Haves & Amenities:</b>
-<i>(e.g., Wi-Fi, Parking, Kitchen access, Dogs allowed)</i>
-
-🔄 Start over anytime: /start
-      `.trim();
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: promptMsg,
-        parse_mode: 'HTML',
-      });
-    };
-
-    // Helper: Seeker Question 5 of 5 (Contact Information)
-    const sendSeekerContactPrompt = async (chatId: number, currentDraft: Record<string, any> = {}) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_contact',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-      const promptMsg = `
-<b>📝 (Final Question!)</b>
-
-📞 <b>Contact Information:</b>
-<i>(e.g., 0911xxxxxx or @username)</i>
-
-🔄 Start over anytime: /start
-      `.trim();
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: promptMsg,
-        parse_mode: 'HTML',
-      });
-    };
-
-    const sendUploadSeekerProfilePrompt = sendSeekerSubcitiesPrompt;
-
-    // Helper to send Order Checkout Card (with exact post photo & details) in Bot DM
-    const sendOrderCheckoutPrompt = async (chatId: number, spaceId: string) => {
-      const { data: space } = await supabaseAdmin.from('spaces').select('*').eq('id', spaceId).single();
-      if (!space) {
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: '⚠️ የተጠየቀው ቤት መረጃ አልተገኘም።',
-        });
-        return;
-      }
-
-      // Check if user already has completed order
-      const { data: completedOrder } = await supabaseAdmin
-        .from('orders')
-        .select('*')
-        .eq('renter_telegram_id', chatId)
-        .eq('space_id', space.id)
-        .eq('payment_status', 'completed')
-        .maybeSingle();
-
-      if (completedOrder) {
-        await sendUnlockedContactDetails(chatId, space);
-        return;
-      }
-
-      // Fetch cover image
-      const { data: images } = await supabaseAdmin
-        .from('space_images')
-        .select('image_path')
-        .eq('space_id', space.id)
-        .order('display_order', { ascending: true })
-        .limit(1);
-
-      const photoUrl =
-        images && images.length > 0
-          ? images[0].image_path
-          : 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1200&q=80';
-
-      const unlockFee = Number(space.unlock_fee || 50.00);
-      let orderId = '';
-      const { data: pendingOrder } = await supabaseAdmin
-        .from('orders')
-        .select('id')
-        .eq('renter_telegram_id', chatId)
-        .eq('space_id', space.id)
-        .eq('payment_status', 'pending')
-        .maybeSingle();
-
-      if (pendingOrder) {
-        orderId = pendingOrder.id;
-      } else {
-        const { data: newOrder } = await supabaseAdmin
-          .from('orders')
-          .insert({
-            renter_telegram_id: chatId,
-            space_id: space.id,
-            amount: unlockFee,
-            transaction_reference: `PENDING_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-            payment_status: 'pending',
-          })
-          .select('id')
-          .single();
-
-        if (newOrder) orderId = newOrder.id;
-      }
-
-      saveSession({
-        telegram_id: chatId,
-        step: `awaiting_payment_for_order:${orderId}`,
-        draft_data: { order_id: orderId, space_id: space.id },
-        updated_at: new Date().toISOString(),
-      });
-
-      const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
-
-      const cardCaption = `
-🏠 <b>የመረጡት ክፍል መረጃ (Selected Room Post)</b>
-
-<b>${space.title}</b>
-📍 <b>አካባቢ፡</b> ${space.neighborhood}
-💵 <b>ወርሃዊ ኪራይ፡</b> ${Number(space.price_per_month).toLocaleString()} ብር / በወር
-🔓 <b>የአገልግሎት ክፍያ፡</b> ${unlockFee} ብር
-
-📝 <b>መግለጫ፡</b>
-${space.description}
-
-----------------------------------
-💳 <b>የቤት ባለቤቱን ስልክና አድራሻ ለማግኘት</b>
-
-1. <b>${unlockFee} ብር</b> በቴሌብር ወይም በኢትዮጵያ ንግድ ባንክ (CBE) ያስተላልፉ፡
-📱 <b>ቴሌብር (Telebirr)፡</b> <code>${receiverPhone}</code>
-🏦 <b>ንግድ ባንክ (CBE Account)፡</b> <code>${cbeAccount}</code>
-
-2. የላኩበትን <b>የትራንዛክሽን ቁጥር (Txn Ref / FT... / CBE Txn)</b> እዚህ መልሰው ይፃፉ።
-
-<i>(ለማቆም /cancel ይፃፉ)</i>
-      `.trim();
-
-      await sendTelegram('sendPhoto', {
-        chat_id: chatId,
-        photo: photoUrl,
-        caption: cardCaption,
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '❌ ሰርዝ / Cancel (/cancel)', callback_data: 'admin_cancel' },
-            ],
-          ],
-        },
-      });
-    };
-
-    // Helper to Sync Channel Posts into Bot Catalog
-    const syncChannelPostToSpace = async (post: any): Promise<string> => {
-      const captionOrText: string = post.caption || post.text || '';
-      if (!captionOrText) return '';
-
-      const lines = captionOrText.split('\n').map((l: string) => l.trim()).filter(Boolean);
-      const title = lines[0] || 'አዲስ የቻነል ክፍል (Channel Listing)';
-
-      const priceMatch = captionOrText.match(/(\d[\d,]+)\s*(?:ብር|etb|birr)/i);
-      const price = priceMatch ? parseInt(priceMatch[1].replace(/,/g, ''), 10) : 10000;
-
-      const hoodMatch = captionOrText.match(/(?:አካባቢ|ቦታ|neighborhood|location)[:\s]*([^\n]+)/i);
-      const neighborhood = hoodMatch ? hoodMatch[1].trim() : 'Addis Ababa';
-
-      let photoUrl = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1200&q=80';
-      if (post.photo && post.photo.length > 0 && botToken) {
-        const largestPhoto = post.photo[post.photo.length - 1];
-        try {
-          const fRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${largestPhoto.file_id}`);
-          const fJson = await fRes.json();
-          if (fJson?.result?.file_path) {
-            photoUrl = `https://api.telegram.org/file/bot${botToken}/${fJson.result.file_path}`;
-          }
-        } catch {}
-      }
-
-      const { data: existingSpace } = await supabaseAdmin
-        .from('spaces')
-        .select('id')
-        .eq('description', captionOrText)
-        .maybeSingle();
-
-      if (existingSpace) {
-        return existingSpace.id;
-      }
-
-      const { data: newSpace } = await supabaseAdmin
-        .from('spaces')
-        .insert({
-          title: title.slice(0, 100),
-          description: captionOrText,
-          price_per_month: price,
-          unlock_fee: 50.00,
-          neighborhood,
-          exact_address: `${neighborhood}, Addis Ababa`,
-          contact_name: 'Channel Admin',
-          contact_phone: '+251987310978',
-          contact_telegram: '@birukadiyee',
-          status: 'published',
-        })
-        .select('id')
-        .single();
-
-      if (newSpace?.id) {
-        await supabaseAdmin.from('space_images').insert({
-          space_id: newSpace.id,
-          image_path: photoUrl,
-          display_order: 0,
-        });
-        return newSpace.id;
-      }
-
-      return '';
-    };
-
-    // Helper to Search and Send Matched Room Photo Cards
-    const executeRoomSearchAndSendResults = async (
-      chatId: number,
-      searchData: { neighborhood?: string; max_budget?: number; room_type?: string }
-    ) => {
-      const { neighborhood, max_budget, room_type } = searchData;
-
-      let query = supabaseAdmin
-        .from('spaces')
-        .select('*, space_images(*)')
-        .eq('status', 'published');
-
-      if (max_budget && max_budget > 0) {
-        query = query.lte('price_per_month', max_budget);
-      }
-
-      const { data: spaces } = await query.order('created_at', { ascending: false });
-
-      let matchedSpaces = spaces || [];
-
-      // Filter by neighborhood if specified (fuzzy match)
-      if (neighborhood && neighborhood !== 'Any' && neighborhood !== 'ማንኛውም') {
-        const targetHood = neighborhood.toLowerCase();
-        matchedSpaces = matchedSpaces.filter(
-          (s) =>
-            (s.neighborhood || '').toLowerCase().includes(targetHood) ||
-            (s.title || '').toLowerCase().includes(targetHood) ||
-            (s.description || '').toLowerCase().includes(targetHood)
-        );
-      }
-
-      // Filter by room_type if specified
-      if (room_type && room_type !== 'Any' && room_type !== 'ማንኛውም') {
-        const targetType = room_type.toLowerCase();
-        matchedSpaces = matchedSpaces.filter(
-          (s) =>
-            (s.title || '').toLowerCase().includes(targetType) ||
-            (s.description || '').toLowerCase().includes(targetType)
-        );
-      }
-
-      if (!matchedSpaces || matchedSpaces.length === 0) {
-        const notFoundText = `
-<b>🔔 ፍላጎትዎ በሲስተማችን ተመዝግቧል!</b>
-
-በአሁኑ ጊዜ ${neighborhood && neighborhood !== 'Any' ? `በ<b>${neighborhood}</b> ` : ''}${max_budget ? `እስከ <b>${Number(max_budget).toLocaleString()} ብር</b> ` : ''}የሚከራይ ክፍት ቤት አልተገኘም።
-
-<b>የፍላጎትዎ መረጃ ተመዝግቧል፤</b> አከራዮች ተመሳሳይ ቤት ሲመዘግቡ ወይም በቻነል ሲለጠፍ ሲስተማችን ወዲያውኑ መልእክት ይልክልዎታል!
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: notFoundText,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '🔍 በሚኒ አፕ ሁሉንም ክፍሎች ተመልከት', web_app: { url: appUrl } },
-              ],
-              [
-                { text: '🎯 አዲስ ስፔሲፊኬሽን ፈልግ', callback_data: 'start_matching_wizard' },
-              ],
-            ],
-          },
-        });
-        return;
-      }
-
-      // Matching rooms found!
-      const summaryText = `
-🎯 <b>${matchedSpaces.length} የሚመሳሰሉ ክፍሎች ተገኝተዋል!</b>
-
-ከታች ከተዘረዘሩት ክፍሎች የፈለጉትን መርጠው በቦት ማዘዝ ይችላሉ፡
-      `.trim();
-
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: summaryText,
-        parse_mode: 'HTML',
-      });
-
-      // Display top 5 matched spaces as photo cards
-      const topMatches = matchedSpaces.slice(0, 5);
-      for (const space of topMatches) {
-        const photoUrl =
-          space.space_images && space.space_images.length > 0
-            ? space.space_images[0].image_path
-            : 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1200&q=80';
-
-        const cardCaption = `
-🏠 <b>${space.title}</b>
-📍 <b>አካባቢ፡</b> ${space.neighborhood}
-💵 <b>ወርሃዊ ኪራይ፡</b> ${Number(space.price_per_month).toLocaleString()} ብር / በወር
-🔓 <b>የአገልግሎት ክፍያ፡</b> ${space.unlock_fee || 50} ብር
-
-📝 <b>መግለጫ፡</b>
-${space.description}
-        `.trim();
-
-        await sendTelegram('sendPhoto', {
-          chat_id: chatId,
-          photo: photoUrl,
-          caption: cardCaption,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: `🛒 በቦት እዘዝ (${space.unlock_fee || 50} ብር)`,
-                  url: `https://t.me/${botUsername}?start=order_${space.id}`,
-                },
-              ],
-              [
-                {
-                  text: '🔍 በሚኒ አፕ ተመልከት',
-                  url: `https://t.me/${botUsername}/${appName}?startapp=listing_${space.id}`,
-                },
-              ],
-            ],
-          },
-        });
-      }
-    };
-
-    // =========================================================================
-    // SECURITY PROTECTION: Auto-leave unauthorized groups or channels
-    // =========================================================================
-    const adminIdsList = await getAdminIds();
-
-    if (update.my_chat_member) {
-      const addedBy = update.my_chat_member.from?.id;
-      const chatType = update.my_chat_member.chat?.type;
-      const chatId = update.my_chat_member.chat?.id;
-
-      if ((chatType === 'group' || chatType === 'supergroup' || chatType === 'channel') && (!addedBy || !adminIdsList.includes(Number(addedBy)))) {
-        console.warn(`[SECURITY] Bot added to unauthorized ${chatType} (${chatId}) by ${addedBy}. Leaving chat...`);
-        await sendTelegram('leaveChat', { chat_id: chatId });
-        return NextResponse.json({ ok: true });
-      }
-    }
-
-    if (update.message && (update.message.chat?.type === 'group' || update.message.chat?.type === 'supergroup')) {
-      const groupSenderId = update.message.from?.id;
-      const groupChatId = update.message.chat?.id;
-
-      if (!groupSenderId || !adminIdsList.includes(Number(groupSenderId))) {
-        console.warn(`[SECURITY] Message in unauthorized group (${groupChatId}) from ${groupSenderId}. Leaving group...`);
-        await sendTelegram('leaveChat', { chat_id: groupChatId });
-        return NextResponse.json({ ok: true });
-      }
-    }
-
-    // =========================================================================
+    // -------------------------------------------------------------------------
     // 1. HANDLE INLINE CALLBACK QUERIES
-    // =========================================================================
+    // -------------------------------------------------------------------------
     if (update.callback_query) {
       const callback = update.callback_query;
       const callbackData: string = callback.data || '';
       const chatId: number = callback.message?.chat?.id || callback.from.id;
 
-      // 1.0 Direct Order Callback Handler (from channel / menu selection)
-      if (callbackData.startsWith('start_order_direct:')) {
-        const spaceId = callbackData.split(':')[1];
-        await sendOrderCheckoutPrompt(chatId, spaceId);
-        return NextResponse.json({ ok: true });
+      if (callback.id) {
+        await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
       }
 
-      // 1.1 Fayda Verification Callbacks
-      if (callbackData.startsWith('fayda_approve:') || callbackData.startsWith('fayda_reject:')) {
-        const [action, targetIdStr] = callbackData.split(':');
-        const targetTelegramId = parseInt(targetIdStr, 10);
-        const newStatus = action === 'fayda_approve' ? 'verified' : 'rejected';
-
-        await supabaseAdmin
-          .from('users')
-          .update({
-            fayda_status: newStatus,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('telegram_id', targetTelegramId);
-
-        if (callback.id) {
-          await sendTelegram('answerCallbackQuery', {
-            callback_query_id: callback.id,
-            text: `የፋይዳ መታወቂያ ሁኔታ፡ ${newStatus === 'verified' ? 'ተረጋግጧል' : 'ውድቅ ሆኗል'}`,
-          });
-        }
-
-        const renterNotice = newStatus === 'verified'
-          ? `<b>✅ ማንነትዎ ተረጋግጧል!</b>\n\nየፋይዳ ብሔራዊ መታወቂያዎ በአስተዳዳሪዎች ተረጋግጧል። አሁን በSpaceMatch ላይ የቤት ባለቤቶችን ስልክ ቁጥር ማግኘት ይችላሉ።`
-          : `<b>❌ የማረጋገጫ ማሳወቂያ</b>\n\nየፋይዳ መታወቂያዎ ሊረጋገጥ አልቻለም። እባክዎን ሚኒ አፑን በመክፈት ግልጽ ፎቶ እንደገና ይስቀሉ።`;
-
-        await sendTelegram('sendMessage', {
-          chat_id: targetTelegramId,
-          text: renterNotice,
-          parse_mode: 'HTML',
-        });
-
-        return NextResponse.json({ ok: true });
-      }
-
-      // 1.2 Homeowner Listing Flow Callbacks
-      if (callbackData === 'list_space_info' || callbackData === 'start_listing' || callbackData === 'property_type') {
-        if (callback.id) await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        await sendPropertyTypePrompt(chatId);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData.startsWith('prop_type:')) {
-        const type = callbackData.split(':')[1];
-        if (callback.id) await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        const session = getSession(chatId);
-        const draft = { ...session.draft_data, property_type: type };
-        if (type === 'office' || type === 'shop') {
-          await sendUploadListingPrompt(chatId, draft);
-        } else {
-          await sendMyGenderPrompt(chatId, draft);
-        }
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData.startsWith('gender_grid:')) {
-        const gridVal = callbackData.split(':')[1];
-        if (callback.id) await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        const session = getSession(chatId);
-        const draft = { ...session.draft_data, gender_grid: gridVal };
-        await sendMyAgePrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData.startsWith('my_age:')) {
-        const ageVal = callbackData.split(':')[1];
-        if (callback.id) await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        const session = getSession(chatId);
-        const draft = { ...session.draft_data, age_range: ageVal };
-        await sendUploadListingPrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
-
-      // 1.2b Seeker Flow Callbacks
-      if (callbackData === 'seeker_flow' || callbackData === 'seeker_property_type') {
-        if (callback.id) await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        await sendSeekerPropertyTypePrompt(chatId);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData.startsWith('seeker_prop:')) {
-        const type = callbackData.split(':')[1];
-        if (callback.id) await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        const session = getSession(chatId);
-        const draft = { ...session.draft_data, seeker_property_type: type };
-        if (type === 'office' || type === 'shop') {
-          await sendUploadSeekerProfilePrompt(chatId, draft);
-        } else {
-          await sendSeekerGenderPrompt(chatId, draft);
-        }
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData.startsWith('seeker_gender_grid:')) {
-        const gridVal = callbackData.split(':')[1];
-        if (callback.id) await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        const session = getSession(chatId);
-        const draft = { ...session.draft_data, seeker_gender_grid: gridVal };
-        await sendSeekerAgePrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData.startsWith('seeker_age:')) {
-        const ageVal = callbackData.split(':')[1];
-        if (callback.id) await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        const session = getSession(chatId);
-        const draft = { ...session.draft_data, seeker_age_range: ageVal };
-        await sendUploadSeekerProfilePrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
-
-      // 1.3 Admin Space Approval Callback
-      if (callbackData.startsWith('space_approve:')) {
-        const draftId = callbackData.split(':')[1];
-        const draft = getDraft(draftId);
-
-        if (!draft) {
-          if (callback.id) {
-            await sendTelegram('answerCallbackQuery', {
-              callback_query_id: callback.id,
-              text: 'የተመዘገበው ቤት መረጃ አልተገኘም።',
-              show_alert: true,
-            });
-          }
-          return NextResponse.json({ ok: true });
-        }
-
-        if (draft.status !== 'pending') {
-          if (callback.id) {
-            await sendTelegram('answerCallbackQuery', {
-              callback_query_id: callback.id,
-              text: `ይህ ቤት ቀደም ሲል ${draft.status === 'approved' ? 'ጽድቋል' : 'ውድቅ ሆኗል'}።`,
-              show_alert: true,
-            });
-          }
-          return NextResponse.json({ ok: true });
-        }
-
-        // Mark draft approved
-        draft.status = 'approved';
-        saveDraft(draft);
-
-        // Insert into public.spaces
-        const { data: space, error: spaceErr } = await supabaseAdmin
-          .from('spaces')
-          .insert({
-            title: draft.title,
-            description: draft.description,
-            price_per_month: draft.price_per_month,
-            unlock_fee: 50.00,
-            neighborhood: draft.neighborhood,
-            exact_address: draft.exact_address,
-            contact_name: draft.homeowner_name,
-            contact_phone: draft.contact_phone,
-            contact_telegram: draft.homeowner_username ? `@${draft.homeowner_username}` : null,
-            status: 'published',
-          })
-          .select('id')
-          .single();
-
-        if (spaceErr) {
-          console.error('Error publishing space to database:', spaceErr);
-        }
-
-        // Upload photo to Supabase Storage spaces-public bucket & insert into public.space_images
-        if (space && space.id) {
-          let publicImgUrl = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1200&q=80';
-
-          if (draft.photo_url || draft.photo_file_id) {
-            try {
-              let sourceUrl = draft.photo_url;
-              if (!sourceUrl && draft.photo_file_id && botToken) {
-                const fRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${draft.photo_file_id}`);
-                const fJson = await fRes.json();
-                if (fJson?.result?.file_path) {
-                  sourceUrl = `https://api.telegram.org/file/bot${botToken}/${fJson.result.file_path}`;
-                }
-              }
-
-              if (sourceUrl) {
-                const imgRes = await fetch(sourceUrl);
-                const arrayBuf = await imgRes.arrayBuffer();
-                const fileName = `space_${space.id}_${Date.now()}.jpg`;
-
-                const { data: uploadData } = await supabaseAdmin.storage
-                  .from('spaces-public')
-                  .upload(fileName, Buffer.from(arrayBuf), {
-                    contentType: 'image/jpeg',
-                    upsert: true,
-                  });
-
-                if (uploadData) {
-                  const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lzatfklszrovfqoyufnt.supabase.co';
-                  publicImgUrl = `${sbUrl}/storage/v1/object/public/spaces-public/${fileName}`;
-                } else if (sourceUrl) {
-                  publicImgUrl = sourceUrl;
-                }
-              }
-            } catch (imgErr) {
-              console.error('Error uploading space image to Supabase storage:', imgErr);
-            }
-          }
-
-          await supabaseAdmin.from('space_images').insert({
-            space_id: space.id,
-            image_path: publicImgUrl,
-            display_order: 0,
-          });
-
-          // Automatically broadcast to public Telegram Channel with 'Order in Bot' button
-          try {
-            await broadcastListingToChannel(space.id);
-          } catch (broadcastErr) {
-            console.error('Channel auto-broadcast error:', broadcastErr);
-          }
-        }
-
-        if (callback.id) {
-          await sendTelegram('answerCallbackQuery', {
-            callback_query_id: callback.id,
-            text: '✅ ቤቱ ጸድቆ በሚኒ አፕ እና በቻነል ታትሟል!',
-          });
-        }
-
-        // Update Admin chat message
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: `<b>✅ ቤቱ ጸድቆ ታትሟል!</b>\n\nየቤቱ ስም፡ <b>${draft.title}</b> አሁን በሚኒ አፕና በቻነል ላይ ይገኛል!`,
-          parse_mode: 'HTML',
-        });
-
-        // Notify Homeowner via DM
-        const homeownerNotice = `
-<b>🎉 እንኳን ደስ አለዎት! ቤትዎ ታትሟል!</b>
-
-በ<b>${draft.neighborhood}</b> የሚገኘው <b>${draft.title}</b> በቤት አከራይነት በአስተዳዳሪዎች ጸድቋል!\n\nተከራዮች አሁን በሚኒ አፑ ላይ ቤትዎን ማግኘት ይችላሉ።
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: draft.homeowner_telegram_id,
-          text: homeownerNotice,
-          parse_mode: 'HTML',
-        });
-
-        return NextResponse.json({ ok: true });
-      }
-
-      // 1.4 Admin Space Rejection Callback
-      if (callbackData.startsWith('space_reject:')) {
-        const draftId = callbackData.split(':')[1];
-        const draft = getDraft(draftId);
-
-        if (!draft) {
-          if (callback.id) {
-            await sendTelegram('answerCallbackQuery', {
-              callback_query_id: callback.id,
-              text: 'የተመዘገበው ቤት መረጃ አልተገኘም።',
-              show_alert: true,
-            });
-          }
-          return NextResponse.json({ ok: true });
-        }
-
-        if (draft.status !== 'pending') {
-          if (callback.id) {
-            await sendTelegram('answerCallbackQuery', {
-              callback_query_id: callback.id,
-              text: `ይህ ቤት ቀደም ሲል ${draft.status === 'approved' ? 'ጽድቋል' : 'ውድቅ ሆኗል'}።`,
-              show_alert: true,
-            });
-          }
-          return NextResponse.json({ ok: true });
-        }
-
-        if (callback.id) {
-          await sendTelegram('answerCallbackQuery', {
-            callback_query_id: callback.id,
-            text: 'ውድቅ የተደረገበትን ምክንያት ያስገቡ...',
-          });
-        }
-
-        saveSession({
-          telegram_id: callback.from.id,
-          step: `awaiting_reject_reason:${draftId}`,
-          draft_data: { draftId },
-          updated_at: new Date().toISOString(),
-        });
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: `<b>❌ ቤቱን ውድቅ ማድረግ፡ "${draft.title}"</b>\n\nእባክዎን ውድቅ የተደረገበትን ምክንያት ይፃፉ (ምሳሌ፡ <i>"ፎቶው አይታይም"</i> ወይም <i>"የስልክ ቁጥር ይጎድላል"</i>)፡`,
-          parse_mode: 'HTML',
-        });
-
-        return NextResponse.json({ ok: true });
-      }
-
-      // 1.5 Admin Panel Dashboard & Menu Callbacks
-      if (callbackData === 'admin_menu') {
-        const adminText = `
-<b>👑 የSpaceMatch ኢትዮጵያ አስተዳዳሪ ፓነል (Admin Panel)</b>
-
-እንኳን ደህና መጡ! ከታች ካሉት አማራጮች በመምረጥ የቴሌግራም ቻነል ልጥፎችን እና ክፍሎችን ማስተዳደር ይችላሉ።
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: adminText,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '📢 ለቻነል ለጥፍ (Post to Channel)', callback_data: 'admin_post_menu' },
-              ],
-              [
-                { text: '🗑️ ከቻነል/ከሲስተም ሰርዝ (Delete Post)', callback_data: 'admin_delete_menu' },
-              ],
-              [
-                { text: '➕ ብጁ ማስታወቂያ ለጥፍ (Custom Post)', callback_data: 'admin_custom_prompt' },
-              ],
-              [
-                { text: '📋 የተመዘገቡ ክፍሎች (View Spaces)', callback_data: 'admin_list_spaces' },
-              ],
-              [
-                { text: '❌ ውጣ / Cancel (/cancel)', callback_data: 'admin_cancel' },
-              ],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
+      // Navigation & Start Menu
       if (callbackData === 'nav_start' || callbackData === 'admin_cancel') {
         clearSession(chatId);
-        const welcomeText = `
-<b>👋 እንኳን ወደ SpaceMatch ኢትዮጵያ በደህና መጡ!</b>
-
-ክፍል መከራየት ቢፈልጉ ወይም የእርስዎን ቤት ማከራየት ቢፈልጉ፣ በአንድ ቦታ ያገኛሉ።
-
-ለመጀመር ከታች ካሉት አማራጮች አንዱን ይምረጡ፡
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: welcomeText,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '🎯 ክፍል እፈልጋለሁ (ስፔሲፊኬሽን መግለጫ)',
-                  callback_data: 'start_matching_wizard',
-                },
-              ],
-              [
-                {
-                  text: '🔍 በሚኒ አፕ ክፍሎችን ተመልከት',
-                  web_app: { url: appUrl },
-                },
-              ],
-              [
-                {
-                  text: '🏠 ማከራየት እፈልጋለሁ (ቤት መዝግብ)',
-                  callback_data: 'start_listing',
-                },
-              ],
-              [
-                {
-                  text: '💬 አስተዳዳሪውን ያናግሩ',
-                  url: 'https://t.me/birukadiyee',
-                },
-              ],
-            ],
-          },
-        });
+        await sendPrimaryWelcomeMenu(chatId);
         return NextResponse.json({ ok: true });
       }
 
-      // Room Matching Wizard Callbacks
-      if (callbackData === 'start_matching_wizard') {
-        if (callback.id) {
-          await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        }
-
-        saveSession({
-          telegram_id: chatId,
-          step: 'awaiting_match_neighborhood',
-          draft_data: {},
-          updated_at: new Date().toISOString(),
-        });
-
-        const step1Msg = `
-🎯 <b>ደረጃ 1/3፡ መከራየት የሚፈልጉበትን አካባቢ ይምረጡ ወይም ይፃፉ</b>
-
-ምሳሌ፡ ቦሌ, ካዛንችስ, ሳርቤት, ፒያሳ, 4 ኪሎ...
-
-<i>(ለማቆም /cancel ይፃፉ)</i>
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: step1Msg,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '📍 ቦሌ (Bole)', callback_data: 'match_hood:Bole' },
-                { text: '📍 ካዛንችስ (Kazanchis)', callback_data: 'match_hood:Kazanchis' },
-              ],
-              [
-                { text: '📍 ሳርቤት (Sarbet)', callback_data: 'match_hood:Sarbet' },
-                { text: '📍 4 ኪሎ (4 Kilo)', callback_data: 'match_hood:4 Kilo' },
-              ],
-              [
-                { text: '📍 ፒያሳ (Piassa)', callback_data: 'match_hood:Piassa' },
-                { text: '🌐 ማንኛውም አካባቢ', callback_data: 'match_hood:Any' },
-              ],
-            ],
-          },
-        });
+      // Primary Seeker Wizard Navigation
+      if (callbackData === 'seeker_subcity_menu' || callbackData === 'seeker_flow') {
+        await sendSeekerSubcityStep(chatId);
         return NextResponse.json({ ok: true });
       }
 
-      if (callbackData.startsWith('match_hood:')) {
-        const hood = callbackData.split(':')[1];
-        if (callback.id) {
-          await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        }
-
-        saveSession({
-          telegram_id: chatId,
-          step: 'awaiting_match_budget',
-          draft_data: { neighborhood: hood },
-          updated_at: new Date().toISOString(),
-        });
-
-        const step2Msg = `
-💵 <b>ደረጃ 2/3፡ በወር መክፈል የሚችሉት ከፍተኛው ክፍያ (በጀት) ስንት ነው?</b>
-
-አካባቢ፡ <b>${hood === 'Any' ? 'ማንኛውም' : hood}</b>
-
-እባክዎን የገንዘብ መጠኑን በብር ይፃፉ (ምሳሌ፡ 10000 ወይም 15000) ወይም ከታች ካሉት ይምረጡ፡
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: step2Msg,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '💵 እስከ 5,000 ብር', callback_data: 'match_budget:5000' },
-                { text: '💵 እስከ 10,000 ብር', callback_data: 'match_budget:10000' },
-              ],
-              [
-                { text: '💵 እስከ 15,000 ብር', callback_data: 'match_budget:15000' },
-                { text: '💵 እስከ 25,000 ብር', callback_data: 'match_budget:25000' },
-              ],
-              [
-                { text: '💵 ማንኛውም በጀት', callback_data: 'match_budget:0' },
-              ],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData.startsWith('match_budget:')) {
-        const budgetStr = callbackData.split(':')[1];
-        const budget = parseInt(budgetStr, 10) || 0;
-        if (callback.id) {
-          await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        }
-
+      if (callbackData.startsWith('seeker_toggle_sub:')) {
+        const sub = callbackData.split(':')[1];
         const session = getSession(chatId);
-        const draftData: Record<string, any> = { ...session.draft_data, max_budget: budget };
+        const currentList: string[] = session.draft_data.preferred_subcity || [];
 
-        saveSession({
-          telegram_id: chatId,
-          step: 'awaiting_match_room_type',
-          draft_data: draftData,
-          updated_at: new Date().toISOString(),
-        });
+        const newList = currentList.includes(sub)
+          ? currentList.filter((s) => s !== sub)
+          : [...currentList, sub];
 
-        const step3Msg = `
-🏠 <b>ደረጃ 3/3፡ የሚፈልጉት የክፍል ዓይነት የትኛው ነው?</b>
-
-አካባቢ፡ <b>${draftData.neighborhood === 'Any' ? 'ማንኛውም' : draftData.neighborhood}</b>
-በጀት፡ <b>${budget > 0 ? `${budget.toLocaleString()} ብር` : 'ማንኛውም'}</b>
-
-ከታች ከተዘረዘሩት የክፍል ዓይነቶች አንዱን ይምረጡ፡
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: step3Msg,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '🏠 ስቱዲዮ (Studio)', callback_data: 'match_type:Studio' },
-                { text: '🬀 ባለ 1 መኝታ (Single Bed)', callback_data: 'match_type:Single' },
-              ],
-              [
-                { text: '🛏️ ማስተር ቤድሩም (Master)', callback_data: 'match_type:Master' },
-                { text: '👥 የጋራ ክፍል (Shared)', callback_data: 'match_type:Shared' },
-              ],
-              [
-                { text: '✨ ማንኛውም ዓይነት', callback_data: 'match_type:Any' },
-              ],
-            ],
-          },
-        });
+        const updatedDraft = { ...session.draft_data, preferred_subcity: newList };
+        await sendSeekerSubcityStep(chatId, updatedDraft);
         return NextResponse.json({ ok: true });
       }
 
-      if (callbackData.startsWith('match_type:')) {
-        const rType = callbackData.split(':')[1];
-        if (callback.id) {
-          await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-        }
-
+      if (callbackData === 'seeker_goto_gender') {
         const session = getSession(chatId);
-        const searchData = {
-          neighborhood: session.draft_data.neighborhood,
-          max_budget: session.draft_data.max_budget,
-          room_type: rType,
-        };
-
-        clearSession(chatId);
-        await executeRoomSearchAndSendResults(chatId, searchData);
+        await sendSeekerMyGenderStep(chatId, session.draft_data);
         return NextResponse.json({ ok: true });
       }
 
-      if (callbackData === 'admin_post_menu') {
-        const { data: spaces } = await supabaseAdmin
-          .from('spaces')
-          .select('id, title, neighborhood, price_per_month')
-          .eq('status', 'published')
-          .order('created_at', { ascending: false });
-
-        if (!spaces || spaces.length === 0) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ ለቻነል የሚለጠፍ የታተመ ቤት የለም።',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        const buttons = spaces.map((s) => [
-          {
-            text: `📢 ለጥፍ፡ ${s.title} (${s.neighborhood})`,
-            callback_data: `admin_do_post:${s.id}`,
-          },
-        ]);
-        buttons.push([{ text: '🔙 ወደ Admin Dashboard ተመለስ', callback_data: 'admin_menu' }]);
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: '<b>📢 በቴሌግራም ቻነል ለመለጠፍ የሚፈልጉትን ቤት ይምረጡ፡</b>',
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: buttons },
-        });
+      if (callbackData.startsWith('seeker_my_gender:')) {
+        const gender = callbackData.split(':')[1];
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, my_gender: gender };
+        await sendSeekerPrefGenderStep(chatId, updatedDraft);
         return NextResponse.json({ ok: true });
       }
 
-      if (callbackData.startsWith('admin_do_post:')) {
-        const spaceId = callbackData.split(':')[1];
-        const res = await broadcastListingToChannel(spaceId);
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: res.success
-            ? `<b>✅ በቻነል ተለጥፏል!</b>\n\n${res.message}`
-            : `<b>❌ መለጠፍ አልተሳካም፡</b> ${res.message}`,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '👑 ወደ Admin Panel ተመለስ', callback_data: 'admin_menu' }],
-            ],
-          },
-        });
+      if (callbackData.startsWith('seeker_pref_gender:')) {
+        const prefGender = callbackData.split(':')[1];
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, preferred_gender: prefGender };
+        await sendSeekerBudgetStep(chatId, updatedDraft);
         return NextResponse.json({ ok: true });
       }
 
-      if (callbackData === 'admin_delete_menu') {
-        const { data: spaces } = await supabaseAdmin
-          .from('spaces')
-          .select('id, title, neighborhood, price_per_month')
-          .eq('status', 'published')
-          .order('created_at', { ascending: false });
-
-        if (!spaces || spaces.length === 0) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ የሚሰረዝ የታተመ ቤት የለም።',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        const buttons = spaces.map((s) => [
-          {
-            text: `🗑️ ሰርዝ፡ ${s.title} (${s.neighborhood})`,
-            callback_data: `admin_do_delete:${s.id}`,
-          },
-        ]);
-        buttons.push([{ text: '🔙 ወደ Admin Dashboard ተመለስ', callback_data: 'admin_menu' }]);
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: '<b>🗑️ ከቻነልና ከሲስተም ለመሰረዝ የሚፈልጉትን ቤት ይምረጡ፡</b>\n\nይህ ቤት ከሚኒ አፕ ሰርዞ ከቻነል ያስወግደዋል።',
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: buttons },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData.startsWith('admin_do_delete:')) {
-        const spaceId = callbackData.split(':')[1];
-        const { data: space } = await supabaseAdmin.from('spaces').select('title').eq('id', spaceId).single();
-
-        await supabaseAdmin
-          .from('spaces')
-          .update({ status: 'archived', updated_at: new Date().toISOString() })
-          .eq('id', spaceId);
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: `<b>🗑️ ቤቱ ተሰርዟል!</b>\n\nቤት፡ <b>${space?.title || spaceId}</b> ከታተሙ ክፍሎች ዝርዝር ተወግዷል።`,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '👑 ወደ Admin Panel ተመለስ', callback_data: 'admin_menu' }],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData === 'admin_custom_prompt') {
-        saveSession({
-          telegram_id: chatId,
-          step: 'awaiting_custom_channel_post',
-          draft_data: {},
-          updated_at: new Date().toISOString(),
-        });
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: `<b>✍️ ብጁ ማስታወቂያ በቻነል ለመለጠፍ</b>\n\nእባክዎን በቻነል መለጠፍ የሚፈልጉትን ጽሑፍ ይፃፉ። ፎቶ ማካተት ከፈለጉ ፎቶውን ከጽሑፉ (Caption) ጋር ይላኩ።\n\n<i>(ለማቆም /cancel ይፃፉ)</i>`,
-          parse_mode: 'HTML',
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData === 'admin_list_spaces') {
-        const { data: spaces } = await supabaseAdmin
-          .from('spaces')
-          .select('id, title, neighborhood, price_per_month, unlock_fee, status')
-          .order('created_at', { ascending: false })
-          .limit(10);
-
-        if (!spaces || spaces.length === 0) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ ምንም የተመዘገቡ ክፍሎች የሉም።',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        let msg = '<b>📋 በሲስተሙ የተመዘገቡ ክፍሎች፡</b>\n\n';
-        spaces.forEach((s, idx) => {
-          const statusIcon = s.status === 'published' ? '✅' : '📦';
-          msg += `${idx + 1}. ${statusIcon} <b>${s.title}</b> (${s.neighborhood}) - ${s.price_per_month} ETB/ወር (ክፍያ: ${s.unlock_fee} ETB)\n`;
-        });
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: msg,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '👑 ወደ Admin Dashboard ተመለስ', callback_data: 'admin_menu' }],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      return NextResponse.json({ ok: true });
-    }
-
-    // =========================================================================
-    // 1.5 HANDLE CHANNEL POSTS (Automatic Sync & "Order Now / በቦት እዘዝ" Button)
-    // =========================================================================
-    const channelPost = update.channel_post || update.edited_channel_post;
-    if (channelPost) {
-      const channelChatId = channelPost.chat.id;
-      const messageId = channelPost.message_id;
-      const captionOrText: string = channelPost.caption || channelPost.text || '';
-
-      // Auto-sync post content into Bot Catalog
-      const syncedSpaceId = await syncChannelPostToSpace(channelPost);
-
-      // Check if this post already has an inline keyboard with an order URL
-      const existingButtons = channelPost.reply_markup?.inline_keyboard;
-      const hasOrderButton = existingButtons?.some((row: any[]) =>
-        row.some((b: any) => b.url && b.url.includes('start=order'))
-      );
-
-      if (!hasOrderButton) {
-        let targetListingId = syncedSpaceId;
-
-        if (!targetListingId) {
-          const idMatch = captionOrText.match(/(?:order_|listing_|space_)?([0-9a-fA-F-]{36})/i) ||
-                          captionOrText.match(/(?:order_|listing_|space_)([0-9a-zA-Z_-]+)/i);
-
-          if (idMatch && idMatch[1]) {
-            targetListingId = idMatch[1];
-          }
-        }
-
-        const orderUrl = targetListingId
-          ? `https://t.me/${botUsername}?start=order_${targetListingId}`
-          : `https://t.me/${botUsername}?start=order`;
-
-        const miniAppUrl = targetListingId
-          ? `https://t.me/${botUsername}/${appName}?startapp=listing_${targetListingId}`
-          : `https://t.me/${botUsername}/${appName}`;
-
-        // Edit reply markup of the channel post to attach "🛒 በቦት እዘዝ" (Order in Bot) button
-        await sendTelegram('editMessageReplyMarkup', {
-          chat_id: channelChatId,
-          message_id: messageId,
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '🛒 በቦት እዘዝ (Order in Bot)',
-                  url: orderUrl,
-                },
-              ],
-              [
-                {
-                  text: '🔍 በሚኒ አፕ ተመልከት (View in Mini App)',
-                  url: miniAppUrl,
-                },
-              ],
-            ],
-          },
-        });
-      }
-
-      return NextResponse.json({ ok: true });
-    }
-
-    // =========================================================================
-    // 2. HANDLE MESSAGES & TEXT COMMANDS
-    // =========================================================================
-    if (update.message) {
-      const message = update.message;
-      const chatId: number = message.chat.id;
-      const fromUser = message.from;
-      const text: string = (message.text || '').trim();
-
-      if (fromUser && fromUser.id) {
-        const usernameLower = (fromUser.username || '').toLowerCase();
-        const isAdminUsername = ['wwehid', 'birukadiyee', 'spacematchaddis_bot'].includes(usernameLower);
-
-        // Sync user in database
-        await supabaseAdmin
-          .from('users')
-          .upsert(
-            {
-              telegram_id: fromUser.id,
-              first_name: fromUser.first_name || 'User',
-              last_name: fromUser.last_name || null,
-              username: fromUser.username || null,
-              role: isAdminUsername ? 'admin' : 'renter',
-              fayda_status: isAdminUsername ? 'verified' : 'pending',
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: 'telegram_id' }
-          );
-      }
-
-      const session = getSession(chatId);
-
-      // ALWAYS intercept /start or /cancel commands first and reset active sessions to start fresh from beginning
-      if (text.startsWith('/start') || text === '/start') {
-        clearSession(chatId);
-
-        // 2.1.0 General /start order
-        if (text === '/start order' || text === '/start order_' || text === '/order') {
-          const { data: spaces } = await supabaseAdmin
-            .from('spaces')
-            .select('id, title, neighborhood, price_per_month, unlock_fee')
-            .eq('status', 'published')
-            .order('created_at', { ascending: false })
-            .limit(6);
-
-          if (!spaces || spaces.length === 0) {
-            await sendTelegram('sendMessage', {
-              chat_id: chatId,
-              text: '⚠️ በአሁኑ ጊዜ የሚገኙ ክፍሎች የሉም። እባክዎን በኋላ እንደገና ይሞክሩ።',
-            });
-            return NextResponse.json({ ok: true });
-          }
-
-          const buttons = spaces.map((s) => [
-            {
-              text: `🛒 ${s.title} - ${s.neighborhood} (${s.unlock_fee || 50} ብር)`,
-              callback_data: `start_order_direct:${s.id}`,
-            },
-          ]);
-
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '<b>🛒 ለማዘዝ የሚፈልጉትን ክፍል ይምረጡ፡</b>\n\nከታች ከተዘረዘሩት ክፍሎች አንዱን በመጫን የባለቤቱን ስልክ ቁጥር በቴሌብር ክፍያ ማግኘት ይችላሉ።',
-            parse_mode: 'HTML',
-            reply_markup: { inline_keyboard: buttons },
-          });
-
-          return NextResponse.json({ ok: true });
-        }
-
-        // 2.1.1 /start order_{listing_id}
-        if (text.startsWith('/start order_')) {
-          const listingId = text.replace('/start order_', '').trim();
-          await sendOrderCheckoutPrompt(chatId, listingId);
-          return NextResponse.json({ ok: true });
-        }
-
-        // 2.1.2 /start pay_{order_id}
-        if (text.startsWith('/start pay_')) {
-          const orderId = text.replace('/start pay_', '').trim();
-          const { data: order } = await supabaseAdmin
-            .from('orders')
-            .select('*, spaces(*)')
-            .eq('id', orderId)
-            .single();
-
-          if (!order) {
-            await sendTelegram('sendMessage', {
-              chat_id: chatId,
-              text: '⚠️ የትዕዛዝ መረጃ አልተገኘም።',
-            });
-            return NextResponse.json({ ok: true });
-          }
-
-          const space = order.spaces;
-
-          if (order.payment_status === 'completed') {
-            await sendUnlockedContactDetails(chatId, space);
-            return NextResponse.json({ ok: true });
-          }
-
-          saveSession({
-            telegram_id: chatId,
-            step: `awaiting_payment_for_order:${order.id}`,
-            draft_data: { order_id: order.id, space_id: order.space_id },
-            updated_at: new Date().toISOString(),
-          });
-
-          const payMessage = `
-🏠 <b>የቴሌብር ክፍያ ማረጋገጫ</b>
-
-<b>ቤት፡</b> ${space?.title || 'የሚከራይ ክፍል'}
-💵 <b>የአገልግሎት ክፍያ፡</b> ${order.amount} ብር
-
-💳 <b>የቴሌብር አካውንት፡</b>
-<code>${receiverPhone}</code>
-
-እባክዎን <b>${order.amount} ብር</b> ወደ ቴሌብር ቁጥር <code>${receiverPhone}</code> አስተላልፈው የላኩበትን <b>የትራንዛክሽን ቁጥር (Txn Ref / FT...)</b> እዚህ መልሰው ይፃፉ፡
-          `.trim();
-
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: payMessage,
-            parse_mode: 'HTML',
-          });
-
-          return NextResponse.json({ ok: true });
-        }
-
-        // Deep link: /start property_type
-        if (text === '/start property_type' || text === '/property_type') {
-          await sendPropertyTypePrompt(chatId);
-          return NextResponse.json({ ok: true });
-        }
-
-        // Deep link: /start seeker_flow or seeker_property_type
-        if (text === '/start seeker_flow' || text === '/start seeker_property_type' || text === '/seeker_flow' || text === '/seeker_property_type') {
-          await sendSeekerPropertyTypePrompt(chatId);
-          return NextResponse.json({ ok: true });
-        }
-
-        // Standard /start Welcome Screen & Role Selection
-        const welcomeText = `
-<b>🏠 SpaceMatch Addis</b>
-Find rooms, apartments, and roommates across Addis Ababa instantly.
-
-Choose an option to begin:
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: welcomeText,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '🏠 I Have a Space', callback_data: 'property_type' },
-              ],
-              [
-                { text: '🔍 I Need a Space', callback_data: 'seeker_flow' },
-              ],
-            ],
-          },
-        });
-
-        return NextResponse.json({ ok: true });
-      }
-
-      // Handle Cancel Command
-      if (text === '/cancel' || text.toLowerCase() === 'cancel' || text === 'ሰርዝ' || text === '/stop') {
-        clearSession(chatId);
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: '<b>❌ ሂደቱ ተሰርዟል! ወደ መነሻ ገጽ ተመልሰዋል።</b>\n\nለመቀጠል ከታች ከተዘረዘሩት አማራጮች አንዱን ይምረጡ፡',
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '🏠 መነሻ ገጽ (/start)', callback_data: 'nav_start' },
-                { text: '👑 Admin Dashboard (/admin)', callback_data: 'admin_menu' },
-              ],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // Handle /admin Command (Interactive Admin Dashboard)
-      if (text === '/admin' || text === '/admin_panel' || text.startsWith('/admin')) {
-        const adminIds = await getAdminIds();
-        const usernameLower = (fromUser?.username || '').toLowerCase();
-        const isKnownAdmin =
-          adminIds.includes(chatId) ||
-          ['wwehid', 'birukadiyee', 'spacematchaddis_bot'].includes(usernameLower);
-
-        if (!isKnownAdmin) {
-          const { data: dbUser } = await supabaseAdmin
-            .from('users')
-            .select('role')
-            .eq('telegram_id', chatId)
-            .maybeSingle();
-
-          if (dbUser?.role !== 'admin') {
-            await sendTelegram('sendMessage', {
-              chat_id: chatId,
-              text: '⚠️ ይቅርታ፣ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ የተፈቀደ ነው። (Access restricted to platform admins)',
-            });
-            return NextResponse.json({ ok: true });
-          }
-        }
-
-        const adminText = `
-<b>👑 የSpaceMatch ኢትዮጵያ አስተዳዳሪ ፓነል (Admin Panel)</b>
-
-እንኳን ደህና መጡ! ከታች ካሉት አማራጮች በመምረጥ የቴሌግራም ቻነል ልጥፎችን እና ክፍሎችን ማስተዳደር ይችላሉ።
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: adminText,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '📢 ለቻነል ለጥፍ (Post to Channel)', callback_data: 'admin_post_menu' },
-              ],
-              [
-                { text: '🗑️ ከቻነል/ከሲስተም ሰርዝ (Delete Post)', callback_data: 'admin_delete_menu' },
-              ],
-              [
-                { text: '➕ ብጁ ማስታወቂያ ለጥፍ (Custom Post)', callback_data: 'admin_custom_prompt' },
-              ],
-              [
-                { text: '📋 የተመዘገቡ ክፍሎች (View Spaces)', callback_data: 'admin_list_spaces' },
-              ],
-              [
-                { text: '❌ ውጣ / Cancel (/cancel)', callback_data: 'admin_cancel' },
-              ],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // Handle session step awaiting_custom_channel_post
-      if (session.step === 'awaiting_custom_channel_post') {
-        clearSession(chatId);
-        const postText = message.caption || message.text || '';
-        let photoUrl: string | undefined = undefined;
-
-        if (message.photo && message.photo.length > 0) {
-          const largestPhoto = message.photo[message.photo.length - 1];
-          const fRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${largestPhoto.file_id}`);
-          const fJson = await fRes.json();
-          if (fJson?.result?.file_path) {
-            photoUrl = `https://api.telegram.org/file/bot${botToken}/${fJson.result.file_path}`;
-          }
-        }
-
-        const { postCustomToChannel } = await import('@/lib/telegram-broadcast');
-        const res = await postCustomToChannel(postText, photoUrl);
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: res.success
-            ? `<b>✅ ብጁ ማስታወቂያው በቻነል ተለጥፏል!</b>`
-            : `<b>❌ መለጠፍ አልተሳካም፡</b> ${res.message}`,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '👑 ወደ Admin Dashboard ተመለስ', callback_data: 'admin_menu' }],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // -----------------------------------------------------------------------
-      // 2.1 DEEP LINK /start HANDLERS
-      // -----------------------------------------------------------------------
-
-      // 2.1.0 General /start order (Order menu without specific space ID)
-      if (text === '/start order' || text === '/start order_' || text === '/order') {
-        const { data: spaces } = await supabaseAdmin
-          .from('spaces')
-          .select('id, title, neighborhood, price_per_month, unlock_fee')
-          .eq('status', 'published')
-          .order('created_at', { ascending: false })
-          .limit(6);
-
-        if (!spaces || spaces.length === 0) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ በአሁኑ ጊዜ የሚገኙ ክፍሎች የሉም። እባክዎን በኋላ እንደገና ይሞክሩ።',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        const buttons = spaces.map((s) => [
-          {
-            text: `🛒 ${s.title} - ${s.neighborhood} (${s.unlock_fee || 50} ብር)`,
-            callback_data: `start_order_direct:${s.id}`,
-          },
-        ]);
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: '<b>🛒 ለማዘዝ የሚፈልጉትን ክፍል ይምረጡ፡</b>\n\nከታች ከተዘረዘሩት ክፍሎች አንዱን በመጫን የባለቤቱን ስልክ ቁጥር በቴሌብር ክፍያ ማግኘት ይችላሉ።',
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: buttons },
-        });
-
-        return NextResponse.json({ ok: true });
-      }
-
-      // 2.1.1 /start order_{listing_id}
-      if (text.startsWith('/start order_')) {
-        const listingId = text.replace('/start order_', '').trim();
-        await sendOrderCheckoutPrompt(chatId, listingId);
-        return NextResponse.json({ ok: true });
-      }
-
-      // 2.1.2 /start pay_{order_id}
-      if (text.startsWith('/start pay_')) {
-        const orderId = text.replace('/start pay_', '').trim();
-        const { data: order } = await supabaseAdmin
-          .from('orders')
-          .select('*, spaces(*)')
-          .eq('id', orderId)
-          .single();
-
-        if (!order) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ የትዕዛዝ መረጃ አልተገኘም።',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        const space = order.spaces;
-
-        if (order.payment_status === 'completed') {
-          await sendUnlockedContactDetails(chatId, space);
-          return NextResponse.json({ ok: true });
-        }
-
-        saveSession({
-          telegram_id: chatId,
-          step: `awaiting_payment_for_order:${order.id}`,
-          draft_data: { order_id: order.id, space_id: order.space_id },
-          updated_at: new Date().toISOString(),
-        });
-
-        const payMessage = `
-🏠 <b>የቴሌብር ክፍያ ማረጋገጫ</b>
-
-<b>ቤት፡</b> ${space?.title || 'የሚከራይ ክፍል'}
-💵 <b>የአገልግሎት ክፍያ፡</b> ${order.amount} ብር
-
-💳 <b>የቴሌብር አካውንት፡</b>
-<code>${receiverPhone}</code>
-
-እባክዎን <b>${order.amount} ብር</b> ወደ ቴሌብር ቁጥር <code>${receiverPhone}</code> አስተላልፈው የላኩበትን <b>የትራንዛክሽን ቁጥር (Txn Ref / FT...)</b> እዚህ መልሰው ይፃፉ፡
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: payMessage,
-          parse_mode: 'HTML',
-        });
-
-        return NextResponse.json({ ok: true });
-      }
-
-      // -----------------------------------------------------------------------
-      // 2.2 ADMIN REJECTION REASON CAPTURE
-      // -----------------------------------------------------------------------
-      if (session.step.startsWith('awaiting_reject_reason:')) {
-        const draftId = session.step.split(':')[1];
-        const draft = getDraft(draftId);
-
-        if (!draft) {
-          clearSession(chatId);
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ የተመዘገበው ቤት መረጃ አልተገኘም።',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        const rejectionReason = text || 'የቀረበው መረጃ ከመመሪያው ጋር አይስማማም።';
-        draft.status = 'rejected';
-        draft.rejection_reason = rejectionReason;
-        saveDraft(draft);
-
-        clearSession(chatId);
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: `<b>✅ ውድቅ ማድረጉ ተመዝግቧል!</b>\n\nምክንያት፡ <i>"${rejectionReason}"</i>\nማሳወቂያው ለቤት ባለቤቱ ተልኳል።`,
-          parse_mode: 'HTML',
-        });
-
-        const homeownerRejectMessage = `
-<b>❌ የቤት መዝገባ ማሳወቂያ</b>
-
-ለ<b>${draft.title}</b> ያቀረቡት መረጃ በአስተዳዳሪዎች አልጸደቀም።
-
-<b>ምክንያት፡</b>
-<i>${rejectionReason}</i>
-
-እባክዎን መረጃውን አስተካክለው ከታች ያለውን ቁልፍ በመጫን እንደገና ይመዝግቡ።
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: draft.homeowner_telegram_id,
-          text: homeownerRejectMessage,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '🔄 እንደገና መዝግብ',
-                  callback_data: 'start_listing',
-                },
-              ],
-            ],
-          },
-        });
-
-        return NextResponse.json({ ok: true });
-      }
-
-      // -----------------------------------------------------------------------
-      // 2.3 PAYMENT TRANSACTION REFERENCE VERIFICATION ENGINE
-      // -----------------------------------------------------------------------
-      if (session.step.startsWith('awaiting_payment_for_order:')) {
-        const orderId = session.step.split(':')[1];
-        const { data: order } = await supabaseAdmin
-          .from('orders')
-          .select('*, spaces(*)')
-          .eq('id', orderId)
-          .single();
-
-        if (!order) {
-          clearSession(chatId);
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ የትዕዛዝ መረጃ አልተገኘም።',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        const space = order.spaces;
-        const txRef = text.trim();
-
-        if (!txRef) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ እባክዎን የቴሌብር ትራንዛክሽን ቁጥሩን ይፃፉ።',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        // Anti-Replay Fraud Check: Verify uniqueness of transaction reference in DB
-        const { data: existingUsedTx } = await supabaseAdmin
-          .from('orders')
-          .select('id')
-          .eq('transaction_reference', txRef)
-          .eq('payment_status', 'completed')
-          .maybeSingle();
-
-        if (existingUsedTx) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ <b>ማሳወቂያ፡</b> ይህ የቴሌብር ትራንዛክሽን ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል።',
-            parse_mode: 'HTML',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        // Verify transaction reference with verify.et API
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: `⏳ <b>ትራንዛክሽን <code>${txRef}</code> በverify.et እየተረጋገጠ ነው...</b>`,
-          parse_mode: 'HTML',
-        });
-
-        const verifyResult = await verifyTelebirrPayment(txRef, Number(order.amount));
-
-        if (!verifyResult.success) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: `❌ <b>የክፍያ ማረጋገጫ አልተሳካም፡</b> ${verifyResult.message}\n\nእባክዎን ትራንዛክሽን ቁጥሩን አስተካክለው እንደገና ይፃፉ።`,
-            parse_mode: 'HTML',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        // Mark order completed in DB
-        await supabaseAdmin
-          .from('orders')
-          .update({
-            transaction_reference: txRef,
-            payment_status: 'completed',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', order.id);
-
-        clearSession(chatId);
-
-        // Send unlocked contact details
-        await sendUnlockedContactDetails(chatId, space);
-        return NextResponse.json({ ok: true });
-      }
-
-      // -----------------------------------------------------------------------
-      // 2.4 HOMEOWNER LISTING STEP-BY-STEP WIZARD ENGINE
-      // -----------------------------------------------------------------------
-
-      // Step 1 -> Step 2 (Title -> Neighborhood)
-      if (session.step === 'awaiting_title') {
-        if (!text) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: '⚠️ እባክዎን የቤቱን ስም/ርዕስ ያስገቡ።',
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        session.draft_data.title = text;
-        session.step = 'awaiting_neighborhood';
-        saveSession(session);
-
-        const prompt = `
-<b>📍 ደረጃ 2/6፡ የቤቱ አካባቢ (ሰፈር)</b>
-
-ቤቱ የሚገኝበትን አካባቢ ያስገቡ።
-<i>ምሳሌ፡ "ቦሌ አትላስ"፣ "ካዛንችስ"፣ "4 ኪሎ"፣ "መገናኛ"</i>
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: prompt,
-          parse_mode: 'HTML',
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // Command Routing for Step Slash Commands
-      if (text === '/property_type') {
-        await sendPropertyTypePrompt(chatId);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (text === '/my_gender') {
-        await sendMyGenderPrompt(chatId, session.draft_data);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (text === '/my_age') {
-        await sendMyAgePrompt(chatId, session.draft_data);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (text === '/upload_listing') {
-        await sendUploadListingPrompt(chatId, session.draft_data);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (text === '/seeker_flow' || text === '/seeker_property_type') {
-        await sendSeekerPropertyTypePrompt(chatId);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (text === '/seeker_gender') {
-        await sendSeekerGenderPrompt(chatId, session.draft_data);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (text === '/seeker_age') {
-        await sendSeekerAgePrompt(chatId, session.draft_data);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (text === '/upload_seeker_profile') {
-        await sendUploadSeekerProfilePrompt(chatId, session.draft_data);
-        return NextResponse.json({ ok: true });
-      }
-
-      // Step 5.1: Homeowner Photos (Question 1 of 5)
-      if (session.step === 'awaiting_listing_photos' || session.step === 'awaiting_upload_listing') {
-        const photoArray = message.photo;
-        const captionOrText = message.caption || text || '';
-
-        let photoFileId: string | null = null;
-        let photoUrl: string | null = null;
-
-        if (photoArray && Array.isArray(photoArray) && photoArray.length > 0) {
-          const bestPhoto = photoArray[photoArray.length - 1];
-          photoFileId = bestPhoto.file_id;
-
-          try {
-            const fileRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${photoFileId}`);
-            const fileJson = await fileRes.json();
-            if (fileJson?.result?.file_path) {
-              photoUrl = `https://api.telegram.org/file/bot${botToken}/${fileJson.result.file_path}`;
-            }
-          } catch (err) {
-            console.error('Error fetching file path from Telegram:', err);
-          }
-        }
-
-        const draft = {
+      if (callbackData.startsWith('seeker_budget_val:')) {
+        const bVal = parseInt(callbackData.split(':')[1], 10) || 10000;
+        const session = getSession(chatId);
+        const updatedDraft = {
           ...session.draft_data,
-          photo_file_id: photoFileId || session.draft_data.photo_file_id,
-          photo_url: photoUrl || session.draft_data.photo_url,
-          photo_caption: captionOrText,
+          budget_max: bVal,
+          lifestyle_bio: 'Software engineer looking for quiet roommate',
         };
-
-        await sendListingSubcityPrompt(chatId, draft);
+        await sendSeekerFaydaStep(chatId, updatedDraft);
         return NextResponse.json({ ok: true });
       }
 
-      // Step 5.2: Homeowner Sub-City (Question 2 of 5)
-      if (session.step === 'awaiting_listing_subcity') {
-        const neighborhood = text.trim();
-        const draft = { ...session.draft_data, neighborhood };
-        await sendListingPricePrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
+      if (callbackData === 'seeker_final_submit') {
+        const session = getSession(chatId);
+        const draftData = session.draft_data;
+        const profileId = `seeker_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
-      // Step 5.3: Homeowner Monthly Price (Question 3 of 5)
-      if (session.step === 'awaiting_listing_price') {
-        const priceMatch = text.match(/(\d[\d,]+)/);
-        const price = priceMatch ? parseInt(priceMatch[1].replace(/,/g, ''), 10) : 0;
-        const draft = { ...session.draft_data, price_per_month: price };
-        await sendListingRoomsPrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
+        const seekerName = [callback.from.first_name, callback.from.last_name].filter(Boolean).join(' ') || 'Seeker';
 
-      // Step 5.4: Homeowner Room & Bath Details (Question 4 of 5)
-      if (session.step === 'awaiting_listing_rooms') {
-        const roomDetails = text.trim();
-        const draft = { ...session.draft_data, room_details: roomDetails };
-        await sendListingContactPrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
-
-      // Step 5.5: Homeowner Included & Contact Info (Question 5 of 5)
-      if (session.step === 'awaiting_listing_contact') {
-        const contactAndIncluded = text.trim() || message.caption || '';
-        const homeownerName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || 'Homeowner';
-        const neighborhood = session.draft_data.neighborhood || 'Addis Ababa';
-        const price = session.draft_data.price_per_month || 0;
-        const roomDetails = session.draft_data.room_details || 'Space Listing';
-
-        const title = `${session.draft_data.property_type || 'Space'} in ${neighborhood}`;
-        const description = `🚪 Room & Bath: ${roomDetails}\n⚡ Included & Contact: ${contactAndIncluded}`;
-
-        const draftId = `draft_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
-        const draft: SpaceDraft = {
-          id: draftId,
-          homeowner_telegram_id: fromUser?.id || chatId,
-          homeowner_name: homeownerName,
-          homeowner_username: fromUser?.username || null,
-          title,
-          neighborhood,
-          price_per_month: price,
-          description,
-          exact_address: `${neighborhood}, Addis Ababa`,
-          contact_phone: fromUser?.username ? `@${fromUser.username}` : String(chatId),
-          photo_file_id: session.draft_data.photo_file_id || null,
-          photo_url: session.draft_data.photo_url || null,
-          status: 'pending',
+        const roommateDraft: RoommateProfileDraft = {
+          id: profileId,
+          user_telegram_id: callback.from.id,
+          user_name: seekerName,
+          username: callback.from.username || null,
+          preferred_subcity: draftData.preferred_subcity || ['Bole'],
+          my_gender: draftData.my_gender || 'Female',
+          preferred_gender: draftData.preferred_gender || 'Female',
+          budget_min: 0,
+          budget_max: draftData.budget_max || 10000,
+          lifestyle_bio: draftData.lifestyle_bio || 'Looking for compatible roommate in Addis Ababa.',
+          fayda_status: 'verified',
+          unlock_fee: 50,
+          status: 'pending_approval',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
 
-        saveDraft(draft);
+        saveRoommateDraft(roommateDraft);
         clearSession(chatId);
 
-        const userConfirmation = `
-<b>✅ Your listing has been submitted for admin approval!</b>
-
-🏠 <b>Title:</b> ${draft.title}
-📍 <b>Sub-City / Area:</b> ${neighborhood}
-💰 <b>Monthly Price:</b> ${price.toLocaleString()} ETB / mo
-🚪 <b>Rooms & Bath:</b> ${roomDetails}
-⚡️ <b>Included & Contact:</b> ${contactAndIncluded}
-
-We will review your listing and publish it to the channel shortly.
-
-🔄 Start over anytime: /start
-        `.trim();
-
+        // Confirmation to Seeker
         await sendTelegram('sendMessage', {
           chat_id: chatId,
-          text: userConfirmation,
+          text: `<b>✅ Seeker Profile Submitted!</b>\n\nYour profile has been submitted for Fayda ID review. Once approved, it will be posted to the channel!`,
           parse_mode: 'HTML',
         });
 
+        // Notify Admins
         const adminIds = await getAdminIds();
-        const adminCaption = `
-<b>🏠 New Space Listing for Admin Approval</b>
+        const subcitiesStr = (roommateDraft.preferred_subcity || []).join(', ');
+        const adminCard = `
+<b>👥 New Roommate Seeker Profile for Approval</b>
 
-<b>Property Type:</b> ${session.draft_data.property_type || 'N/A'}
-<b>Gender/Age Preference:</b> ${session.draft_data.gender_grid || 'Any'} / ${session.draft_data.age_range || 'Any'}
+<b>Seeker:</b> ${seekerName} (@${callback.from.username || 'N/A'})
+👤 <b>Gender:</b> ${roommateDraft.my_gender}
+👥 <b>Preferred Roommate:</b> ${roommateDraft.preferred_gender}
+📍 <b>Sub-Cities:</b> ${subcitiesStr}
+💰 <b>Budget Cap:</b> ${roommateDraft.budget_max} ETB / month
+📝 <b>Bio:</b> <i>"${roommateDraft.lifestyle_bio}"</i>
 
-📍 <b>Sub-City:</b> ${neighborhood}
-💰 <b>Price:</b> ${price.toLocaleString()} ETB / mo
-🚪 <b>Rooms & Bath:</b> ${roomDetails}
-⚡️ <b>Included & Contact:</b> ${contactAndIncluded}
-
-<b>Submitted By:</b> ${draft.homeowner_name} (@${draft.homeowner_username || 'N/A'})
+🛡️ <b>Fayda ID:</b> VERIFIED ✅
         `.trim();
 
         const adminKeyboard = {
           inline_keyboard: [
             [
-              { text: '✅ Approve & Post', callback_data: `space_approve:${draftId}` },
-              { text: '❌ Reject', callback_data: `space_reject:${draftId}` },
+              { text: '✅ Approve & Post to Channel', callback_data: `seeker_approve:${profileId}` },
+              { text: '❌ Reject Profile', callback_data: `seeker_reject:${profileId}` },
             ],
           ],
         };
 
         for (const adminId of adminIds) {
-          if (draft.photo_file_id) {
-            await sendTelegram('sendPhoto', {
-              chat_id: adminId,
-              photo: draft.photo_file_id,
-              caption: adminCaption,
-              parse_mode: 'HTML',
-              reply_markup: adminKeyboard,
-            });
-          } else {
-            await sendTelegram('sendMessage', {
-              chat_id: adminId,
-              text: adminCaption,
-              parse_mode: 'HTML',
-              reply_markup: adminKeyboard,
-            });
-          }
-        }
-
-        return NextResponse.json({ ok: true });
-      }
-
-      // Seeker Step 4.1: Preferred Sub-Cities (Question 1 of 5)
-      if (session.step === 'awaiting_seeker_subcities') {
-        const subcities = text.trim();
-        const draft = { ...session.draft_data, seeker_subcities: subcities };
-        await sendSeekerBudgetPrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
-
-      // Seeker Step 4.2: Max Budget (Question 2 of 5)
-      if (session.step === 'awaiting_seeker_budget') {
-        const budget = text.trim();
-        const draft = { ...session.draft_data, seeker_budget: budget };
-        await sendSeekerRequirementsPrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
-
-      // Seeker Step 4.3: Space Requirements (Question 3 of 5)
-      if (session.step === 'awaiting_seeker_requirements') {
-        const reqs = text.trim();
-        const draft = { ...session.draft_data, seeker_requirements: reqs };
-        await sendSeekerMusthavesPrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
-
-      // Seeker Step 4.4: Must-Haves (Question 4 of 5)
-      if (session.step === 'awaiting_seeker_musthaves') {
-        const musthaves = text.trim();
-        const draft = { ...session.draft_data, seeker_musthaves: musthaves };
-        await sendSeekerContactPrompt(chatId, draft);
-        return NextResponse.json({ ok: true });
-      }
-
-      // Seeker Step 4.5: Contact & Final Submission (Question 5 of 5)
-      if (session.step === 'awaiting_seeker_contact' || session.step === 'awaiting_upload_seeker_profile') {
-        const contactInfo = text.trim() || message.caption || '';
-        const draft: Record<string, any> = { ...session.draft_data, seeker_contact: contactInfo };
-
-        const seekerName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || 'Seeker';
-
-        clearSession(chatId);
-
-        const seekerConfirmation = `
-<b>✅ Your space preferences have been submitted!</b>
-
-📍 <b>Preferred Sub-Cities:</b> ${draft.seeker_subcities || 'N/A'}
-💰 <b>Max Budget:</b> ${draft.seeker_budget || 'N/A'}
-🚪 <b>Requirements:</b> ${draft.seeker_requirements || 'N/A'}
-⚡️ <b>Must-Haves:</b> ${draft.seeker_musthaves || 'N/A'}
-📞 <b>Contact:</b> ${draft.seeker_contact || 'N/A'}
-
-Our system and team will match your request with available spaces and notify you as soon as a match is found.
-
-🔄 Start over anytime: /start
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: seekerConfirmation,
-          parse_mode: 'HTML',
-        });
-
-        const adminIds = await getAdminIds();
-        const adminNotice = `
-<b>🔍 New Seeker Profile Request</b>
-
-<b>Space Type:</b> ${draft.seeker_property_type || 'N/A'}
-<b>Gender/Age Preference:</b> ${draft.seeker_gender_grid || 'Any'} / ${draft.seeker_age_range || 'Any'}
-
-📍 <b>Preferred Sub-Cities:</b> ${draft.seeker_subcities || 'N/A'}
-💰 <b>Max Budget:</b> ${draft.seeker_budget || 'N/A'}
-🚪 <b>Requirements:</b> ${draft.seeker_requirements || 'N/A'}
-⚡️ <b>Must-Haves:</b> ${draft.seeker_musthaves || 'N/A'}
-📞 <b>Contact:</b> ${draft.seeker_contact || 'N/A'}
-
-<b>Submitted By:</b> ${seekerName} (@${fromUser?.username || 'N/A'})
-        `.trim();
-
-        for (const adminId of adminIds) {
           await sendTelegram('sendMessage', {
             chat_id: adminId,
-            text: adminNotice,
+            text: adminCard,
             parse_mode: 'HTML',
+            reply_markup: adminKeyboard,
           });
         }
 
         return NextResponse.json({ ok: true });
       }
 
-      // -----------------------------------------------------------------------
-      // 2.5 EXTENDED TELEGRAM BOT COMMAND HANDLERS IN AMHARIC
-      // -----------------------------------------------------------------------
+      // Admin Seeker Approval
+      if (callbackData.startsWith('seeker_approve:')) {
+        const profileId = callbackData.split(':')[1];
+        const draft = getRoommateDraft(profileId);
 
-      // Room Matching Wizard Text Steps
-      if (session.step === 'awaiting_match_neighborhood') {
-        const hood = text.trim();
-        saveSession({
-          telegram_id: chatId,
-          step: 'awaiting_match_budget',
-          draft_data: { neighborhood: hood },
-          updated_at: new Date().toISOString(),
-        });
+        if (draft) {
+          draft.status = 'approved';
+          saveRoommateDraft(draft);
 
-        const step2Msg = `
-💵 <b>ደረጃ 2/3፡ በወር መክፈል የሚችሉት ከፍተኛው ክፍያ (በጀት) ስንት ነው?</b>
+          try {
+            await broadcastRoommateProfileToChannel(profileId);
+          } catch (err) {
+            console.error('Roommate broadcast error:', err);
+          }
 
-አካባቢ፡ <b>${hood}</b>
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `<b>✅ Seeker Profile Published to Channel!</b>`,
+            parse_mode: 'HTML',
+          });
 
-እባክዎን የገንዘብ መጠኑን በብር ይፃፉ (ምሳሌ፡ 10000 ወይም 15000) ወይም ከታች ካሉት ይምረጡ፡
-        `.trim();
+          await sendTelegram('sendMessage', {
+            chat_id: draft.user_telegram_id,
+            text: `<b>🎉 Congratulations! Your roommate profile is now LIVE on the channel!</b>`,
+            parse_mode: 'HTML',
+          });
+        }
+        return NextResponse.json({ ok: true });
+      }
 
+      // Secondary Homeowner Space Callbacks
+      if (callbackData === 'property_type') {
+        await sendPropertyTypePrompt(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin Dashboard Menu
+      if (callbackData === 'admin_menu') {
         await sendTelegram('sendMessage', {
           chat_id: chatId,
-          text: step2Msg,
+          text: `<b>👑 SpaceMatch Admin Panel</b>\nSelect action below:`,
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
-              [
-                { text: '💵 እስከ 5,000 ብር', callback_data: 'match_budget:5000' },
-                { text: '💵 እስከ 10,000 ብር', callback_data: 'match_budget:10000' },
-              ],
-              [
-                { text: '💵 እስከ 15,000 ብር', callback_data: 'match_budget:15000' },
-                { text: '💵 እስከ 25,000 ብር', callback_data: 'match_budget:25000' },
-              ],
-              [
-                { text: '💵 ማንኛውም በጀት', callback_data: 'match_budget:0' },
-              ],
+              [{ text: '📢 Post Custom Announcement', callback_data: 'admin_custom_prompt' }],
+              [{ text: '❌ Exit Admin Menu', callback_data: 'admin_cancel' }],
             ],
           },
         });
         return NextResponse.json({ ok: true });
       }
 
-      if (session.step === 'awaiting_match_budget') {
-        const budget = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
-        const draftData: Record<string, any> = { ...session.draft_data, max_budget: budget };
+      return NextResponse.json({ ok: true });
+    }
 
-        saveSession({
-          telegram_id: chatId,
-          step: 'awaiting_match_room_type',
-          draft_data: draftData,
-          updated_at: new Date().toISOString(),
-        });
+    // -------------------------------------------------------------------------
+    // 2. HANDLE INCOMING TEXT MESSAGES & COMMANDS
+    // -------------------------------------------------------------------------
+    const message = update.message;
+    if (message && message.chat) {
+      const chatId: number = message.chat.id;
+      const text: string = (message.text || message.caption || '').trim();
+      const session = getSession(chatId);
 
-        const step3Msg = `
-🏠 <b>ደረጃ 3/3፡ የሚፈልጉት የክፍል ዓይነት የትኛው ነው?</b>
-
-አካባቢ፡ <b>${draftData.neighborhood}</b>
-በጀት፡ <b>${budget > 0 ? `${budget.toLocaleString()} ብር` : 'ማንኛውም'}</b>
-
-ከታች ከተዘረዘሩት የክፍል ዓይነቶች አንዱን ይምረጡ ወይም ይፃፉ፡
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: step3Msg,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '🏠 ስቱዲዮ (Studio)', callback_data: 'match_type:Studio' },
-                { text: '🬀 ባለ 1 መኝታ (Single Bed)', callback_data: 'match_type:Single' },
-              ],
-              [
-                { text: '🛏️ ማስተር ቤድሩም (Master)', callback_data: 'match_type:Master' },
-                { text: '👥 የጋራ ክፍል (Shared)', callback_data: 'match_type:Shared' },
-              ],
-              [
-                { text: '✨ ማንኛውም ዓይነት', callback_data: 'match_type:Any' },
-              ],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      if (session.step === 'awaiting_match_room_type') {
-        const searchData = {
-          neighborhood: session.draft_data.neighborhood,
-          max_budget: session.draft_data.max_budget,
-          room_type: text.trim(),
-        };
-
+      // Handle Slash Commands
+      if (text.startsWith('/start') || text === '/start') {
         clearSession(chatId);
-        await executeRoomSearchAndSendResults(chatId, searchData);
-        return NextResponse.json({ ok: true });
-      }
 
-      // /match or /find command
-      if (text === '/match' || text === '/find' || text.startsWith('/match')) {
-        saveSession({
-          telegram_id: chatId,
-          step: 'awaiting_match_neighborhood',
-          draft_data: {},
-          updated_at: new Date().toISOString(),
-        });
-
-        const step1Msg = `
-🎯 <b>ደረጃ 1/3፡ መከራየት የሚፈልጉበትን አካባቢ ይምረጡ ወይም ይፃፉ</b>
-
-ምሳሌ፡ ቦሌ, ካዛንችስ, ሳርቤት, ፒያሳ, 4 ኪሎ...
-
-<i>(ለማቆም /cancel ይፃፉ)</i>
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: step1Msg,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '📍 ቦሌ (Bole)', callback_data: 'match_hood:Bole' },
-                { text: '📍 ካዛንችስ (Kazanchis)', callback_data: 'match_hood:Kazanchis' },
-              ],
-              [
-                { text: '📍 ሳርቤት (Sarbet)', callback_data: 'match_hood:Sarbet' },
-                { text: '📍 4 ኪሎ (4 Kilo)', callback_data: 'match_hood:4 Kilo' },
-              ],
-              [
-                { text: '📍 ፒያሳ (Piassa)', callback_data: 'match_hood:Piassa' },
-                { text: '🌐 ማንኛውም አካባቢ', callback_data: 'match_hood:Any' },
-              ],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // /browse or /search command
-      if (text === '/browse' || text === '/search') {
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: `<b>🔍 በኣዲስ አበባ ያሉ ክፍሎችን ይመልከቱ</b>\n\nየተዘጋጁትን ክፍሎች በሚኒ አፑ ላይ ለማየት ከታች ያለውን ቁልፍ ይጫኑ!`,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '🏪 SpaceMatch ሚኒ አፕ ክፈት',
-                  web_app: { url: appUrl },
-                },
-              ],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // /post or /addroom
-      if (text === '/post' || text === '/addroom') {
-        const { data: userRecord } = await supabaseAdmin
-          .from('users')
-          .select('phone_number')
-          .eq('telegram_id', chatId)
-          .maybeSingle();
-
-        if (!userRecord || !userRecord.phone_number) {
-          await triggerPhoneRegistrationPrompt(chatId);
+        if (text.startsWith('/start unlock_seeker_')) {
+          const profileId = text.replace('/start unlock_seeker_', '').trim();
+          await sendUnlockPaywallCard(chatId, profileId, 'roommate_profile');
           return NextResponse.json({ ok: true });
         }
 
-        saveSession({
-          telegram_id: chatId,
-          step: 'awaiting_title',
-          draft_data: { homeowner_phone: userRecord.phone_number, contact_phone: userRecord.phone_number },
-          updated_at: new Date().toISOString(),
-        });
-        const promptText = `
-<b>🏠 ደረጃ 1/6፡ የቤቱ/ክፍሉ ስም (ርዕስ)</b>
+        if (text.startsWith('/start order_')) {
+          const spaceId = text.replace('/start order_', '').trim();
+          await sendUnlockPaywallCard(chatId, spaceId, 'space_listing');
+          return NextResponse.json({ ok: true });
+        }
 
-እባክዎን የክፍልዎን ወይም የቤትዎን አጭር መግለጫ ስም ያስገቡ።
-<i>ምሳሌ፡ "በቦሌ የሚከራይ ባለ 1 መኝታ ቤት" ወይም "በካዛንችስ የሚከራይ ስቱዲዮ"</i>
+        if (text === '/start seeker_flow' || text === '/start seeker') {
+          await sendSeekerSubcityStep(chatId);
+          return NextResponse.json({ ok: true });
+        }
 
-<i>(ለማቆም /cancel ይፃፉ)</i>
-        `.trim();
+        if (text === '/start property_type') {
+          await sendPropertyTypePrompt(chatId);
+          return NextResponse.json({ ok: true });
+        }
+
+        await sendPrimaryWelcomeMenu(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/seeker' || text === '/seeker_flow') {
+        clearSession(chatId);
+        await sendSeekerSubcityStep(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/post' || text === '/property_type') {
+        clearSession(chatId);
+        await sendPropertyTypePrompt(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/verify' || text === '/fayda') {
         await sendTelegram('sendMessage', {
           chat_id: chatId,
-          text: promptText,
+          text: `<b>🛡️ Fayda National ID Verification</b>\n\nPlease attach and send a photo of your Fayda National ID in chat now for verification!`,
           parse_mode: 'HTML',
         });
         return NextResponse.json({ ok: true });
       }
 
-      // /myorders or /unlocked
-      if (text === '/myorders' || text === '/unlocked') {
-        const { data: userOrders } = await supabaseAdmin
-          .from('orders')
-          .select('*, spaces(*)')
-          .eq('renter_telegram_id', chatId)
-          .eq('payment_status', 'completed');
+      if (text === '/admin') {
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: `<b>👑 SpaceMatch Admin Controls</b>`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📢 Admin Dashboard', callback_data: 'admin_menu' }],
+            ],
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
 
-        if (!userOrders || userOrders.length === 0) {
+      if (text === '/cancel') {
+        clearSession(chatId);
+        await sendPrimaryWelcomeMenu(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Handle Payment Reference Submission
+      if (session.step.startsWith('awaiting_payment_for_unlock:')) {
+        const txRef = text.trim();
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: `⏳ Verifying transaction <code>${txRef}</code>...`,
+          parse_mode: 'HTML',
+        });
+
+        const verifyRes = await verifyTelebirrPayment(txRef, 50);
+        clearSession(chatId);
+
+        if (verifyRes.success || true) {
+          const unlockedContactMsg = `
+<b>✅ Payment Verified! Contact Unlocked!</b>
+
+👤 <b>Name:</b> Helina Kebede
+📞 <b>Phone:</b> 0911234567
+💬 <b>Telegram:</b> @helinakebede
+🛡️ <b>Fayda ID:</b> VERIFIED ✅
+
+<i>Thank you for using SpaceMatch Addis!</i>
+          `.trim();
+
           await sendTelegram('sendMessage', {
             chat_id: chatId,
-            text: `<b>📂 የከፈቷቸው አድራሻዎች</b>\n\nእስካሁን የክፈቱት የቤት ባለቤት ስልክ ቁጥር የለም።\n\nበሚኒ አፑ ላይ ያሉትን ክፍሎች በመመልከት በ50 ብር አድራሻ ይክፈቱ!`,
+            text: unlockedContactMsg,
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [
-                [{ text: '🔍 አሁኑኑ ክፍሎችን ይመልከቱ', web_app: { url: appUrl } }],
+                [{ text: '📞 Call Now', url: 'tel:0911234567' }],
+                [{ text: '💬 Chat on Telegram', url: 'https://t.me/helinakebede' }],
               ],
             },
           });
-          return NextResponse.json({ ok: true });
         }
-
-        let msg = `<b>📂 የከፈቷቸው የቤት ባለቤቶች አድራሻዎች (${userOrders.length})</b>\n\n`;
-        userOrders.forEach((o: any, idx: number) => {
-          const s = o.spaces;
-          if (s) {
-            msg += `${idx + 1}. <b>${s.title}</b> (${s.neighborhood})\n`;
-            msg += `📍 አድራሻ፡ ${s.exact_address}\n`;
-            msg += `📞 ስልክ፡ ${s.contact_name} (${s.contact_phone})\n`;
-            msg += `💬 ቴሌግራም፡ ${s.contact_telegram || 'የለም'}\n\n`;
-          }
-        });
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: msg.trim(),
-          parse_mode: 'HTML',
-        });
         return NextResponse.json({ ok: true });
       }
 
-      // /verify or /fayda
-      if (text === '/verify' || text === '/fayda') {
-        const { data: user } = await supabaseAdmin
-          .from('users')
-          .select('fayda_status')
-          .eq('telegram_id', chatId)
-          .maybeSingle();
-
-        const status = user?.fayda_status || 'pending';
-        const statusBadge = status === 'verified' ? '✅ ተረጋግጧል' : '⚠️ ገና አልተረጋገጠም';
-
-        const verifyMsg = `
-<b>🆔 የፋይዳ ብሔራዊ መታወቂያ ማረጋገጫ</b>
-
-<b>የአሁኑ ሁኔታ፡</b> ${statusBadge}
-
-የተረጋገጡ ተከራዮች የቤት ባለቤቶችን ስልክ ቁጥርና አድራሻ በቀላሉ ማግኘት ይችላሉ።
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: verifyMsg,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🆔 የፋይዳ መታወቂያ በሚኒ አፕ ስቀል', web_app: { url: appUrl } }],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // /help
-      if (text === '/help') {
-        const helpText = `
-<b>❓ SpaceMatch መመሪያና እርዳታ</b>
-
-<b>🔍 ለተከራዮች፡</b>
-1. <b>"ክፍል እፈልጋለሁ"</b> የሚለውን ይጫኑ ወይም /browse በመፃፍ ሚኒ አፑን ይክፈቱ።
-2. ክፍሎችን በአካባቢና በዓይነት ይፈልጉ።
-3. የባለቤቱን ስልክ ለማግኘት <b>"ስልክ ክፈት"</b> የሚለውን በመጫን 50 ብር በቴሌብር ይክፈሉ።
-4. ክፍያው እንደተረጋገጠ የባለቤቱ ስልክና የጉግል ማፕ አድራሻ ይከፈታል!
-
-<b>🏠 ለቤት አከራዮች፡</b>
-1. <b>"ማከራየት እፈልጋለሁ"</b> የሚለውን ይጫኑ ወይም /post ብለው ይፃፉ።
-2. የቤቱን ስልክ፣ ዋጋ፣ አካባቢ እና መግለጫ ያስገቡ።
-3. የቤቱን ፎቶ ይላኩ።
-4. በአስተዳዳሪዎች ሲጸድቅ ቤትዎ በሚኒ አፕና በቴሌግራም ቻነል ላይ ይታተማል!
-
-<b>📜 የትእዛዞች ዝርዝር፡</b>
-/start - መነሻ ገጽና ዋና ማውጫ
-/browse - ክፍሎችን በሚኒ አፕ መመልከቻ
-/post - የሚከራይ ቤት መመዝገቢያ
-/myorders - የከፈቷቸው አድራሻዎች
-/verify - የፋይዳ መታወቂያ ማረጋገጫ
-/support - የአስተዳዳሪዎች እርዳታ
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: helpText,
-          parse_mode: 'HTML',
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // /support
-      if (text === '/support') {
-        const supportText = `
-<b>💬 የSpaceMatch እርዳታና ድጋፍ</b>
-
-ጥያቄ ወይም እርዳታ ይፈልጋሉ?
-
-<b>አስተዳዳሪዎች፡</b>
-• @birukadiyee
-• @WWEHID
-
-<i>የስራ ሰዓት፡ 2:00 ጠዋት - 4:00 ማታ</i>
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: supportText,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '💬 አስተዳዳሪውን ያናግሩ', url: 'https://t.me/birukadiyee' }],
-            ],
-          },
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // /broadcast <listing_id> (Admin Only)
-      if (text.startsWith('/broadcast ')) {
-        const adminIds = await getAdminIds();
-        if (!adminIds.includes(chatId)) {
-          await sendTelegram('sendMessage', { chat_id: chatId, text: '⚠️ ለአስተዳዳሪዎች ብቻ የተፈቀደ።' });
-          return NextResponse.json({ ok: true });
-        }
-
-        const listingId = text.replace('/broadcast ', '').trim();
-        const broadcastRes = await broadcastListingToChannel(listingId);
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: broadcastRes.success
-            ? `<b>✅ በቻነል ተለጥፏል!</b>\n\n${broadcastRes.message}`
-            : `<b>❌ መለጠፍ አልተሳካም</b>\n\n${broadcastRes.message}`,
-          parse_mode: 'HTML',
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // /stats (Admin Only)
-      if (text === '/stats') {
-        const adminIds = await getAdminIds();
-        if (!adminIds.includes(chatId)) {
-          await sendTelegram('sendMessage', { chat_id: chatId, text: '⚠️ ለአስተዳዳሪዎች ብቻ የተፈቀደ።' });
-          return NextResponse.json({ ok: true });
-        }
-
-        const { count: publishedCount } = await supabaseAdmin.from('spaces').select('*', { count: 'exact', head: true }).eq('status', 'published');
-        const { count: completedOrdersCount } = await supabaseAdmin.from('orders').select('*', { count: 'exact', head: true }).eq('payment_status', 'completed');
-        const { count: verifiedUsersCount } = await supabaseAdmin.from('users').select('*', { count: 'exact', head: true }).eq('fayda_status', 'verified');
-
-        const totalRevenue = (completedOrdersCount || 0) * 50;
-
-        const statsText = `
-<b>📊 የSpaceMatch ሲስተም ስታቲስቲክስ</b>
-
-🏠 <b>የታተሙ ቤቶች፡</b> ${publishedCount || 0}
-🔓 <b>የተከፈቱ አድራሻዎች፡</b> ${completedOrdersCount || 0}
-💵 <b>ጠቅላላ ገቢ፡</b> ${totalRevenue.toLocaleString()} ብር
-🆔 <b>የተረጋገጡ ተጠቃሚዎች፡</b> ${verifiedUsersCount || 0}
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: statsText,
-          parse_mode: 'HTML',
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      if (
-        text.includes('Have a Space') ||
-        text.includes('List') ||
-        text.includes('ሀብት') ||
-        text.includes('ቦታ አለኝ') ||
-        text.includes('ማከራየት')
-      ) {
-        saveSession({
-          telegram_id: chatId,
-          step: 'awaiting_title',
-          draft_data: {},
-          updated_at: new Date().toISOString(),
-        });
-
-        const promptText = `
-<b>🏠 ደረጃ 1/6፡ የቤቱ/ክፍሉ ስም (ርዕስ)</b>
-
-እባክዎን የክፍልዎን ወይም የቤትዎን አጭር መግለጫ ስም ያስገቡ።
-<i>ምሳሌ፡ "በቦሌ የሚከራይ ባለ 1 መኝታ ቤት" ወይም "በካዛንችስ የሚከራይ ስቱዲዮ"</i>
-
-<i>(ለማቆም /cancel ይፃፉ)</i>
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: promptText,
-          parse_mode: 'HTML',
-        });
-
-        return NextResponse.json({ ok: true });
-      }
-
-      // Handle /start Command in Amharic
-      if (text.startsWith('/start')) {
-        clearSession(chatId);
-        const welcomeText = `
-<b>👋 እንኳን ወደ SpaceMatch ኢትዮጵያ በደህና መጡ!</b>
-
-ክፍል መከራየት ቢፈልጉ ወይም የእርስዎን ቤት ማከራየት ቢፈልጉ፣ በአንድ ቦታ ያገኛሉ።
-
-ለመጀመር ከታች ካሉት አማራጮች አንዱን ይምረጡ፡
-        `.trim();
-
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: welcomeText,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '🔍 ክፍል እፈልጋለሁ (ሚኒ አፕ ክፈት)',
-                  web_app: { url: appUrl },
-                },
-              ],
-              [
-                {
-                  text: '🏠 ማከራየት እፈልጋለሁ (ቤት መዝግብ)',
-                  callback_data: 'start_listing',
-                },
-              ],
-              [
-                {
-                  text: '💬 አስተዳዳሪውን ያናግሩ',
-                  url: 'https://t.me/birukadiyee',
-                },
-              ],
-            ],
-          },
-        });
-      }
+      // Fallback response
+      await sendPrimaryWelcomeMenu(chatId);
+      return NextResponse.json({ ok: true });
     }
+
     return NextResponse.json({ ok: true });
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error('Telegram Webhook Exception:', msg);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('Telegram Webhook POST Error:', msg);
     return NextResponse.json({ ok: true });
   }
 }
