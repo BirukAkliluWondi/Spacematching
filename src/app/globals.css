@@ -98,6 +98,17 @@
   box-shadow: 0 6px 25px 0 rgba(0, 136, 204, 0.6);
 }
 
+.btn-vibrant-emerald {
+  background: linear-gradient(135deg, #10b981 0%, #14b8a6 50%, #06b6d4 100%);
+  color: #020617;
+  box-shadow: 0 4px 20px -2px rgba(16, 185, 129, 0.4);
+}
+
+.btn-vibrant-emerald:hover {
+  background: linear-gradient(135deg, #34d399 0%, #2dd4bf 50%, #22d3ee 100%);
+  box-shadow: 0 6px 25px 0 rgba(16, 185, 129, 0.6);
+}
+
 @keyframes pulse-subtle {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.85; transform: scale(1.02); }

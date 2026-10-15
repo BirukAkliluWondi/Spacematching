@@ -222,7 +222,7 @@ export function FeedView({
             href={`${cleanBotUrl}?start=seeker_flow`}
             target="_blank"
             rel="noreferrer"
-            className="px-3.5 py-2 rounded-xl bg-[#0088CC] hover:bg-[#0077BB] text-white font-black text-xs shadow-lg shadow-[#0088CC]/35 transition-all active:scale-95 flex items-center gap-1.5"
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#0088CC] via-[#0099FF] to-[#00B4D8] hover:opacity-95 text-white font-black text-xs shadow-lg shadow-[#0088CC]/35 transition-all active:scale-95 flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
             <span>Post Seeker</span>
@@ -235,7 +235,7 @@ export function FeedView({
             onClick={() => setActiveMainTab('seekers')}
             className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 ${
               activeMainTab === 'seekers'
-                ? 'bg-[#0088CC] text-white shadow-lg shadow-[#0088CC]/30 font-black'
+                ? 'bg-gradient-to-r from-[#0088CC] via-[#0099FF] to-[#00B4D8] text-white shadow-lg shadow-[#0088CC]/30 font-black'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -247,7 +247,7 @@ export function FeedView({
             onClick={() => setActiveMainTab('spaces')}
             className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 ${
               activeMainTab === 'spaces'
-                ? 'bg-[#0088CC] text-white shadow-lg shadow-[#0088CC]/30 font-black'
+                ? 'bg-gradient-to-r from-[#0088CC] via-[#0099FF] to-[#00B4D8] text-white shadow-lg shadow-[#0088CC]/30 font-black'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -282,7 +282,7 @@ export function FeedView({
                 onClick={() => setSelectedSubcityFilter(sub)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1 ${
                   isActive
-                    ? 'bg-[#0088CC] text-white shadow-md shadow-[#0088CC]/30'
+                    ? 'bg-gradient-to-r from-[#0088CC] to-[#00A3FF] text-white shadow-md shadow-[#0088CC]/30 font-bold'
                     : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] border border-white/[0.06]'
                 }`}
               >
@@ -303,7 +303,7 @@ export function FeedView({
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span>Showing <strong>{filteredSeekers.length}</strong> verified roommate seekers</span>
-              <span className="text-[10px] text-[#0088CC] font-bold bg-[#0088CC]/10 px-2 py-0.5 rounded-md border border-[#0088CC]/30">
+              <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/15 px-2 py-0.5 rounded-md border border-emerald-500/30">
                 🛡️ Fayda Verified First
               </span>
             </div>
@@ -317,7 +317,7 @@ export function FeedView({
                   href={`${cleanBotUrl}?start=seeker_flow`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-block mt-2 px-4 py-2 rounded-xl bg-[#0088CC] hover:bg-[#0077BB] text-white font-black text-xs shadow-lg shadow-[#0088CC]/30"
+                  className="inline-block mt-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#0088CC] to-[#00A3FF] hover:opacity-95 text-white font-black text-xs shadow-lg shadow-[#0088CC]/30"
                 >
                   Post Your Seeker Profile
                 </a>
@@ -331,7 +331,7 @@ export function FeedView({
                   {/* Seeker Header */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-2xl bg-[#0088CC] text-white font-black text-base flex items-center justify-center shadow-md shadow-[#0088CC]/30">
+                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#0088CC] to-[#006699] text-white font-black text-base flex items-center justify-center shadow-md shadow-[#0088CC]/30">
                         {seeker.first_name[0]}
                       </div>
                       <div>
@@ -350,7 +350,7 @@ export function FeedView({
                       </div>
                     </div>
 
-                    <span className="text-sm font-black text-[#0088CC]">
+                    <span className="text-sm font-black text-emerald-400">
                       ETB {seeker.budget_max.toLocaleString()}
                       <span className="text-[10px] font-normal text-slate-400">/mo</span>
                     </span>
@@ -382,9 +382,9 @@ export function FeedView({
                     href={`${cleanBotUrl}?start=unlock_seeker_${seeker.id}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="w-full py-2.5 rounded-xl bg-[#0088CC] hover:bg-[#0077BB] text-white font-black text-xs shadow-lg shadow-[#0088CC]/35 flex items-center justify-center gap-2 transition-all active:scale-95"
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all active:scale-95"
                   >
-                    <Unlock className="w-4 h-4" />
+                    <Unlock className="w-4 h-4 stroke-[2.5]" />
                     <span>Unlock Contact Info ({seeker.unlock_fee || 50} ETB via Telebirr)</span>
                   </a>
                 </div>
@@ -442,7 +442,7 @@ export function FeedView({
                     </div>
 
                     <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
-                      <span className="text-xs font-black text-[#0088CC]">
+                      <span className="text-xs font-black text-emerald-400">
                         ETB {Number(space.price_per_month).toLocaleString()}
                         <span className="text-[9px] font-normal text-slate-400">/mo</span>
                       </span>
@@ -452,7 +452,7 @@ export function FeedView({
                         target="_blank"
                         rel="noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="px-2.5 py-1 rounded-lg bg-[#0088CC] hover:bg-[#0077BB] text-white font-black text-[10px] shadow-md shadow-[#0088CC]/30"
+                        className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-[11px] shadow-md shadow-emerald-500/25 transition-all active:scale-95"
                       >
                         Unlock
                       </a>
