@@ -18,6 +18,17 @@ import {
   broadcastListingToChannel,
   broadcastRoommateProfileToChannel,
 } from '@/lib/telegram-broadcast';
+import {
+  sendMessage as tgSend,
+  updateChannelPostAsMatched,
+} from '@/lib/telegram';
+import {
+  handleOnboardingCallback,
+  handleOnboardingMessage,
+  isOnboardingCallback,
+  isOnboardingSession,
+  initiateOnboarding,
+} from '@/lib/bot/onboarding';
 
 const ALL_SUBCITIES = [
   'Bole',
@@ -86,54 +97,47 @@ Addis Ababa's primary roommate matching platform backed by <b>Fayda National ID 
 Select an option below to begin:
       `.trim();
 
-      // Telegram Mini App Deep Links: Telegram renders Mini App buttons as prominent colored action buttons!
+      // Callback-based inline keyboard — works without a registered Telegram Mini App
       const inlineKeyboard = {
         inline_keyboard: [
           [
             {
               text: '🔍 Find Roommate (Interactive Matchmaker)',
-              url: `https://t.me/${botUsername}/${appName}?startapp=matchmaker`,
-              style: 'success',
+              callback_data: 'matchmaker_start',
             },
           ],
           [
             {
               text: '👥 Post Seeker Profile (Looking for Roommate)',
-              url: `https://t.me/${botUsername}/${appName}?startapp=seeker_flow`,
-              style: 'primary',
+              callback_data: 'seeker_flow',
             },
           ],
           [
             {
               text: '🏠 Share Space / Room for Rent',
-              url: `https://t.me/${botUsername}/${appName}?startapp=property_type`,
-              style: 'primary',
+              callback_data: 'property_type',
             },
           ],
           [
             {
               text: '📱 Open SpaceMatch Mini App',
               web_app: { url: appUrl },
-              style: 'success',
             },
           ],
           [
             {
               text: '🛡️ Verify Fayda ID',
-              url: `https://t.me/${botUsername}/${appName}?startapp=fayda`,
-              style: 'success',
+              callback_data: 'verify_fayda',
             },
             {
               text: '📂 My Unlocked Contacts',
-              url: `https://t.me/${botUsername}/${appName}?startapp=my_orders`,
-              style: 'primary',
+              callback_data: 'my_unlocked_contacts',
             },
           ],
           [
             {
               text: '💬 Live Admin Support',
               url: 'https://t.me/birukadiyee',
-              style: 'primary',
             },
           ],
         ],
@@ -989,9 +993,189 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       const callbackData: string = callback.data || '';
       const chatId: number = callback.message?.chat?.id || callback.from.id;
       const msgId: number | undefined = callback.message?.message_id;
+      const fromUsername: string | undefined = callback.from?.username;
 
       if (callback.id) {
         await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
+      }
+
+      // ── NEW: Onboarding callbacks (gender, location, move-in) ──────────────
+      if (isOnboardingCallback(callbackData)) {
+        await handleOnboardingCallback(
+          callback.id,
+          callbackData,
+          chatId,
+          fromUsername
+        );
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── NEW: Match request confirmation (from deep-link preview card) ──────
+      if (callbackData.startsWith('confirm_match:')) {
+        const targetProfileId = callbackData.split(':')[1];
+
+        // Get requester's profile
+        const { data: requesterProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .eq('telegram_id', chatId)
+          .single();
+
+        if (!requesterProfile) {
+          await tgSend(chatId, `⚠️ Could not find your profile. Please start onboarding with /start.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        // Prevent self-request
+        if (requesterProfile.id === targetProfileId) {
+          await tgSend(chatId, `⚠️ You cannot send a match request to yourself.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        // Get target profile
+        const { data: targetProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .eq('id', targetProfileId)
+          .single();
+
+        if (!targetProfile) {
+          await tgSend(chatId, `⚠️ This listing is no longer available.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        // Check for existing match
+        const { data: existingMatch } = await supabaseAdmin
+          .from('matches')
+          .select('id, status')
+          .eq('requester_id', requesterProfile.id)
+          .eq('target_id', targetProfileId)
+          .single();
+
+        if (existingMatch) {
+          await tgSend(
+            chatId,
+            `ℹ️ You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>. Status: <b>${existingMatch.status.replace('_', ' ')}</b>`
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        // Create match record
+        const { data: newMatch, error: matchError } = await supabaseAdmin
+          .from('matches')
+          .insert({
+            requester_id: requesterProfile.id,
+            target_id: targetProfileId,
+            status: 'pending_acceptance',
+            payment_status: 'unpaid',
+          })
+          .select('id')
+          .single();
+
+        if (matchError || !newMatch) {
+          console.error('[webhook] Failed to create match:', matchError?.message);
+          await tgSend(chatId, `❌ Could not send match request. Please try again.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        // Notify requester
+        await tgSend(
+          chatId,
+          `✅ <b>Match Request Sent!</b>\n\nYour request has been sent to Roommate <b>#${targetProfile.display_code}</b>. You'll be notified when they respond.`
+        );
+
+        // Notify target (User B) with requester snapshot
+        const requesterLocations = Array.isArray(requesterProfile.locations)
+          ? requesterProfile.locations.join(', ')
+          : 'Addis Ababa';
+
+        const notifyText = `🤝 <b>You Have a Match Request!</b>\n\nSomeone saw your post in the channel and wants to connect!\n\n👤 <b>Requester Snapshot:</b>\n• Gender: ${requesterProfile.gender || 'Not specified'}\n• Budget: ${Number(requesterProfile.budget_min || 0).toLocaleString()} – ${Number(requesterProfile.budget_max || 0).toLocaleString()} ETB\n• Locations: ${requesterLocations}\n\nWould you like to connect?`;
+
+        await tgSend(
+          targetProfile.telegram_id,
+          notifyText,
+          {
+            inline_keyboard: [
+              [
+                { text: '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
+                { text: '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
+              ],
+            ],
+          }
+        );
+
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── NEW: Match Accept ──────────────────────────────────────────────────
+      if (callbackData.startsWith('match_accept:')) {
+        const matchId = callbackData.split(':')[1];
+
+        const { data: match } = await supabaseAdmin
+          .from('matches')
+          .select('*, requester:requester_id(telegram_id, gender, budget_min, budget_max, locations, display_code), target:target_id(telegram_id, display_code)')
+          .eq('id', matchId)
+          .single();
+
+        if (!match || match.status !== 'pending_acceptance') {
+          await tgSend(chatId, `ℹ️ This match request is no longer pending.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        // Update match to pending_payment
+        await supabaseAdmin
+          .from('matches')
+          .update({ status: 'pending_payment' })
+          .eq('id', matchId);
+
+        const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
+        const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
+
+        const paymentInstructions = `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>300 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
+
+        // Send to both users
+        const requesterTgId = (match.requester as any)?.telegram_id;
+        const targetTgId = (match.target as any)?.telegram_id;
+
+        if (requesterTgId) await tgSend(requesterTgId, paymentInstructions);
+        if (targetTgId) await tgSend(targetTgId, paymentInstructions);
+
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── NEW: Match Decline ─────────────────────────────────────────────────
+      if (callbackData.startsWith('match_decline:')) {
+        const matchId = callbackData.split(':')[1];
+
+        const { data: match } = await supabaseAdmin
+          .from('matches')
+          .select('*, requester:requester_id(telegram_id, display_code)')
+          .eq('id', matchId)
+          .single();
+
+        if (!match) {
+          await tgSend(chatId, `ℹ️ Match not found.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        await supabaseAdmin
+          .from('matches')
+          .update({ status: 'declined' })
+          .eq('id', matchId);
+
+        // Notify decliner
+        await tgSend(chatId, `✅ You've declined the match request.`);
+
+        // Notify requester
+        const requesterTgId = (match.requester as any)?.telegram_id;
+        if (requesterTgId) {
+          await tgSend(
+            requesterTgId,
+            `📭 <b>Match Unavailable</b>\n\nPotential Roommate is unavailable. Keep looking on the channel! 🏠`
+          );
+        }
+
+        return NextResponse.json({ ok: true });
       }
 
       // Navigation & Start Menu
@@ -1228,6 +1412,60 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         return NextResponse.json({ ok: true });
       }
 
+      // Fayda ID Verification
+      if (callbackData === 'verify_fayda') {
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: `🛡️ <b>Fayda National ID Verification</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nTo verify your Fayda National ID, please send a photo of your Fayda ID card.\n\n<i>Your identity will be verified securely. Verified users get a ✅ badge on their profiles.</i>`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Back to Main Menu', callback_data: 'nav_start' }],
+            ],
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // My Unlocked Contacts
+      if (callbackData === 'my_unlocked_contacts') {
+        let ordersText = '';
+        try {
+          const { data: orders } = await supabaseAdmin
+            .from('orders')
+            .select('*, roommate_profiles(*), spaces(*)')
+            .eq('buyer_telegram_id', String(chatId))
+            .eq('status', 'completed')
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+          if (orders && orders.length > 0) {
+            ordersText = orders
+              .map((o: any, i: number) => {
+                const name = o.roommate_profiles?.user_name || o.spaces?.title || 'Contact';
+                return `${i + 1}. <b>${name}</b> — Unlocked ✅`;
+              })
+              .join('\n');
+          } else {
+            ordersText = '<i>You haven\'t unlocked any contacts yet.</i>';
+          }
+        } catch {
+          ordersText = '<i>Could not load your contacts. Please try again.</i>';
+        }
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: `📂 <b>My Unlocked Contacts</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n${ordersText}`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Back to Main Menu', callback_data: 'nav_start' }],
+            ],
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
       // Admin Dashboard Menu
       if (callbackData === 'admin_menu') {
         await sendTelegram('sendMessage', {
@@ -1330,6 +1568,86 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       if (text.startsWith('/start') || text === '/start') {
         clearSession(chatId);
 
+        // ── NEW: Deep-link from channel button → /start req_<display_code> ──
+        if (text.startsWith('/start req_')) {
+          const displayCode = text.replace('/start req_', '').trim();
+
+          // Lookup target profile
+          const { data: targetProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('display_code', displayCode)
+            .single();
+
+          if (!targetProfile) {
+            await tgSend(
+              chatId,
+              `⚠️ <b>Listing Not Found</b>\n\nRoommate <b>#${displayCode}</b> is no longer available.`
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          // Check if the clicking user has an active verified profile
+          const { data: requesterProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('telegram_id', chatId)
+            .single();
+
+          const isVerified =
+            requesterProfile &&
+            (requesterProfile.status === 'active' || requesterProfile.status === 'matched');
+
+          if (!isVerified) {
+            // Store pending request code and prompt onboarding
+            if (requesterProfile) {
+              await supabaseAdmin
+                .from('profiles')
+                .update({ pending_req_code: displayCode })
+                .eq('telegram_id', chatId);
+            }
+
+            await tgSend(
+              chatId,
+              `⚠️ <b>Verification Required</b>\n\nTo connect with Roommate <b>#${displayCode}</b>, you must first create your own verified profile so they know who is requesting.`,
+              {
+                inline_keyboard: [
+                  [{ text: '📝 Start Profile', callback_data: 'onboard_start' }],
+                ],
+              }
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          // Prevent self-request
+          if (requesterProfile.id === targetProfile.id) {
+            await tgSend(chatId, `ℹ️ This is your own listing.`);
+            return NextResponse.json({ ok: true });
+          }
+
+          // Show preview card with connect button
+          const targetLocations = Array.isArray(targetProfile.locations)
+            ? targetProfile.locations.join(', ')
+            : 'Addis Ababa';
+
+          const previewCard = `🤝 <b>Roommate #${targetProfile.display_code}</b>\n━━━━━━━━━━━━━━━━━━━\n👤 <b>Gender:</b> ${targetProfile.gender || 'Not specified'}\n📍 <b>Areas:</b> ${targetLocations}\n💰 <b>Budget:</b> ${Number(targetProfile.budget_min || 0).toLocaleString()} – ${Number(targetProfile.budget_max || 0).toLocaleString()} ETB/month\n📅 <b>Move-in:</b> ${targetProfile.move_in_date || 'Flexible'}\n🏠 <b>About:</b> <i>${targetProfile.roommate_traits || 'Seeking compatible housemate.'}</i>\n\n🔒 <i>Contact details revealed only after mutual match &amp; payment.</i>`;
+
+          await tgSend(
+            chatId,
+            previewCard,
+            {
+              inline_keyboard: [
+                [
+                  { text: '❤️ Send Match Request', callback_data: `confirm_match:${targetProfile.id}` },
+                  { text: '❌ Cancel', callback_data: 'nav_start' },
+                ],
+              ],
+            }
+          );
+          return NextResponse.json({ ok: true });
+        }
+        // ── END deep-link handler ─────────────────────────────────────────────
+
         // DIRECT POST CLICK FROM CHANNEL: Unlock Seeker Contact
         if (text.startsWith('/start unlock_seeker_')) {
           const profileId = text.replace('/start unlock_seeker_', '').trim();
@@ -1365,6 +1683,58 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           return NextResponse.json({ ok: true });
         }
 
+        // ── NEW: If user has no profile, start onboarding; otherwise welcome ─
+        const { data: existingProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('status, onboarding_step, pending_req_code')
+          .eq('telegram_id', chatId)
+          .single();
+
+        if (!existingProfile) {
+          // First-time user → launch onboarding
+          await initiateOnboarding(chatId, message.from?.username);
+          return NextResponse.json({ ok: true });
+        }
+
+        // If they completed onboarding and had a pending req, resume it
+        if (
+          existingProfile.pending_req_code &&
+          (existingProfile.status === 'active' || existingProfile.status === 'matched')
+        ) {
+          const pendingCode = existingProfile.pending_req_code;
+          await supabaseAdmin
+            .from('profiles')
+            .update({ pending_req_code: null })
+            .eq('telegram_id', chatId);
+
+          // Redirect them to the original listing
+          const { data: targetProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('display_code', pendingCode)
+            .single();
+
+          if (targetProfile) {
+            const targetLocations = Array.isArray(targetProfile.locations)
+              ? targetProfile.locations.join(', ')
+              : 'Addis Ababa';
+
+            await tgSend(
+              chatId,
+              `✅ <b>Profile ready!</b> Here is the listing you wanted to connect with:\n\n🤝 <b>Roommate #${targetProfile.display_code}</b>\n📍 ${targetLocations}\n💰 ${Number(targetProfile.budget_min || 0).toLocaleString()} – ${Number(targetProfile.budget_max || 0).toLocaleString()} ETB/month`,
+              {
+                inline_keyboard: [
+                  [
+                    { text: '❤️ Send Match Request', callback_data: `confirm_match:${targetProfile.id}` },
+                    { text: '❌ Cancel', callback_data: 'nav_start' },
+                  ],
+                ],
+              }
+            );
+            return NextResponse.json({ ok: true });
+          }
+        }
+
         await sendPrimaryWelcomeMenu(chatId);
         return NextResponse.json({ ok: true });
       }
@@ -1388,6 +1758,188 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         return NextResponse.json({ ok: true });
       }
 
+      // ── NEW: /verify <bank> <reference> — Dual-Escrow Payment ────────────
+      // Pattern: /verify telebirr FT260920042  OR  /verify cbe TX123456
+      if (text.startsWith('/verify ') && text.split(/\s+/).length >= 3) {
+        const parts = text.split(/\s+/);
+        const bank = parts[1]?.toLowerCase();
+        const reference = parts[2]?.trim();
+
+        if (!['telebirr', 'cbe'].includes(bank) || !reference) {
+          await tgSend(
+            chatId,
+            `⚠️ <b>Invalid format.</b>\n\nUsage: <code>/verify telebirr YOUR_REF</code> or <code>/verify cbe YOUR_REF</code>\n\n<i>Example: /verify telebirr FT260920042</i>`
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        // 1. Check if reference already used
+        const { data: existingPayment } = await supabaseAdmin
+          .from('payments')
+          .select('id')
+          .eq('reference', reference)
+          .single();
+
+        if (existingPayment) {
+          await tgSend(
+            chatId,
+            `❌ <b>Reference Already Used</b>\n\nThis transaction reference has already been submitted. Please use a different reference number.`
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        // 2. Find the paying user's profile
+        const { data: payerProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('id, status')
+          .eq('telegram_id', chatId)
+          .single();
+
+        if (!payerProfile) {
+          await tgSend(chatId, `⚠️ Profile not found. Please complete your onboarding first.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        // 3. Find the active pending_payment match for this user
+        const { data: activeMatch } = await supabaseAdmin
+          .from('matches')
+          .select('*, requester:requester_id(id, telegram_id, display_code, full_name, phone_number, telegram_username), target:target_id(id, telegram_id, display_code, full_name, phone_number, telegram_username, channel_message_id)')
+          .or(`requester_id.eq.${payerProfile.id},target_id.eq.${payerProfile.id}`)
+          .eq('status', 'pending_payment')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (!activeMatch) {
+          await tgSend(
+            chatId,
+            `⚠️ No active match found waiting for payment. Please make sure your match has been accepted first.`
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        // 4. Sending indicator
+        await tgSend(chatId, `⏳ <b>Verifying payment with Verify.ET...</b>`);
+
+        // 5. Call Verify.ET
+        const verifyResult = await verifyTelebirrPayment(reference, 300);
+
+        if (!verifyResult.success) {
+          await tgSend(
+            chatId,
+            `❌ <b>Verification Failed</b>\n\n${verifyResult.message}\n\nPlease double-check your reference number and try again.`
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        // 6. Record the payment
+        await supabaseAdmin.from('payments').insert({
+          match_id: activeMatch.id,
+          user_id: payerProfile.id,
+          bank,
+          reference,
+          amount: verifyResult.paidAmount ?? 300,
+        });
+
+        // 7. Determine which side paid and update the match
+        const isRequester = (activeMatch.requester as any)?.id === payerProfile.id;
+        const updateField = isRequester ? 'requester_paid' : 'target_paid';
+
+        const { data: updatedMatch } = await supabaseAdmin
+          .from('matches')
+          .update({ [updateField]: true })
+          .eq('id', activeMatch.id)
+          .select('requester_paid, target_paid')
+          .single();
+
+        const bothPaid = updatedMatch?.requester_paid && updatedMatch?.target_paid;
+
+        if (!bothPaid) {
+          // Only one side paid — update payment_status and notify both
+          await supabaseAdmin
+            .from('matches')
+            .update({ payment_status: 'one_paid' })
+            .eq('id', activeMatch.id);
+
+          await tgSend(
+            chatId,
+            `✅ <b>300 ETB Verified!</b>\n\nWaiting for your potential roommate to complete their payment.`
+          );
+
+          // Alert the other user
+          const otherTgId = isRequester
+            ? (activeMatch.target as any)?.telegram_id
+            : (activeMatch.requester as any)?.telegram_id;
+
+          if (otherTgId) {
+            await tgSend(
+              otherTgId,
+              `🔔 <b>Your potential roommate has paid!</b>\n\nPay your 300 ETB fee to unlock contact details.\n\n<code>/verify telebirr YOUR_REFERENCE</code> or <code>/verify cbe YOUR_REFERENCE</code>`
+            );
+          }
+        } else {
+          // ── BOTH PAID → Complete the match ─────────────────────────────────
+          await supabaseAdmin
+            .from('matches')
+            .update({
+              payment_status: 'both_paid',
+              status: 'completed',
+              completed_at: new Date().toISOString(),
+            })
+            .eq('id', activeMatch.id);
+
+          // Mark both profiles as matched
+          const requesterProfileId = (activeMatch.requester as any)?.id;
+          const targetProfileId    = (activeMatch.target as any)?.id;
+
+          await supabaseAdmin
+            .from('profiles')
+            .update({ status: 'matched' })
+            .in('id', [requesterProfileId, targetProfileId].filter(Boolean));
+
+          // Update channel post to MATCHED & CLOSED
+          const channelMsgId = (activeMatch.target as any)?.channel_message_id;
+          const targetDisplayCode = (activeMatch.target as any)?.display_code;
+          if (channelMsgId && targetDisplayCode) {
+            try {
+              await updateChannelPostAsMatched(channelMsgId, targetDisplayCode);
+            } catch (err) {
+              console.error('[webhook] Failed to update channel post:', err);
+            }
+          }
+
+          // Build contact reveal messages
+          const buildRevealMsg = (other: any) => {
+            const tgHandle = other?.telegram_username ? `@${other.telegram_username}` : 'N/A';
+            return `🎉 <b>YOU'RE MATCHED!</b>\n\nBoth payments are verified. Your connection is complete!\n\n👤 <b>Name:</b> ${other?.full_name || 'Verified Member'}\n📞 <b>Phone:</b> <code>${other?.phone_number || 'N/A'}</code>\n💬 <b>Telegram:</b> ${tgHandle}\n\nGood luck finding your home together! 🏠🤝`;
+          };
+
+          const requesterData = activeMatch.requester as any;
+          const targetData    = activeMatch.target as any;
+
+          const requesterRevealMarkup = targetData?.telegram_username
+            ? { inline_keyboard: [[{ text: '💬 Open Chat on Telegram', url: `https://t.me/${targetData.telegram_username}` }]] }
+            : undefined;
+
+          const targetRevealMarkup = requesterData?.telegram_username
+            ? { inline_keyboard: [[{ text: '💬 Open Chat on Telegram', url: `https://t.me/${requesterData.telegram_username}` }]] }
+            : undefined;
+
+          const requesterTgId = requesterData?.telegram_id;
+          const targetTgId    = targetData?.telegram_id;
+
+          if (requesterTgId) {
+            await tgSend(requesterTgId, buildRevealMsg(targetData), requesterRevealMarkup);
+          }
+          if (targetTgId) {
+            await tgSend(targetTgId, buildRevealMsg(requesterData), targetRevealMarkup);
+          }
+        }
+
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── Legacy: /verify (fayda) or bare /verify ────────────────────────────
       if (text === '/verify' || text === '/fayda') {
         await sendTelegram('sendMessage', {
           chat_id: chatId,
@@ -1415,6 +1967,21 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         clearSession(chatId);
         await sendPrimaryWelcomeMenu(chatId);
         return NextResponse.json({ ok: true });
+      }
+
+      // ── NEW: Onboarding message handler (budget text, traits, phone, KYC photo)
+      if (isOnboardingSession(session.step)) {
+        const handled = await handleOnboardingMessage(
+          chatId,
+          session.step,
+          {
+            text: message.text,
+            contact: message.contact,
+            photo: message.photo,
+          },
+          message.from?.username
+        );
+        if (handled) return NextResponse.json({ ok: true });
       }
 
       // Handle Payment Reference Submission
