@@ -10,6 +10,7 @@ import {
   saveRoommateDraft,
   getAllSpaceDrafts,
   getAllRoommateDrafts,
+  preloadSession,
   SpaceDraft,
   RoommateProfileDraft,
 } from '@/lib/bot-session-store';
@@ -642,7 +643,7 @@ Your profile will be verified via Fayda National ID before publishing to the cha
       }
 
       // 2. Fetch local roommate drafts
-      const localDraftsObj = getAllRoommateDrafts();
+      const localDraftsObj = await getAllRoommateDrafts();
       const localDrafts = Object.values(localDraftsObj);
 
       // Combine profiles
@@ -994,6 +995,9 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       const chatId: number = callback.message?.chat?.id || callback.from.id;
       const msgId: number | undefined = callback.message?.message_id;
       const fromUsername: string | undefined = callback.from?.username;
+
+      // Load session from Supabase before any getSession() call
+      await preloadSession(chatId);
 
       if (callback.id) {
         await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
@@ -1492,7 +1496,11 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
     if (message && message.chat) {
       const chatId: number = message.chat.id;
       const text: string = (message.text || message.caption || '').trim();
+
+      // Load session from Supabase before any getSession() call
+      await preloadSession(chatId);
       const session = getSession(chatId);
+
 
       // Reply Keyboard Button Handler
       if (text === '🔍 Find Roommate (Matchmaker)' || text === '🔍 Find Roommate') {

@@ -1,7 +1,16 @@
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import { createClient } from '@supabase/supabase-js';
 
+// ---------------------------------------------------------------------------
+// Supabase client (service role — safe for server-side only)
+// ---------------------------------------------------------------------------
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 export interface BotSession {
   telegram_id: number;
   step: string;
@@ -49,146 +58,149 @@ export interface SpaceDraft {
   updated_at: string;
 }
 
-function getDataDir(): string {
-  try {
-    const localDir = path.join(process.cwd(), 'data');
-    if (!fs.existsSync(localDir)) {
-      fs.mkdirSync(localDir, { recursive: true });
-    }
-    const testFile = path.join(localDir, '.write_test');
-    fs.writeFileSync(testFile, 'test');
-    fs.unlinkSync(testFile);
-    return localDir;
-  } catch {
-    const tmpDir = path.join(os.tmpdir(), 'spacematch_data');
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
-    return tmpDir;
-  }
+// ---------------------------------------------------------------------------
+// Empty session factory
+// ---------------------------------------------------------------------------
+function emptySession(telegramId: number): BotSession {
+  return {
+    telegram_id: telegramId,
+    step: 'idle',
+    draft_data: {},
+    updated_at: new Date().toISOString(),
+  };
 }
 
-function getSessionsFile(): string {
-  return path.join(getDataDir(), 'bot_sessions.json');
-}
-
-function getDraftsFile(): string {
-  return path.join(getDataDir(), 'pending_space_drafts.json');
-}
-
-function getRoommateDraftsFile(): string {
-  return path.join(getDataDir(), 'pending_roommate_drafts.json');
-}
-
+// ---------------------------------------------------------------------------
+// Session CRUD — stored in `bot_sessions` Supabase table
+// ---------------------------------------------------------------------------
 export function getSession(telegramId: number): BotSession {
-  const sessionsFile = getSessionsFile();
-  if (!fs.existsSync(sessionsFile)) {
-    return { telegram_id: telegramId, step: 'idle', draft_data: {}, updated_at: new Date().toISOString() };
-  }
+  // NOTE: Supabase JS v2 requires async, but the old code was sync.
+  // We keep the sync interface here and use a module-level in-memory cache
+  // that is populated by the async preload below. Call preloadSession() first.
+  return _sessionCache[String(telegramId)] ?? emptySession(telegramId);
+}
+
+// In-memory cache per serverless invocation (populated by preloadSession)
+const _sessionCache: Record<string, BotSession> = {};
+
+/** Call this at the top of the webhook handler BEFORE calling getSession(). */
+export async function preloadSession(telegramId: number): Promise<BotSession> {
   try {
-    const raw = fs.readFileSync(sessionsFile, 'utf-8');
-    const sessions: Record<string, BotSession> = JSON.parse(raw);
-    return sessions[String(telegramId)] || { telegram_id: telegramId, step: 'idle', draft_data: {}, updated_at: new Date().toISOString() };
+    const { data } = await supabase
+      .from('bot_sessions')
+      .select('*')
+      .eq('telegram_id', String(telegramId))
+      .single();
+
+    const session: BotSession = data
+      ? {
+          telegram_id: Number(data.telegram_id),
+          step: data.step ?? 'idle',
+          draft_data: data.draft_data ?? {},
+          updated_at: data.updated_at,
+        }
+      : emptySession(telegramId);
+
+    _sessionCache[String(telegramId)] = session;
+    return session;
   } catch {
-    return { telegram_id: telegramId, step: 'idle', draft_data: {}, updated_at: new Date().toISOString() };
+    const session = emptySession(telegramId);
+    _sessionCache[String(telegramId)] = session;
+    return session;
   }
 }
 
 export function saveSession(session: BotSession): void {
-  const sessionsFile = getSessionsFile();
-  let sessions: Record<string, BotSession> = {};
-  if (fs.existsSync(sessionsFile)) {
-    try {
-      sessions = JSON.parse(fs.readFileSync(sessionsFile, 'utf-8'));
-    } catch {}
-  }
-  session.updated_at = new Date().toISOString();
-  sessions[String(session.telegram_id)] = session;
-  try {
-    fs.writeFileSync(sessionsFile, JSON.stringify(sessions, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Failed to save session to disk:', err);
-  }
+  // Update cache immediately so subsequent getSession() calls in the same
+  // request see the new state, then persist to Supabase asynchronously.
+  _sessionCache[String(session.telegram_id)] = session;
+
+  supabase
+    .from('bot_sessions')
+    .upsert(
+      {
+        telegram_id: String(session.telegram_id),
+        step: session.step,
+        draft_data: session.draft_data,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'telegram_id' }
+    )
+    .then(({ error }) => {
+      if (error) console.error('saveSession error:', error.message);
+    });
 }
 
 export function clearSession(telegramId: number): void {
-  saveSession({ telegram_id: telegramId, step: 'idle', draft_data: {}, updated_at: new Date().toISOString() });
+  saveSession(emptySession(telegramId));
 }
 
+// ---------------------------------------------------------------------------
+// Space Drafts — stored in `pending_space_drafts` Supabase table
+// ---------------------------------------------------------------------------
 export function saveDraft(draft: SpaceDraft): void {
-  const draftsFile = getDraftsFile();
-  let drafts: Record<string, SpaceDraft> = {};
-  if (fs.existsSync(draftsFile)) {
-    try {
-      drafts = JSON.parse(fs.readFileSync(draftsFile, 'utf-8'));
-    } catch {}
-  }
-  draft.updated_at = new Date().toISOString();
-  drafts[draft.id] = draft;
-  try {
-    fs.writeFileSync(draftsFile, JSON.stringify(drafts, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Failed to save draft to disk:', err);
-  }
+  supabase
+    .from('pending_space_drafts')
+    .upsert({ ...draft, updated_at: new Date().toISOString() }, { onConflict: 'id' })
+    .then(({ error }) => {
+      if (error) console.error('saveDraft error:', error.message);
+    });
 }
 
-export function getDraft(draftId: string): SpaceDraft | null {
-  const draftsFile = getDraftsFile();
-  if (!fs.existsSync(draftsFile)) return null;
+export async function getDraft(draftId: string): Promise<SpaceDraft | null> {
   try {
-    const drafts: Record<string, SpaceDraft> = JSON.parse(fs.readFileSync(draftsFile, 'utf-8'));
-    return drafts[draftId] || null;
+    const { data } = await supabase
+      .from('pending_space_drafts')
+      .select('*')
+      .eq('id', draftId)
+      .single();
+    return data ?? null;
   } catch {
     return null;
   }
 }
 
+export async function getAllSpaceDrafts(): Promise<Record<string, SpaceDraft>> {
+  try {
+    const { data } = await supabase.from('pending_space_drafts').select('*');
+    if (!data) return {};
+    return Object.fromEntries(data.map((d: SpaceDraft) => [d.id, d]));
+  } catch {
+    return {};
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Roommate Profile Drafts — stored in `pending_roommate_drafts` Supabase table
+// ---------------------------------------------------------------------------
 export function saveRoommateDraft(draft: RoommateProfileDraft): void {
-  const file = getRoommateDraftsFile();
-  let drafts: Record<string, RoommateProfileDraft> = {};
-  if (fs.existsSync(file)) {
-    try {
-      drafts = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    } catch {}
-  }
-  draft.updated_at = new Date().toISOString();
-  drafts[draft.id] = draft;
-  try {
-    fs.writeFileSync(file, JSON.stringify(drafts, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Failed to save roommate draft to disk:', err);
-  }
+  supabase
+    .from('pending_roommate_drafts')
+    .upsert({ ...draft, updated_at: new Date().toISOString() }, { onConflict: 'id' })
+    .then(({ error }) => {
+      if (error) console.error('saveRoommateDraft error:', error.message);
+    });
 }
 
-export function getRoommateDraft(draftId: string): RoommateProfileDraft | null {
-  const file = getRoommateDraftsFile();
-  if (!fs.existsSync(file)) return null;
+export async function getRoommateDraft(draftId: string): Promise<RoommateProfileDraft | null> {
   try {
-    const drafts: Record<string, RoommateProfileDraft> = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    return drafts[draftId] || null;
+    const { data } = await supabase
+      .from('pending_roommate_drafts')
+      .select('*')
+      .eq('id', draftId)
+      .single();
+    return data ?? null;
   } catch {
     return null;
   }
 }
 
-export function getAllSpaceDrafts(): Record<string, SpaceDraft> {
-  const draftsFile = getDraftsFile();
-  if (!fs.existsSync(draftsFile)) return {};
+export async function getAllRoommateDrafts(): Promise<Record<string, RoommateProfileDraft>> {
   try {
-    return JSON.parse(fs.readFileSync(draftsFile, 'utf-8'));
+    const { data } = await supabase.from('pending_roommate_drafts').select('*');
+    if (!data) return {};
+    return Object.fromEntries(data.map((d: RoommateProfileDraft) => [d.id, d]));
   } catch {
     return {};
   }
 }
-
-export function getAllRoommateDrafts(): Record<string, RoommateProfileDraft> {
-  const file = getRoommateDraftsFile();
-  if (!fs.existsSync(file)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-
