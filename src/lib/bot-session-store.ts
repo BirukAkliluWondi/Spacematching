@@ -24,6 +24,7 @@ export interface RoommateProfileDraft {
   user_name: string;
   username: string | null;
   contact_phone?: string;
+  age?: number;
   preferred_subcity: string[];
   my_gender: 'Male' | 'Female';
   preferred_gender: 'Male' | 'Female' | 'Any';
@@ -33,7 +34,8 @@ export interface RoommateProfileDraft {
   fayda_status: 'unverified' | 'pending' | 'verified' | 'rejected';
   fayda_document_url?: string | null;
   unlock_fee: number;
-  status: 'pending_approval' | 'approved' | 'rejected';
+  channel_message_id?: number | null;
+  status: 'pending_approval' | 'approved' | 'rejected' | 'matched';
   created_at: string;
   updated_at: string;
 }
@@ -53,7 +55,8 @@ export interface SpaceDraft {
   preferred_tenant_gender?: string;
   photo_file_id: string | null;
   photo_url: string | null;
-  status: 'pending' | 'approved' | 'rejected';
+  channel_message_id?: number | null;
+  status: 'pending' | 'approved' | 'rejected' | 'matched';
   rejection_reason?: string | null;
   created_at: string;
   updated_at: string;

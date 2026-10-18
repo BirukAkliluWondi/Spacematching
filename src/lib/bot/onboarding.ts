@@ -16,6 +16,7 @@
 import { supabaseAdmin } from '@/lib/supabase-server';
 import {
   sendMessage,
+  editMessageText,
   answerCallbackQuery,
   getFile,
   publishListingToChannel,
@@ -59,6 +60,7 @@ export function isOnboardingCallback(callbackData: string): boolean {
   return (
     callbackData.startsWith('onboard_gender:') ||
     callbackData.startsWith('onboard_location:') ||
+    callbackData === 'onboard_select_all_locations' ||
     callbackData === 'onboard_locations_done' ||
     callbackData.startsWith('onboard_movein:') ||
     callbackData === 'onboard_start'
@@ -140,8 +142,17 @@ async function sendGenderStep(chatId: number) {
   );
 }
 
-async function sendLocationsStep(chatId: number, selectedLocations: string[] = []) {
+async function sendLocationsStep(chatId: number, selectedLocations: string[] = [], messageId?: number) {
   const rows: { text: string; callback_data: string }[][] = [];
+
+  rows.push([
+    {
+      text: selectedLocations.length === LOCATIONS.length
+        ? '✅ ALL Areas Selected (Proceed ➡️)'
+        : '🌐 Select ALL Areas & Proceed ➡️',
+      callback_data: 'onboard_select_all_locations',
+    },
+  ]);
 
   for (let i = 0; i < LOCATIONS.length; i += 2) {
     const row = [];
@@ -169,11 +180,13 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
     },
   ]);
 
-  await sendMessage(
-    chatId,
-    `📍 <b>Step 2 of 7 — Preferred Areas</b>\n\nSelect all sub-cities in Addis Ababa where you'd like to live.\nTap multiple areas, then tap <b>Done Selecting ✅</b>`,
-    { inline_keyboard: rows }
-  );
+  const text = `📍 <b>Step 2 of 7 — Preferred Areas</b>\n\nSelect all sub-cities in Addis Ababa where you'd like to live.\nTap <b>"🌐 Select ALL Areas & Proceed"</b> or toggle individual areas below, then tap <b>Done Selecting ✅</b>`;
+
+  if (messageId) {
+    await editMessageText(chatId, messageId, text, { inline_keyboard: rows });
+  } else {
+    await sendMessage(chatId, text, { inline_keyboard: rows });
+  }
 }
 
 async function sendBudgetStep(chatId: number) {
@@ -242,7 +255,8 @@ export async function handleOnboardingCallback(
   callbackQueryId: string,
   callbackData: string,
   chatId: number,
-  telegramUsername?: string
+  telegramUsername?: string,
+  messageId?: number
 ): Promise<void> {
   await answerCallbackQuery(callbackQueryId);
 
@@ -270,7 +284,17 @@ export async function handleOnboardingCallback(
       .eq('telegram_id', chatId)
       .single();
 
-    await sendLocationsStep(chatId, profile?.locations ?? []);
+    await sendLocationsStep(chatId, profile?.locations ?? [], messageId);
+    return;
+  }
+
+  // ── Select all locations & proceed ────────────────────────────────────────
+  if (callbackData === 'onboard_select_all_locations') {
+    await updateProfile(chatId, {
+      locations: [...LOCATIONS],
+      onboarding_step: 'budget',
+    });
+    await sendBudgetStep(chatId);
     return;
   }
 
@@ -294,7 +318,7 @@ export async function handleOnboardingCallback(
       .update({ locations: updated })
       .eq('telegram_id', chatId);
 
-    await sendLocationsStep(chatId, updated);
+    await sendLocationsStep(chatId, updated, messageId);
     return;
   }
 
@@ -307,7 +331,9 @@ export async function handleOnboardingCallback(
       .single();
 
     if (!profile?.locations || profile.locations.length === 0) {
-      await answerCallbackQuery(callbackQueryId, 'Please select at least one area first.', true);
+      // Default to all areas so user is never stuck repeating preferred areas
+      await updateProfile(chatId, { locations: [...LOCATIONS], onboarding_step: 'budget' });
+      await sendBudgetStep(chatId);
       return;
     }
 

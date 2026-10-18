@@ -136,10 +136,27 @@ export async function broadcastRoommateProfileToChannel(
       };
     }
 
+    const messageId = data.result?.message_id;
+    if (messageId) {
+      try {
+        await supabaseAdmin
+          .from('roommate_profiles')
+          .update({ channel_message_id: messageId })
+          .eq('id', profileId);
+      } catch {}
+
+      try {
+        await supabaseAdmin
+          .from('pending_roommate_drafts')
+          .update({ channel_message_id: messageId })
+          .eq('id', profileId);
+      } catch {}
+    }
+
     return {
       success: true,
       message: `Successfully broadcasted roommate profile for ${profile.user_name} to channel ${targetChannel}.`,
-      telegramMessageId: data.result?.message_id,
+      telegramMessageId: messageId,
     };
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -281,10 +298,27 @@ ${space.description}
       };
     }
 
+    const messageId = data.result?.message_id;
+    if (messageId) {
+      try {
+        await supabaseAdmin
+          .from('spaces')
+          .update({ channel_message_id: messageId })
+          .eq('id', listingId);
+      } catch {}
+
+      try {
+        await supabaseAdmin
+          .from('pending_space_drafts')
+          .update({ channel_message_id: messageId })
+          .eq('id', listingId);
+      } catch {}
+    }
+
     return {
       success: true,
       message: `Successfully broadcasted space listing '${space.title}' to channel ${targetChannel}.`,
-      telegramMessageId: data.result?.message_id,
+      telegramMessageId: messageId,
     };
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -420,3 +454,81 @@ export async function deleteChannelPost(
     return { success: false, message: `Exception deleting channel post: ${msg}` };
   }
 }
+
+/**
+ * Updates an active Telegram channel post to mark it as '__CLOSED__' and removes all action buttons.
+ */
+export async function closeChannelPost(
+  messageId: number,
+  itemTitle: string,
+  isPhoto: boolean = false,
+  channelId?: string
+): Promise<{ success: boolean; message: string }> {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+
+  if (!botToken) {
+    return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
+  }
+
+  const closedNotice = `🔴🔴🔴 <b>__CLOSED / MATCHED__</b> 🔴🔴🔴\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 <i>${itemTitle} has found a match! This listing is officially closed.</i>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n<i>No further contact unlock requests are accepted.</i>`;
+
+  try {
+    const endpoint = isPhoto ? 'editMessageCaption' : 'editMessageText';
+    const body: Record<string, any> = {
+      chat_id: targetChannel,
+      message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [] },
+    };
+
+    if (isPhoto) {
+      body.caption = closedNotice;
+    } else {
+      body.text = closedNotice;
+    }
+
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      // Try alternate endpoint if caption vs text mismatch
+      const fallbackEndpoint = isPhoto ? 'editMessageText' : 'editMessageCaption';
+      const fallbackBody = { ...body };
+      if (isPhoto) {
+        delete fallbackBody.caption;
+        fallbackBody.text = closedNotice;
+      } else {
+        delete fallbackBody.text;
+        fallbackBody.caption = closedNotice;
+      }
+
+      const res2 = await fetch(`https://api.telegram.org/bot${botToken}/${fallbackEndpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fallbackBody),
+      });
+
+      const json2 = await res2.json();
+      if (!json2.ok) {
+        return {
+          success: false,
+          message: json2.description || json.description || 'Failed to update channel post.',
+        };
+      }
+    }
+
+    return {
+      success: true,
+      message: `Successfully marked post #${messageId} as CLOSED on channel ${targetChannel}.`,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, message: `Exception updating channel post: ${msg}` };
+  }
+}
+
