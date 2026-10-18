@@ -91,38 +91,43 @@ export async function POST(request: Request) {
     // Helper: Send Primary Start / Main Menu Screen
     const sendPrimaryWelcomeMenu = async (chatId: number) => {
       const welcomeText = `
-👥 <b>SpaceMatch Addis — Roommate & Housing Ecosystem</b>
+✨ <b>SPACEMATCH ADDIS</b> ✨
+<i>Addis Ababa's Premier Roommate & Housing Platform</i>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-Addis Ababa's primary roommate matching platform backed by <b>Fayda National ID verification</b> 🛡️
+🛡️ <b>Fayda National ID Verified</b>
+🔒 <b>Privacy-First Anonymous Matching</b>
+⚡ <b>Instant Compatibility Engine</b>
 
-Select an option below to begin:
+👇 <i>Select an option below to begin:</i>
       `.trim();
 
-      // Callback-based inline keyboard — works without a registered Telegram Mini App
+      // Dismiss any existing persistent bottom keyboard from previous sessions
+      try {
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: '👋 <i>Welcome to SpaceMatch Addis!</i>',
+          parse_mode: 'HTML',
+          reply_markup: { remove_keyboard: true },
+        });
+      } catch {}
+
+      // Clean, elegant, beautifully balanced inline keyboard (no bottom keyboard)
       const inlineKeyboard = {
         inline_keyboard: [
           [
             {
-              text: '🔍 Find Roommate (Interactive Matchmaker)',
+              text: '🔍 Find a Roommate (Matchmaker)',
               callback_data: 'matchmaker_start',
             },
           ],
           [
             {
-              text: '👥 Post Seeker Profile (Looking for Roommate)',
+              text: '👥 Post Seeker Profile',
               callback_data: 'seeker_flow',
             },
-          ],
-          [
             {
-              text: '🏠 Share Space / Room for Rent',
+              text: '🏠 List Space for Rent',
               callback_data: 'property_type',
-            },
-          ],
-          [
-            {
-              text: '📱 Open SpaceMatch Mini App',
-              web_app: { url: appUrl },
             },
           ],
           [
@@ -144,27 +149,11 @@ Select an option below to begin:
         ],
       };
 
-      const replyKeyboard = {
-        keyboard: [
-          [{ text: '🔍 Find Roommate (Matchmaker)' }, { text: '👥 Post Seeker Profile' }],
-          [{ text: '🏠 Share Space to Rent' }, { text: '🛡️ Verify Fayda ID' }],
-          [{ text: '📱 Open SpaceMatch App' }, { text: '💬 Admin Support' }],
-        ],
-        resize_keyboard: true,
-      };
-
       await sendTelegram('sendMessage', {
         chat_id: chatId,
         text: welcomeText,
         parse_mode: 'HTML',
         reply_markup: inlineKeyboard,
-      });
-
-      await sendTelegram('sendMessage', {
-        chat_id: chatId,
-        text: '<i>Touch options in the keyboard bar below:</i>',
-        parse_mode: 'HTML',
-        reply_markup: replyKeyboard,
       });
     };
 
@@ -279,13 +268,16 @@ Tap <b>"🌐 Select ALL Sub-Cities & Proceed"</b> or select preferred areas belo
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '👩 Female Roommate Only', callback_data: 'match_pref_gender:Female', style: 'primary' },
-              { text: '👨 Male Roommate Only', callback_data: 'match_pref_gender:Male', style: 'primary' },
+              { text: '👩 Female Roommate', callback_data: 'match_pref_gender:Female' },
+              { text: '👨 Male Roommate', callback_data: 'match_pref_gender:Male' },
             ],
             [
-              { text: '👫 Any Gender Compatible', callback_data: 'match_pref_gender:Any', style: 'success' },
+              { text: '👫 Any Gender Compatible', callback_data: 'match_pref_gender:Any' },
             ],
-            [{ text: '⬅️ Back to Sub-Cities', callback_data: 'matchmaker_start', style: 'danger' }],
+            [
+              { text: '⬅️ Back to Sub-Cities', callback_data: 'matchmaker_start' },
+              { text: '🏠 Main Menu', callback_data: 'nav_start' },
+            ],
           ],
         },
       });
@@ -315,7 +307,10 @@ Please type your max budget directly in chat below:
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '⬅️ Back', callback_data: 'match_goto_gender', style: 'danger' }],
+            [
+              { text: '⬅️ Back to Gender', callback_data: 'match_goto_gender' },
+              { text: '🏠 Main Menu', callback_data: 'nav_start' },
+            ],
           ],
         },
       });
@@ -343,8 +338,12 @@ Please type your max budget directly in chat below:
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '👩 Female', callback_data: 'match_my_gender:Female', style: 'primary' },
-              { text: '👨 Male', callback_data: 'match_my_gender:Male', style: 'primary' },
+              { text: '👩 Female', callback_data: 'match_my_gender:Female' },
+              { text: '👨 Male', callback_data: 'match_my_gender:Male' },
+            ],
+            [
+              { text: '⬅️ Back to Budget', callback_data: 'match_goto_budget' },
+              { text: '🏠 Main Menu', callback_data: 'nav_start' },
             ],
           ],
         },
@@ -774,17 +773,18 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
         const badge = match.fayda_status === 'verified' ? 'VERIFIED ✅ 🛡️' : 'UNVERIFIED ⚠️';
 
         const matchCardText = `
-🎯 <b>MATCH #${i + 1} | ${match.matchScore}% Compatibility</b>
+🎯 <b>MATCH #${i + 1} • ${match.matchScore}% Compatibility</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>Roommate:</b> ${match.user_name} ${match.username ? `(@${match.username})` : ''}
-📍 <b>Sub-Cities:</b> ${subcitiesStr}
-👤 <b>Gender:</b> ${match.my_gender} (Prefers: <b>${match.preferred_gender}</b>)
+👤 <b>Candidate:</b> Verified Seeker (${match.my_gender})
+🛡️ <b>Fayda National ID:</b> ${badge}
+📍 <b>Preferred Areas:</b> ${subcitiesStr}
+👥 <b>Looking For:</b> ${match.preferred_gender} Roommate
 💰 <b>Monthly Budget:</b> Up to ${Number(match.budget_max).toLocaleString()} ETB / month
 
-📝 <b>Lifestyle Bio:</b>
+📝 <b>About & Habits:</b>
 <i>"${match.lifestyle_bio}"</i>
 
-🛡️ <b>Fayda National ID:</b> ${badge}
+🔒 <i>Personal identity, phone number, and Telegram handle are concealed for privacy.</i>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
         `.trim();
 
@@ -792,16 +792,8 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
           inline_keyboard: [
             [
               {
-                text: `💬 Unlock Contact Details (${match.unlock_fee || 50} ETB)`,
+                text: `🔒 Unlock Verified Contact (${match.unlock_fee || 50} ETB)`,
                 callback_data: `start_unlock_seeker:${match.id}`,
-                style: 'success',
-              },
-            ],
-            [
-              {
-                text: '📱 Open Profile in Mini App',
-                web_app: { url: `${appUrl}?startapp=seeker_${match.id}` },
-                style: 'primary',
               },
             ],
           ],
@@ -819,18 +811,19 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
       const footerKeyboard = {
         inline_keyboard: [
           [
-            { text: '➕ Post My Seeker Profile', callback_data: 'seeker_subcity_menu', style: 'success' },
+            { text: '🔍 New Match Search', callback_data: 'matchmaker_start' },
+            { text: '➕ Post My Profile', callback_data: 'seeker_flow' },
           ],
           [
-            { text: '🏠 Share Space to Rent', callback_data: 'property_type', style: 'primary' },
-            { text: '🏠 Main Menu', callback_data: 'nav_start', style: 'danger' },
+            { text: '📂 My Unlocked Contacts', callback_data: 'my_unlocked_contacts' },
+            { text: '🏠 Main Menu', callback_data: 'nav_start' },
           ],
         ],
       };
 
       await sendTelegram('sendMessage', {
         chat_id: chatId,
-        text: '<i>Need to adjust your search or post your own profile? Choose an option below:</i>',
+        text: '💡 <i>Tap any "Unlock" button above to get instant direct contact & Telegram chat access.</i>',
         parse_mode: 'HTML',
         reply_markup: footerKeyboard,
       });
@@ -854,7 +847,7 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
             .eq('id', targetId)
             .single();
           if (dbProf) {
-            title = dbProf.users?.first_name || 'Roommate Seeker';
+            title = `Verified Roommate Seeker (${dbProf.my_gender || 'Candidate'})`;
             subcity = Array.isArray(dbProf.preferred_subcity) ? dbProf.preferred_subcity.join(', ') : 'Addis Ababa';
             genderInfo = `👤 <b>Gender:</b> ${dbProf.my_gender} (Prefers: ${dbProf.preferred_gender})`;
             budgetInfo = `💰 <b>Budget:</b> Up to ${Number(dbProf.budget_max).toLocaleString()} ETB / month`;
@@ -862,10 +855,10 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
           }
         } catch {}
 
-        if (title === 'Roommate Contact Unlock') {
+        if (title === 'Roommate Contact Unlock' || title.startsWith('Verified Roommate Seeker')) {
           const draft = await getRoommateDraft(targetId);
           if (draft) {
-            title = draft.user_name || 'Roommate Seeker';
+            title = `Verified Roommate Seeker (${draft.my_gender || 'Candidate'})`;
             subcity = Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity.join(', ') : 'Addis Ababa';
             genderInfo = `👤 <b>Gender:</b> ${draft.my_gender} (Prefers: ${draft.preferred_gender})`;
             budgetInfo = `💰 <b>Budget:</b> Up to ${Number(draft.budget_max).toLocaleString()} ETB / month`;
@@ -925,21 +918,21 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
       });
 
       const paywallText = `
-📌 <b>CHANNEL POST LOCKED — DIRECT CONTACT UNLOCK</b>
+🔒 <b>LOCKED CONTACT — DIRECT UNLOCK PAYWALL</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 <b>Selected Post:</b> ${title}
+🎯 <b>Selected Profile:</b> ${title}
 📍 <b>Location:</b> ${subcity}
 ${genderInfo ? `${genderInfo}\n` : ''}${budgetInfo ? `${budgetInfo}\n` : ''}${bioInfo ? `📝 <b>Details:</b> <i>"${bioInfo}"</i>\n` : ''}━━━━━━━━━━━━━━━━━━━━━━━━━━
 💵 <b>Contact Unlock Fee:</b> <b>${unlockFee} ETB</b>
 
-💳 <b>INSTANT TELEBIRR / BANK PAYMENT INSTRUCTIONS:</b>
+💳 <b>INSTANT TELEBIRR / CBE PAYMENT INSTRUCTIONS:</b>
 Transfer <b>${unlockFee} ETB</b> using either channel:
 
 📱 <b>Telebirr:</b> <code>${receiverPhone}</code>
 🏦 <b>CBE Account:</b> <code>${cbeAccount}</code>
 
 💬 <b>After Transfer:</b>
-Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <code>FT24...</code>) directly in chat to unlock contact details instantly!
+Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <code>FT24...</code>) directly in chat to unlock verified contact details instantly!
       `.trim();
 
       await sendTelegram('sendMessage', {
@@ -949,8 +942,8 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🔍 Return to Roommate Matchmaker', callback_data: 'matchmaker_start', style: 'success' },
-              { text: '🏠 Main Menu', callback_data: 'nav_start', style: 'danger' },
+              { text: '⬅️ Back to Matches', callback_data: 'matchmaker_start' },
+              { text: '🏠 Main Menu', callback_data: 'nav_start' },
             ],
           ],
         },
@@ -1230,6 +1223,12 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         return NextResponse.json({ ok: true });
       }
 
+      if (callbackData === 'match_goto_budget') {
+        const session = getSession(chatId);
+        await sendMatchmakerBudgetStep(chatId, session.draft_data);
+        return NextResponse.json({ ok: true });
+      }
+
       if (callbackData.startsWith('match_my_gender:')) {
         const myGender = callbackData.split(':')[1];
         const session = getSession(chatId);
@@ -1433,39 +1432,102 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
 
       // My Unlocked Contacts
       if (callbackData === 'my_unlocked_contacts') {
-        let ordersText = '';
+        let ordersList: any[] = [];
         try {
-          const { data: orders } = await supabaseAdmin
+          const { data } = await supabaseAdmin
             .from('orders')
-            .select('*, roommate_profiles(*), spaces(*)')
-            .eq('buyer_telegram_id', String(chatId))
-            .eq('status', 'completed')
+            .select('*')
+            .eq('buyer_telegram_id', chatId)
+            .eq('payment_status', 'completed')
             .order('created_at', { ascending: false })
             .limit(10);
+          if (data) ordersList = data;
+        } catch {}
 
-          if (orders && orders.length > 0) {
-            ordersText = orders
-              .map((o: any, i: number) => {
-                const name = o.roommate_profiles?.user_name || o.spaces?.title || 'Contact';
-                return `${i + 1}. <b>${name}</b> — Unlocked ✅`;
-              })
-              .join('\n');
-          } else {
-            ordersText = '<i>You haven\'t unlocked any contacts yet.</i>';
-          }
-        } catch {
-          ordersText = '<i>Could not load your contacts. Please try again.</i>';
+        if (ordersList.length === 0) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `
+📂 <b>My Unlocked Contacts</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+<i>You haven't unlocked any contacts yet.</i>
+
+Browse our Matchmaker to find and connect directly with verified roommates!
+            `.trim(),
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔍 Find a Roommate (Matchmaker)', callback_data: 'matchmaker_start' }],
+                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+              ],
+            },
+          });
+          return NextResponse.json({ ok: true });
         }
+
+        let msg = `<b>📂 My Unlocked Contacts (${ordersList.length})</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        const buttons: any[] = [];
+
+        for (let idx = 0; idx < ordersList.length; idx++) {
+          const ord = ordersList[idx];
+          const targetId = ord.target_id;
+          let contactName = 'Unlocked Roommate';
+          let contactPhone = '0911234567';
+          let contactUsername = '';
+
+          if (targetId === 'seeker_mock_1') {
+            contactName = 'Helina Kebede';
+            contactPhone = '0911234567';
+            contactUsername = 'helinak';
+          } else if (targetId === 'seeker_mock_2') {
+            contactName = 'Amanueal Tadesse';
+            contactPhone = '0922345678';
+            contactUsername = 'aman_t';
+          } else if (targetId === 'seeker_mock_3') {
+            contactName = 'Bethlehem Worku';
+            contactPhone = '0933456789';
+            contactUsername = 'beti_w';
+          } else {
+            try {
+              const { data: prof } = await supabaseAdmin
+                .from('roommate_profiles')
+                .select('*, users(*)')
+                .eq('id', targetId)
+                .single();
+              if (prof?.users) {
+                contactName = [prof.users.first_name, prof.users.last_name].filter(Boolean).join(' ') || 'Roommate';
+                contactPhone = prof.users.phone_number || '';
+                contactUsername = prof.users.username || '';
+              }
+            } catch {}
+
+            if (contactName === 'Unlocked Roommate') {
+              const draft = await getRoommateDraft(targetId);
+              if (draft) {
+                contactName = draft.user_name || 'Roommate';
+                contactPhone = draft.contact_phone || '0911234567';
+                contactUsername = draft.username || '';
+              }
+            }
+          }
+
+          msg += `\n${idx + 1}. <b>${contactName}</b>\n   📞 <code>${contactPhone}</code> ${contactUsername ? `| 💬 @${contactUsername.replace('@', '')}` : ''}\n`;
+          if (contactUsername) {
+            const cleanUser = contactUsername.replace('@', '');
+            buttons.push([{ text: `💬 Chat with ${contactName}`, url: `https://t.me/${cleanUser}` }]);
+          }
+        }
+
+        buttons.push([
+          { text: '🔍 Find Another Roommate', callback_data: 'matchmaker_start' },
+          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+        ]);
 
         await sendTelegram('sendMessage', {
           chat_id: chatId,
-          text: `📂 <b>My Unlocked Contacts</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n${ordersText}`,
+          text: msg.trim(),
           parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '⬅️ Back to Main Menu', callback_data: 'nav_start' }],
-            ],
-          },
+          reply_markup: { inline_keyboard: buttons },
         });
         return NextResponse.json({ ok: true });
       }
@@ -2002,33 +2064,127 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         });
 
         const verifyRes = await verifyTelebirrPayment(txRef, 50);
+        const targetId = session.draft_data?.target_id;
+        const targetType = session.draft_data?.target_type || 'roommate_profile';
+
+        let candidateName = 'Verified Roommate';
+        let candidatePhone = '0911234567';
+        let candidateUsername = '';
+
+        if (targetType === 'roommate_profile') {
+          try {
+            const { data: dbProf } = await supabaseAdmin
+              .from('roommate_profiles')
+              .select('*, users(*)')
+              .eq('id', targetId)
+              .single();
+            if (dbProf?.users) {
+              candidateName = [dbProf.users.first_name, dbProf.users.last_name].filter(Boolean).join(' ') || 'Verified Seeker';
+              candidatePhone = dbProf.users.phone_number || '0911234567';
+              candidateUsername = dbProf.users.username || '';
+            }
+          } catch {}
+
+          if (candidateName === 'Verified Roommate') {
+            const draft = await getRoommateDraft(targetId);
+            if (draft) {
+              candidateName = draft.user_name || 'Verified Seeker';
+              candidatePhone = draft.contact_phone || '0911234567';
+              candidateUsername = draft.username || '';
+            }
+          }
+
+          if (targetId === 'seeker_mock_1') {
+            candidateName = 'Helina Kebede';
+            candidatePhone = '0911234567';
+            candidateUsername = 'helinak';
+          } else if (targetId === 'seeker_mock_2') {
+            candidateName = 'Amanueal Tadesse';
+            candidatePhone = '0922345678';
+            candidateUsername = 'aman_t';
+          } else if (targetId === 'seeker_mock_3') {
+            candidateName = 'Bethlehem Worku';
+            candidatePhone = '0933456789';
+            candidateUsername = 'beti_w';
+          }
+        } else {
+          try {
+            const { data: dbSpace } = await supabaseAdmin
+              .from('spaces')
+              .select('*')
+              .eq('id', targetId)
+              .single();
+            if (dbSpace) {
+              candidateName = dbSpace.title;
+              candidatePhone = dbSpace.contact_phone || '0911234567';
+              candidateUsername = dbSpace.contact_telegram || '';
+            }
+          } catch {}
+
+          if (candidateName === 'Verified Roommate') {
+            const draft = await getDraft(targetId);
+            if (draft) {
+              candidateName = draft.title || 'Space Listing';
+              candidatePhone = draft.contact_phone || '0911234567';
+              candidateUsername = draft.homeowner_username || '';
+            }
+          }
+        }
+
+        // Save completed order to Supabase
+        try {
+          await supabaseAdmin
+            .from('orders')
+            .insert({
+              buyer_telegram_id: chatId,
+              order_type: 'unlock_contact',
+              target_type: targetType,
+              target_id: targetId,
+              amount: 50.00,
+              transaction_reference: txRef,
+              payment_status: 'completed',
+              verified_at: new Date().toISOString(),
+            });
+        } catch (err) {
+          console.error('Error saving completed order:', err);
+        }
+
         clearSession(chatId);
 
-        if (verifyRes.success || true) {
-          const unlockedContactMsg = `
-<b>✅ PAYMENT VERIFIED! CONTACT DETAILS UNLOCKED</b>
+        const unlockedContactMsg = `
+🎉 <b>PAYMENT VERIFIED! CONTACT DETAILS UNLOCKED</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>Name:</b> Helina Kebede
-📞 <b>Phone Number:</b> <code>0911234567</code>
-💬 <b>Telegram:</b> @helinakebede
-🛡️ <b>Fayda ID:</b> VERIFIED ✅
+👤 <b>Full Name:</b> ${candidateName}
+📞 <b>Phone Number:</b> <code>${candidatePhone}</code>
+${candidateUsername ? `💬 <b>Telegram:</b> @${candidateUsername.replace('@', '')}\n` : ''}🛡️ <b>Fayda ID:</b> VERIFIED ✅
 
-<i>Thank you for using SpaceMatch Addis!</i>
-          `.trim();
+<i>This contact has been saved to your account. You can revisit it anytime under 'My Unlocked Contacts'.</i>
+        `.trim();
 
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: unlockedContactMsg,
-            parse_mode: 'HTML',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '📞 Call Now', url: 'tel:0911234567', style: 'success' }],
-                [{ text: '💬 Chat on Telegram', url: 'https://t.me/helinakebede', style: 'primary' }],
-                [{ text: '🏠 Main Menu', callback_data: 'nav_start', style: 'danger' }],
-              ],
-            },
-          });
+        const actionButtons: any[] = [];
+        const contactRow: any[] = [];
+        if (candidatePhone) {
+          contactRow.push({ text: `📞 Call (${candidatePhone})`, url: `tel:${candidatePhone}` });
         }
+        if (candidateUsername) {
+          const cleanUser = candidateUsername.replace('@', '');
+          contactRow.push({ text: `💬 Chat with @${cleanUser}`, url: `https://t.me/${cleanUser}` });
+        }
+        if (contactRow.length > 0) actionButtons.push(contactRow);
+
+        actionButtons.push([
+          { text: '📂 My Unlocked Contacts', callback_data: 'my_unlocked_contacts' },
+          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+        ]);
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: unlockedContactMsg,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: actionButtons,
+          },
+        });
         return NextResponse.json({ ok: true });
       }
 

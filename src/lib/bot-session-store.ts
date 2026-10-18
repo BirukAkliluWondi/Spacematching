@@ -23,6 +23,7 @@ export interface RoommateProfileDraft {
   user_telegram_id: number;
   user_name: string;
   username: string | null;
+  contact_phone?: string;
   preferred_subcity: string[];
   my_gender: 'Male' | 'Female';
   preferred_gender: 'Male' | 'Female' | 'Any';

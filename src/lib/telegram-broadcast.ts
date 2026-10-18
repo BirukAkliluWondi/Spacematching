@@ -49,7 +49,7 @@ export async function broadcastRoommateProfileToChannel(
         fayda_status: dbProfile.users?.fayda_status || 'verified',
       };
     } else {
-      const draft = getRoommateDraft(profileId);
+      const draft = await getRoommateDraft(profileId);
       if (draft) {
         profile = draft;
       }
