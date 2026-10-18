@@ -114,9 +114,13 @@ CREATE INDEX idx_space_images_order ON public.space_images(space_id, display_ord
 -- 2.4 ORDERS TABLE
 CREATE TABLE public.orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    renter_telegram_id BIGINT NOT NULL REFERENCES public.users(telegram_id) ON DELETE RESTRICT,
-    space_id UUID NOT NULL REFERENCES public.spaces(id) ON DELETE RESTRICT,
-    amount NUMERIC(10, 2) NOT NULL CHECK (amount >= 0),
+    buyer_telegram_id BIGINT REFERENCES public.users(telegram_id) ON DELETE RESTRICT,
+    renter_telegram_id BIGINT REFERENCES public.users(telegram_id) ON DELETE RESTRICT,
+    order_type TEXT DEFAULT 'unlock_contact',
+    target_type TEXT,
+    target_id TEXT,
+    space_id UUID REFERENCES public.spaces(id) ON DELETE RESTRICT,
+    amount NUMERIC(10, 2) NOT NULL DEFAULT 50.00 CHECK (amount >= 0),
     transaction_reference VARCHAR(255) UNIQUE,
     payment_status public.payment_status NOT NULL DEFAULT 'pending',
     verified_at TIMESTAMPTZ,
@@ -125,6 +129,7 @@ CREATE TABLE public.orders (
 );
 
 CREATE UNIQUE INDEX idx_orders_transaction_reference ON public.orders(transaction_reference) WHERE transaction_reference IS NOT NULL;
+CREATE INDEX idx_orders_buyer_telegram_id ON public.orders(buyer_telegram_id);
 CREATE INDEX idx_orders_renter_telegram_id ON public.orders(renter_telegram_id);
 CREATE INDEX idx_orders_space_id ON public.orders(space_id);
 CREATE INDEX idx_orders_renter_space_status ON public.orders(renter_telegram_id, space_id, payment_status);
@@ -600,17 +605,37 @@ CREATE INDEX IF NOT EXISTS idx_space_listings_subcity ON public.space_listings(s
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    buyer_telegram_id BIGINT NOT NULL REFERENCES public.users(telegram_id) ON DELETE RESTRICT,
-    order_type TEXT NOT NULL CHECK (order_type IN ('unlock_contact', 'channel_boost_order')),
-    target_type TEXT NOT NULL CHECK (target_type IN ('roommate_profile', 'space_listing')),
-    target_id UUID NOT NULL,
-    amount NUMERIC(10, 2) NOT NULL CHECK (amount >= 0),
+    buyer_telegram_id BIGINT REFERENCES public.users(telegram_id) ON DELETE RESTRICT,
+    renter_telegram_id BIGINT REFERENCES public.users(telegram_id) ON DELETE RESTRICT,
+    order_type TEXT DEFAULT 'unlock_contact',
+    target_type TEXT,
+    target_id TEXT,
+    space_id UUID,
+    amount NUMERIC(10, 2) NOT NULL DEFAULT 50.00 CHECK (amount >= 0),
     transaction_reference VARCHAR(255) UNIQUE,
     payment_status public.payment_status NOT NULL DEFAULT 'pending',
     verified_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Ensure all order columns exist if table was previously created by legacy schema
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS buyer_telegram_id BIGINT REFERENCES public.users(telegram_id) ON DELETE RESTRICT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS renter_telegram_id BIGINT REFERENCES public.users(telegram_id) ON DELETE RESTRICT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_type TEXT DEFAULT 'unlock_contact';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS target_type TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS target_id TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS space_id UUID;
+DO $$
+BEGIN
+    ALTER TABLE public.orders ALTER COLUMN renter_telegram_id DROP NOT NULL;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+DO $$
+BEGIN
+    ALTER TABLE public.orders ALTER COLUMN space_id DROP NOT NULL;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_txn_ref ON public.orders(transaction_reference) WHERE transaction_reference IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_buyer_telegram_id ON public.orders(buyer_telegram_id);
