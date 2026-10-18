@@ -863,7 +863,7 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
         } catch {}
 
         if (title === 'Roommate Contact Unlock') {
-          const draft = getRoommateDraft(targetId);
+          const draft = await getRoommateDraft(targetId);
           if (draft) {
             title = draft.user_name || 'Roommate Seeker';
             subcity = Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity.join(', ') : 'Addis Ababa';
@@ -888,7 +888,7 @@ Found <b>${scoredMatches.length} Compatible Matches</b> tailored for you:
         } catch {}
 
         if (title === 'Roommate Contact Unlock') {
-          const draft = getDraft(targetId);
+          const draft = await getDraft(targetId);
           if (draft) {
             title = draft.title;
             subcity = draft.neighborhood || 'Addis Ababa';
@@ -1383,7 +1383,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       // Admin Seeker Approval
       if (callbackData.startsWith('seeker_approve:')) {
         const profileId = callbackData.split(':')[1];
-        const draft = getRoommateDraft(profileId);
+        const draft = await getRoommateDraft(profileId);
 
         if (draft) {
           draft.status = 'approved';

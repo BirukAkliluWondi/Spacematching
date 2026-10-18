@@ -193,7 +193,7 @@ export async function broadcastListingToChannel(
         photoUrl = images[0].image_path;
       }
     } else {
-      const draft = getDraft(listingId);
+      const draft = await getDraft(listingId);
       if (draft) {
         space = {
           id: draft.id,
