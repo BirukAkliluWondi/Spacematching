@@ -1,17 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = (
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lzatfklszrovfqoyufnt.supabase.co'
+  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://plusmfmlzzumzsqtlixb.supabase.co'
 ).trim();
 
 const supabaseAnonKey = (
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6YXRma2xzenJvdmZxb3l1Zm50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1Nzk5MjYsImV4cCI6MjEwNTE1NTkyNn0.rMaIhBSwqdLLkR-zAlFgOdQ1-kF9Hd7qUBw8iX-dhH4'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsdXNtZm1senp1bXpzcXRsaXhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5NTkzNTYsImV4cCI6MjEwNzUzNTM1Nn0.GLJ7zchrWjFHtYRkwtSIvzpp-asHwW3LJHEPtPXmf68'
 ).trim();
 
 const supabaseServiceRoleKey = (
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6YXRma2xzenJvdmZxb3l1Zm50Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTU3OTkyNiwiZXhwIjoyMTA1MTU1OTI2fQ.zFc4zfTJ9uUG88VmC8SichqDNsaAcSwAI4AEYcPNxzg'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsdXNtZm1senp1bXpzcXRsaXhiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTk1OTM1NiwiZXhwIjoyMTA3NTM1MzU2fQ.1nXAUO7usoDst_maNIE252DHyK-NtHPazQY0ats7qVE'
 ).trim();
 
 /**
