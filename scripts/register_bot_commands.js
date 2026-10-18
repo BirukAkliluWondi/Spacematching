@@ -32,6 +32,14 @@ async function main() {
   const json = await res.json();
   console.log('setMyCommands result:', json);
 
+  // Ensure chat menu button is set to commands (clean standard menu, no keyboard overlap)
+  const menuRes = await fetch(`https://api.telegram.org/bot${botToken}/setChatMenuButton`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ menu_button: { type: 'commands' } }),
+  });
+  console.log('setChatMenuButton result:', await menuRes.json());
+
   const getRes = await fetch(`https://api.telegram.org/bot${botToken}/getMyCommands`);
   const getJson = await getRes.json();
   console.log('getMyCommands current config:', getJson);

@@ -14,6 +14,7 @@
  */
 
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { saveSession } from '@/lib/bot-session-store';
 import {
   sendMessage,
   editMessageText,
@@ -21,6 +22,8 @@ import {
   getFile,
   publishListingToChannel,
   escapeHtml,
+  setChatMenuButton,
+  parseNumericInput,
   type Profile,
 } from '@/lib/telegram';
 
@@ -122,15 +125,29 @@ async function updateProfile(
     console.error('[onboarding] Failed to update profile:', error.message);
     return null;
   }
+
+  // Keep bot_sessions table in sync with onboarding step
+  if (updates.onboarding_step) {
+    saveSession({
+      telegram_id: telegramId,
+      step: String(updates.onboarding_step),
+      draft_data: {},
+      updated_at: new Date().toISOString(),
+    });
+  }
+
   return data as Profile;
 }
 
 // ─── Step UIs ─────────────────────────────────────────────────────────────────
 
 async function sendGenderStep(chatId: number) {
+  // Ensure the menu button is set to commands so mobile keyboards are completely unobstructed
+  setChatMenuButton({ type: 'commands' }, chatId).catch(() => {});
+
   await sendMessage(
     chatId,
-    `👋 <b>Welcome to SpaceMatch Addis!</b>\nLet's find you a roommate.\n\nFirst, what is your gender?`,
+    `👋 <b>Welcome to SpaceMatch Addis!</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nLet's find you a compatible roommate.\n\nFirst, select your gender below:`,
     {
       inline_keyboard: [
         [
@@ -192,14 +209,14 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 async function sendBudgetStep(chatId: number) {
   await sendMessage(
     chatId,
-    `💰 <b>Step 3 of 7 — Monthly Budget</b>\n\nWhat is your monthly rent budget in Birr?\n\nPlease type your range directly, for example:\n<code>5000-8000</code> or <code>6000-10000</code>`
+    `💰 <b>Step 3 of 7 — Monthly Budget</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nWhat is your maximum monthly rent budget in Birr?\n\nPlease type your budget amount as a number directly in chat:\n<i>(For example: <code>8000</code> or <code>12000</code>)</i>`
   );
 }
 
 async function sendMoveInStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📅 <b>Step 4 of 7 — Move-in Date</b>\n\nWhen are you looking to move in?`,
+    `📅 <b>Step 4 of 7 — Move-in Date</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nWhen are you looking to move in?`,
     {
       inline_keyboard: [
         [
@@ -215,14 +232,14 @@ async function sendMoveInStep(chatId: number) {
 async function sendTraitsStep(chatId: number) {
   await sendMessage(
     chatId,
-    `🏠 <b>Step 5 of 7 — About You &amp; House Rules</b>\n\nTell us about your habits, lifestyle, or house rules.\n\n<i>For example: Non-smoker, quiet, student, tidy, no late-night guests, etc.</i>\n\nType your answer in chat below:`
+    `🏠 <b>Step 5 of 7 — About You &amp; House Rules</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nTell us about your habits, lifestyle, or house rules.\n\n<i>For example: Non-smoker, quiet, student, tidy, no late-night guests, etc.</i>\n\nType your answer in chat below:`
   );
 }
 
 async function sendPhoneStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📞 <b>Step 6 of 7 — Phone Number</b>\n\nPlease share your phone number. Tap the button below or type it directly.`,
+    `📞 <b>Step 6 of 7 — Phone Number</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nPlease share your phone number. Tap the button below or type it directly:`,
     {
       keyboard: [
         [{ text: '📱 Share My Contact', request_contact: true }],
@@ -236,13 +253,8 @@ async function sendPhoneStep(chatId: number) {
 async function sendKycStep(chatId: number) {
   await sendMessage(
     chatId,
-    `🔒 <b>Identity Verification</b>
-
-SpaceMatch Addis is a trusted, verified community.
-
-Please upload a clear photo of your <b>Fayda National ID</b> or <b>Passport</b>.
-
-<i>Note: Your ID document is encrypted and never shared with other users.</i>`
+    `🔒 <b>Step 7 of 7 — Identity Verification</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nSpaceMatch Addis is a trusted, verified community.\n\nPlease upload a clear photo of your <b>Fayda National ID</b> or <b>Passport</b>.\n\n<i>🔒 Note: Your ID document is encrypted and never shared with other users.</i>`,
+    { remove_keyboard: true }
   );
 }
 
@@ -372,7 +384,6 @@ export async function handleOnboardingMessage(
   if (step === 'budget') {
     const raw = (message.text || '').trim();
     const rangeMatch = raw.match(/(\d[\d,]*)[\s\-–—to]+(\d[\d,]*)/);
-    const singleMatch = raw.match(/^(\d[\d,]*)$/);
 
     let budgetMin = 0;
     let budgetMax = 0;
@@ -380,12 +391,18 @@ export async function handleOnboardingMessage(
     if (rangeMatch) {
       budgetMin = parseInt(rangeMatch[1].replace(/,/g, ''), 10);
       budgetMax = parseInt(rangeMatch[2].replace(/,/g, ''), 10);
-    } else if (singleMatch) {
-      budgetMax = parseInt(singleMatch[1].replace(/,/g, ''), 10);
     } else {
+      const parsed = parseNumericInput(raw);
+      if (parsed && parsed > 0) {
+        budgetMax = parsed;
+        budgetMin = 0;
+      }
+    }
+
+    if (budgetMax <= 0 || budgetMax > 1000000) {
       await sendMessage(
         chatId,
-        `⚠️ Please enter a valid budget range in ETB.\n\n<i>Examples: <code>5000-8000</code> or <code>6000</code></i>`
+        `⚠️ <b>Please type a valid numerical monthly budget in ETB:</b>\n<i>(For example: <code>8000</code> or <code>12000</code>)</i>`
       );
       return true;
     }

@@ -157,6 +157,94 @@ export async function answerCallbackQuery(
 }
 
 /**
+ * Configure the Telegram chat menu button.
+ * Setting type: 'commands' or 'default' keeps the keyboard toggle button unobstructed on mobile.
+ */
+export async function setChatMenuButton(
+  menuButton?: {
+    type: 'default' | 'commands' | 'web_app';
+    text?: string;
+    web_app?: { url: string };
+  },
+  chatId?: number
+): Promise<TelegramApiResponse> {
+  const payload: Record<string, unknown> = {
+    menu_button: menuButton || { type: 'commands' },
+  };
+  if (chatId) payload.chat_id = chatId;
+  return callTelegram('setChatMenuButton', payload);
+}
+
+/**
+ * Safely parses human-entered numbers from chat text.
+ * Handles inputs like:
+ *   "24", "24 yrs", "age 24", "i am 24", "about 24" -> 24
+ *   "8000", "8,000", "15 000 birr", "15000 ETB", "birr 12000" -> 8000/15000/12000
+ *   "ብር 8000", "8000 ብር" -> 8000
+ *   "10k", "12.5k", "8.5 k", "around 10k", "10 ሺህ" -> 10000/12500/8500
+ *   "~8000", "5000-8000", "between 5000 and 8000" -> 8000 (with preferRange: 'max')
+ */
+export function parseNumericInput(
+  raw?: string | null,
+  options?: { min?: number; max?: number; preferRange?: 'min' | 'max' }
+): number | null {
+  if (!raw) return null;
+  let text = String(raw).trim().toLowerCase();
+
+  // Normalize Amharic thousands notation: ሺ or ሺህ -> k
+  text = text.replace(/(\d+(?:\.\d+)?)\s*(?:ሺህ|ሺ)/g, '$1k');
+  // Normalize Ethiopian Birr symbol 'ብር' -> 'birr'
+  text = text.replace(/ብር/g, 'birr');
+
+  // Support range detection (e.g. "5000-8000", "5,000 - 8,000", "between 5000 and 8000", "5000 to 8000")
+  const rangeMatch = text.match(/(?:between\s+)?(\d[\d,\.]*\s*k?)\s*(?:-|–|—|to|and)\s*(\d[\d,\.]*\s*k?)/i);
+  if (rangeMatch) {
+    const p1 = parseNumericInput(rangeMatch[1]);
+    const p2 = parseNumericInput(rangeMatch[2]);
+    if (p1 !== null && p2 !== null) {
+      const chosen = options?.preferRange === 'min' ? Math.min(p1, p2) : Math.max(p1, p2);
+      if (options?.min !== undefined && chosen < options.min) return null;
+      if (options?.max !== undefined && chosen > options.max) return null;
+      return chosen;
+    }
+  }
+
+  // Support 'k' / multiplier notation anywhere in input: e.g. "around 10k", "8.5k ETB", "12 k"
+  const kMatch = text.match(/(\d+(?:\.\d+)?)\s*k(?:\b|$)/i);
+  if (kMatch) {
+    const num = parseFloat(kMatch[1]);
+    if (!isNaN(num) && num >= 0) {
+      const val = Math.round(num * 1000);
+      if (options?.min !== undefined && val < options.min) return null;
+      if (options?.max !== undefined && val > options.max) return null;
+      return val;
+    }
+  }
+
+  // Normalize spaces between digit triplets like "15 000" -> "15000"
+  text = text.replace(/(\d{1,3})\s+(\d{3})\b/g, '$1$2');
+
+  // Strip common words, currency prefixes/suffixes, and conversational filler
+  const stripped = text
+    .replace(/(?:etb|birr|br|usd|\$|€|£|yrs|years|yr|old|yo|age|budget|about|around|approx|approximately|i am|iam|my|\/mo|\/month|monthly)/gi, ' ')
+    .replace(/,/g, '')
+    .trim();
+
+  // Find first number sequence in the remaining text
+  const match = stripped.match(/(\d+(?:\.\d+)?)/);
+  if (match) {
+    const parsed = Math.round(parseFloat(match[1]));
+    if (!isNaN(parsed)) {
+      if (options?.min !== undefined && parsed < options.min) return null;
+      if (options?.max !== undefined && parsed > options.max) return null;
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Get Telegram file metadata by fileId, then download the raw bytes.
  * Returns a Buffer containing the file's content.
  */
