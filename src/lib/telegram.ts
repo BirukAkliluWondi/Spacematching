@@ -362,16 +362,33 @@ export async function updateChannelPostAsMatched(
   const channelId = CHANNEL_ID();
 
   const closedText = `
-🤝 <b>MATCHED &amp; CLOSED: Roommate #${escapeHtml(displayCode)} has found a match! 🎉</b>
-
-✅ <i>This listing is no longer available. Stay tuned for new seekers!</i>
+🔴🔴🔴 <b>__CLOSED / MATCHED__</b> 🔴🔴🔴
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤝 <b>Roommate #${escapeHtml(displayCode)} has found a match! 🎉</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ <i>This listing is officially closed. No further contact unlock requests are accepted.</i>
 `.trim();
 
-  await callTelegram('editMessageText', {
-    chat_id: channelId,
-    message_id: channelMessageId,
-    text: closedText,
-    parse_mode: 'HTML',
-    // reply_markup omitted → removes all inline buttons
-  });
+  try {
+    const res = await callTelegram('editMessageText', {
+      chat_id: channelId,
+      message_id: channelMessageId,
+      text: closedText,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [] },
+    });
+
+    if (!res.ok) {
+      // If original channel post was a photo, edit the caption instead
+      await callTelegram('editMessageCaption', {
+        chat_id: channelId,
+        message_id: channelMessageId,
+        caption: closedText,
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [] },
+      });
+    }
+  } catch (err) {
+    console.error('Failed to update channel post as matched:', err);
+  }
 }

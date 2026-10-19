@@ -166,14 +166,18 @@ export async function POST(request: Request) {
         ],
         [
           {
-            text: '📱 Open SpaceMatch Mini App ↗️',
-            web_app: { url: appUrl },
+            text: '📋 My Active Listings & Close',
+            callback_data: 'my_listings',
+          },
+          {
+            text: '❓ Platform Guide',
+            callback_data: 'nav_help',
           },
         ],
         [
           {
-            text: '❓ Platform Guide',
-            callback_data: 'nav_help',
+            text: '📱 Open SpaceMatch Mini App ↗️',
+            web_app: { url: appUrl },
           },
           {
             text: '💬 Live Admin Support',
@@ -189,6 +193,66 @@ export async function POST(request: Request) {
         draft_data: { card_msg_id: activeId },
         updated_at: new Date().toISOString(),
       });
+    };
+
+    // Helper: Send My Active Listings & Close Management Screen
+    const sendMyListingsScreen = async (chatId: number, messageIdToEdit?: number) => {
+      let text = `<b>📋 My Active Listings</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      const buttons: any[] = [];
+      let count = 0;
+
+      try {
+        const { data: profs } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .eq('telegram_id', chatId)
+          .limit(5);
+
+        if (profs && profs.length > 0) {
+          for (const p of profs) {
+            count++;
+            const isClosed = p.status === 'matched' || p.status === 'closed';
+            const statusBadge = isClosed ? '🔴 CLOSED' : '🟢 ACTIVE ON CHANNEL';
+            text += `\n🤝 <b>Roommate #${p.display_code}</b> (${statusBadge})\n📍 ${(p.locations || []).join(', ') || 'Addis Ababa'}\n💰 ${Number(p.budget_max || p.budget_min || 0).toLocaleString()} ETB/month\n`;
+            if (!isClosed) {
+              buttons.push([{ text: `🔴 Mark #${p.display_code} as Matched & Close`, callback_data: `user_close_listing:${p.id}` }]);
+            }
+          }
+        }
+      } catch {}
+
+      try {
+        const { data: rmList } = await supabaseAdmin
+          .from('roommate_profiles')
+          .select('*')
+          .eq('user_telegram_id', chatId)
+          .limit(5);
+
+        if (rmList && rmList.length > 0) {
+          for (const rm of rmList) {
+            count++;
+            const code = rm.display_code || `RM${rm.id.slice(0, 4)}`;
+            const isClosed = rm.status === 'matched' || rm.status === 'closed';
+            const statusBadge = isClosed ? '🔴 CLOSED' : '🟢 ACTIVE ON CHANNEL';
+            text += `\n👥 <b>Seeker Listing #${code}</b> (${statusBadge})\n📍 ${(rm.preferred_subcity || []).join(', ')}\n💰 ${Number(rm.budget_max || 0).toLocaleString()} ETB/month\n`;
+            if (!isClosed) {
+              buttons.push([{ text: `🔴 Mark #${code} as Matched & Close`, callback_data: `user_close_listing:${rm.id}` }]);
+            }
+          }
+        }
+      } catch {}
+
+      if (count === 0) {
+        text += `<i>You don't have any active listings yet.</i>\n\nPost your roommate seeker profile to broadcast to our Telegram channel!`;
+        buttons.push([{ text: '👥 Post Seeker Profile', callback_data: 'seeker_flow' }]);
+      }
+
+      buttons.push([
+        { text: '🔍 Find Roommates', callback_data: 'matchmaker_start' },
+        { text: '🏠 Main Menu', callback_data: 'nav_start' },
+      ]);
+
+      await sendOrEditCard(chatId, text.trim(), buttons, messageIdToEdit);
     };
 
     // Helper: Platform Help & User Guide
@@ -1218,25 +1282,76 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           .single();
 
         if (!requesterProfile) {
-          await tgSend(chatId, `⚠️ Could not find your profile. Please start onboarding with /start.`);
+          await sendOrEditCard(
+            chatId,
+            `⚠️ <b>Profile Needed for Mutual Match</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nTo send a mutual connection request, create a quick seeker profile so they know who is requesting.\n\nAlternatively, you can unlock their verified contact directly:`,
+            [
+              [{ text: '👥 Create Seeker Profile', callback_data: 'seeker_flow' }],
+              [{ text: '🔓 Direct Contact Unlock (50 ETB)', callback_data: `start_unlock_seeker:${targetProfileId}` }],
+              [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+            ],
+            msgId
+          );
           return NextResponse.json({ ok: true });
         }
 
         // Prevent self-request
-        if (requesterProfile.id === targetProfileId) {
-          await tgSend(chatId, `⚠️ You cannot send a match request to yourself.`);
-          return NextResponse.json({ ok: true });
+        if (requesterProfile.id === targetProfileId || String(requesterProfile.telegram_id) === String(chatId)) {
+          // Check if target is indeed the user's own listing
+          const { data: ownTarget } = await supabaseAdmin
+            .from('profiles')
+            .select('telegram_id')
+            .eq('id', targetProfileId)
+            .single();
+
+          if (ownTarget && String(ownTarget.telegram_id) === String(chatId)) {
+            await sendOrEditCard(
+              chatId,
+              `ℹ️ <b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
+              [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+              msgId
+            );
+            return NextResponse.json({ ok: true });
+          }
         }
 
         // Get target profile
-        const { data: targetProfile } = await supabaseAdmin
+        let targetProfile: any = null;
+        const { data: pTarget } = await supabaseAdmin
           .from('profiles')
           .select('*')
           .eq('id', targetProfileId)
           .single();
 
+        if (pTarget) {
+          targetProfile = pTarget;
+        } else {
+          const { data: rmTarget } = await supabaseAdmin
+            .from('roommate_profiles')
+            .select('*')
+            .eq('id', targetProfileId)
+            .single();
+          if (rmTarget) {
+            targetProfile = {
+              id: rmTarget.id,
+              telegram_id: rmTarget.user_telegram_id,
+              display_code: rmTarget.display_code || `RM${rmTarget.id.slice(0, 4)}`,
+              gender: rmTarget.my_gender,
+              locations: rmTarget.preferred_subcity,
+              budget_min: rmTarget.budget_min,
+              budget_max: rmTarget.budget_max,
+              roommate_traits: rmTarget.lifestyle_bio,
+            };
+          }
+        }
+
         if (!targetProfile) {
-          await tgSend(chatId, `⚠️ This listing is no longer available.`);
+          await sendOrEditCard(
+            chatId,
+            `⚠️ <b>Listing Not Found</b>\n\nThis listing is no longer available.`,
+            [[{ text: '🔍 Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            msgId
+          );
           return NextResponse.json({ ok: true });
         }
 
@@ -1249,9 +1364,11 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           .single();
 
         if (existingMatch) {
-          await tgSend(
+          await sendOrEditCard(
             chatId,
-            `ℹ️ You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>. Status: <b>${existingMatch.status.replace('_', ' ')}</b>`
+            `ℹ️ You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
+            [[{ text: '🔍 Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            msgId
           );
           return NextResponse.json({ ok: true });
         }
@@ -1270,14 +1387,24 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
 
         if (matchError || !newMatch) {
           console.error('[webhook] Failed to create match:', matchError?.message);
-          await tgSend(chatId, `❌ Could not send match request. Please try again.`);
+          await sendOrEditCard(
+            chatId,
+            `❌ Could not send match request. Please try again later.`,
+            [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            msgId
+          );
           return NextResponse.json({ ok: true });
         }
 
-        // Notify requester
-        await tgSend(
+        // Notify requester in-place
+        await sendOrEditCard(
           chatId,
-          `✅ <b>Match Request Sent!</b>\n\nYour request has been sent to Roommate <b>#${targetProfile.display_code}</b>. You'll be notified when they respond.`
+          `✅ <b>Match Request Sent!</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nYour request has been delivered to Roommate <b>#${targetProfile.display_code}</b>.\n\n🔔 You will receive a notification here immediately when they respond!`,
+          [
+            [{ text: '🔍 Find Other Roommates', callback_data: 'matchmaker_start' }],
+            [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+          ],
+          msgId
         );
 
         // Notify target (User B) with requester snapshot
@@ -1285,20 +1412,22 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           ? requesterProfile.locations.join(', ')
           : 'Addis Ababa';
 
-        const notifyText = `🤝 <b>You Have a Match Request!</b>\n\nSomeone saw your post in the channel and wants to connect!\n\n👤 <b>Requester Snapshot:</b>\n• Gender: ${requesterProfile.gender || 'Not specified'}\n• Budget: ${Number(requesterProfile.budget_min || 0).toLocaleString()} – ${Number(requesterProfile.budget_max || 0).toLocaleString()} ETB\n• Locations: ${requesterLocations}\n\nWould you like to connect?`;
+        const notifyText = `🤝 <b>You Have a Match Request!</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nA verified user saw your post in the channel and wants to connect!\n\n👤 <b>Requester Snapshot:</b>\n• <b>Gender:</b> ${requesterProfile.gender || 'Not specified'}\n• <b>Budget:</b> ${Number(requesterProfile.budget_min || 0).toLocaleString()} – ${Number(requesterProfile.budget_max || 0).toLocaleString()} ETB\n• <b>Locations:</b> ${requesterLocations}\n\nWould you like to connect?`;
 
-        await tgSend(
-          targetProfile.telegram_id,
-          notifyText,
-          {
-            inline_keyboard: [
-              [
-                { text: '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
-                { text: '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
+        if (targetProfile.telegram_id) {
+          await tgSend(
+            targetProfile.telegram_id,
+            notifyText,
+            {
+              inline_keyboard: [
+                [
+                  { text: '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
+                  { text: '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
+                ],
               ],
-            ],
-          }
-        );
+            }
+          );
+        }
 
         return NextResponse.json({ ok: true });
       }
@@ -1575,16 +1704,73 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       }
 
       // Callback query to start unlock for seeker
-      if (callbackData.startsWith('start_unlock_seeker:')) {
-        const profileId = callbackData.split(':')[1];
+      if (callbackData.startsWith('start_unlock_seeker:') || callbackData.startsWith('unlock_seeker_')) {
+        const profileId = callbackData.startsWith('start_unlock_seeker:')
+          ? callbackData.split(':')[1]
+          : callbackData.replace('unlock_seeker_', '');
         await sendUnlockPaywallCard(chatId, profileId, 'roommate_profile', msgId);
         return NextResponse.json({ ok: true });
       }
 
       // Callback query to start unlock for space
-      if (callbackData.startsWith('start_unlock_space:')) {
-        const spaceId = callbackData.split(':')[1];
+      if (callbackData.startsWith('start_unlock_space:') || callbackData.startsWith('order_')) {
+        const spaceId = callbackData.startsWith('start_unlock_space:')
+          ? callbackData.split(':')[1]
+          : callbackData.replace('order_', '');
         await sendUnlockPaywallCard(chatId, spaceId, 'space_listing', msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // User Self-Close Channel Listing Callback
+      if (callbackData.startsWith('user_close_listing:')) {
+        const listingId = callbackData.split(':')[1];
+        let displayCode = 'Listing';
+        let channelMsgId: number | undefined;
+
+        try {
+          const { data: p } = await supabaseAdmin
+            .from('profiles')
+            .update({ status: 'matched' })
+            .eq('id', listingId)
+            .select('display_code, channel_message_id')
+            .single();
+          if (p) {
+            displayCode = p.display_code || 'Listing';
+            channelMsgId = p.channel_message_id;
+          }
+        } catch {}
+
+        try {
+          const { data: rm } = await supabaseAdmin
+            .from('roommate_profiles')
+            .update({ status: 'matched' })
+            .eq('id', listingId)
+            .select('channel_message_id')
+            .single();
+          if (rm?.channel_message_id) {
+            channelMsgId = rm.channel_message_id;
+          }
+        } catch {}
+
+        if (channelMsgId) {
+          try {
+            await updateChannelPostAsMatched(channelMsgId, displayCode);
+          } catch (err) {
+            console.error('Failed to update channel post:', err);
+          }
+        }
+
+        const closedSuccessText = `
+✅ <b>Listing Marked as Closed!</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+Your listing <b>#${displayCode}</b> has been marked as matched.
+
+The post on our Telegram channel has been updated with 🔴🔴🔴 <b>__CLOSED / MATCHED__</b> 🔴🔴🔴 and action buttons have been removed.
+        `.trim();
+
+        await sendOrEditCard(chatId, closedSuccessText, [
+          [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+        ], msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -1786,6 +1972,12 @@ Contact details are kept confidential and only unlocked through verified mutual 
           [{ text: '🔍 Find a Roommate', callback_data: 'matchmaker_start' }],
           [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
         ], msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // My Active Listings (Manage & Close)
+      if (callbackData === 'my_listings') {
+        await sendMyListingsScreen(chatId, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -2256,80 +2448,124 @@ Browse our Matchmaker to find and connect directly with verified roommates!
         await clearSession(chatId);
 
         // ── NEW: Deep-link from channel button → /start req_<display_code> ──
+        // ── NEW: Deep-link from channel button → /start req_<display_code_or_id> ──
         if (text.startsWith('/start req_')) {
-          const displayCode = text.replace('/start req_', '').trim();
+          const lookupCode = text.replace('/start req_', '').trim();
 
-          // Lookup target profile
-          const { data: targetProfile } = await supabaseAdmin
+          // Lookup target profile from profiles or roommate_profiles
+          let targetProfile: any = null;
+          const { data: pCode } = await supabaseAdmin
             .from('profiles')
             .select('*')
-            .eq('display_code', displayCode)
+            .eq('display_code', lookupCode)
             .single();
+
+          if (pCode) {
+            targetProfile = pCode;
+          } else {
+            const { data: pId } = await supabaseAdmin
+              .from('profiles')
+              .select('*')
+              .eq('id', lookupCode)
+              .single();
+            if (pId) {
+              targetProfile = pId;
+            } else {
+              const { data: rm } = await supabaseAdmin
+                .from('roommate_profiles')
+                .select('*')
+                .eq('id', lookupCode)
+                .single();
+              if (rm) {
+                targetProfile = {
+                  id: rm.id,
+                  telegram_id: rm.user_telegram_id,
+                  display_code: rm.display_code || lookupCode,
+                  gender: rm.my_gender,
+                  locations: rm.preferred_subcity,
+                  budget_min: rm.budget_min,
+                  budget_max: rm.budget_max,
+                  roommate_traits: rm.lifestyle_bio,
+                  status: rm.status,
+                  channel_message_id: rm.channel_message_id,
+                };
+              }
+            }
+          }
 
           if (!targetProfile) {
-            await tgSend(
+            await sendOrEditCard(
               chatId,
-              `⚠️ <b>Listing Not Found</b>\n\nRoommate <b>#${displayCode}</b> is no longer available.`
+              `⚠️ <b>Listing Not Found</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nRoommate <b>#${lookupCode}</b> is no longer available or was removed.`,
+              [
+                [{ text: '🔍 Find Active Roommates', callback_data: 'matchmaker_start' }],
+                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+              ]
             );
             return NextResponse.json({ ok: true });
           }
 
-          // Check if the clicking user has an active verified profile
-          const { data: requesterProfile } = await supabaseAdmin
-            .from('profiles')
-            .select('*')
-            .eq('telegram_id', chatId)
-            .single();
-
-          const isVerified =
-            requesterProfile &&
-            (requesterProfile.status === 'active' || requesterProfile.status === 'matched');
-
-          if (!isVerified) {
-            // Store pending request code and prompt onboarding
-            if (requesterProfile) {
-              await supabaseAdmin
-                .from('profiles')
-                .update({ pending_req_code: displayCode })
-                .eq('telegram_id', chatId);
-            }
-
-            await tgSend(
+          // Check if listing is closed / matched
+          if (targetProfile.status === 'matched' || targetProfile.status === 'closed') {
+            await sendOrEditCard(
               chatId,
-              `⚠️ <b>Verification Required</b>\n\nTo connect with Roommate <b>#${displayCode}</b>, you must first create your own verified profile so they know who is requesting.`,
-              {
-                inline_keyboard: [
-                  [{ text: '📝 Start Profile', callback_data: 'onboard_start' }],
-                ],
-              }
+              `🔴 <b>LISTING CLOSED / MATCHED</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 Roommate <b>#${targetProfile.display_code || lookupCode}</b> has already found a match!\n\n🔍 <i>This listing is officially closed and no longer accepting requests. Browse other verified roommates below:</i>`,
+              [
+                [{ text: '🔍 Find Roommates Now', callback_data: 'matchmaker_start' }],
+                [{ text: '👥 Post Seeker Profile', callback_data: 'seeker_flow' }],
+                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+              ]
             );
             return NextResponse.json({ ok: true });
           }
 
-          // Prevent self-request
-          if (requesterProfile.id === targetProfile.id) {
-            await tgSend(chatId, `ℹ️ This is your own listing.`);
+          // Check for self-listing
+          if (String(targetProfile.telegram_id) === String(chatId)) {
+            await sendOrEditCard(
+              chatId,
+              `ℹ️ <b>Your Own Channel Listing</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nThis is your active channel post (Roommate <b>#${targetProfile.display_code || lookupCode}</b>).\n\nIf you have already found a roommate, you can mark it as closed to update the channel post!`,
+              [
+                [{ text: '🔴 Mark as Closed / Matched', callback_data: `user_close_listing:${targetProfile.id}` }],
+                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+              ]
+            );
             return NextResponse.json({ ok: true });
           }
 
-          // Show preview card with connect button
+          // Present the Listing Inspection Card
           const targetLocations = Array.isArray(targetProfile.locations)
             ? targetProfile.locations.join(', ')
             : 'Addis Ababa';
 
-          const previewCard = `🤝 <b>Roommate #${targetProfile.display_code}</b>\n━━━━━━━━━━━━━━━━━━━\n👤 <b>Gender:</b> ${targetProfile.gender || 'Not specified'}\n📍 <b>Areas:</b> ${targetLocations}\n💰 <b>Budget:</b> ${Number(targetProfile.budget_min || 0).toLocaleString()} – ${Number(targetProfile.budget_max || 0).toLocaleString()} ETB/month\n📅 <b>Move-in:</b> ${targetProfile.move_in_date || 'Flexible'}\n🏠 <b>About:</b> <i>${targetProfile.roommate_traits || 'Seeking compatible housemate.'}</i>\n\n🔒 <i>Contact details revealed only after mutual match &amp; payment.</i>`;
+          const budgetStr = targetProfile.budget_max
+            ? `Up to ${Number(targetProfile.budget_max).toLocaleString()} ETB/month`
+            : `${Number(targetProfile.budget_min || 0).toLocaleString()} – ${Number(targetProfile.budget_max || 0).toLocaleString()} ETB/month`;
 
-          await tgSend(
+          const inspectionCard = `
+🤝 <b>Roommate #${targetProfile.display_code || lookupCode}</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 <b>Gender:</b> ${targetProfile.gender || 'Not specified'}
+📍 <b>Preferred Areas:</b> ${targetLocations}
+💰 <b>Budget:</b> ${budgetStr}
+${targetProfile.roommate_traits ? `📝 <b>About / Bio:</b> <i>"${targetProfile.roommate_traits}"</i>\n` : ''}🛡️ <b>Fayda National ID:</b> VERIFIED ✅
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔒 <i>Direct phone & username remain sealed until mutual match & verification.</i>
+          `.trim();
+
+          await sendOrEditCard(
             chatId,
-            previewCard,
-            {
-              inline_keyboard: [
-                [
-                  { text: '❤️ Send Match Request', callback_data: `confirm_match:${targetProfile.id}` },
-                  { text: '❌ Cancel', callback_data: 'nav_start' },
-                ],
+            inspectionCard,
+            [
+              [
+                { text: '❤️ Send Mutual Match Request', callback_data: `confirm_match:${targetProfile.id}` },
               ],
-            }
+              [
+                { text: '🔓 Direct Contact Unlock (50 ETB)', callback_data: `start_unlock_seeker:${targetProfile.id}` },
+              ],
+              [
+                { text: '🏠 Main Menu', callback_data: 'nav_start' },
+              ],
+            ]
           );
           return NextResponse.json({ ok: true });
         }
@@ -2436,6 +2672,12 @@ Browse our Matchmaker to find and connect directly with verified roommates!
       if (text === '/post' || text === '/property_type') {
         await clearSession(chatId);
         await sendPropertyTypePrompt(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/my_listings' || text === '/my_posts' || text === '/status') {
+        await clearSession(chatId);
+        await sendMyListingsScreen(chatId);
         return NextResponse.json({ ok: true });
       }
 

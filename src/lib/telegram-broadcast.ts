@@ -70,8 +70,21 @@ export async function broadcastRoommateProfileToChannel(
       ? 'VERIFIED ✅ 🛡️'
       : 'UNVERIFIED ⚠️';
 
+    // Attempt to lookup display_code from profiles table
+    let displayCode = profile.display_code;
+    if (!displayCode) {
+      try {
+        const { data: p } = await supabaseAdmin
+          .from('profiles')
+          .select('display_code')
+          .or(`id.eq.${profileId},telegram_id.eq.${profile.user_telegram_id || 0}`)
+          .single();
+        if (p?.display_code) displayCode = p.display_code;
+      } catch {}
+    }
+
     const text = `
-👥 <b>#ROOMMATE_SEEKER</b> | 📍 <b>${subcitiesStr}</b>
+👥 <b>#ROOMMATE_SEEKER</b>${displayCode ? ` <b>#${displayCode}</b>` : ''} | 📍 <b>${subcitiesStr}</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 👤 <b>Seeker Gender:</b> ${profile.my_gender}
 👥 <b>Preferred Roommate:</b> ${profile.preferred_gender}
@@ -82,35 +95,22 @@ export async function broadcastRoommateProfileToChannel(
 
 🛡️ <b>Fayda National ID:</b> ${faydaBadge}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-<i>To connect with this verified seeker, click "💬 Unlock Contact" below!</i>
+<i>Tap below to connect securely via @${botUsername}:</i>
     `.trim();
 
+    const connectPayload = displayCode ? `req_${displayCode}` : `req_${profile.id}`;
     const inlineKeyboard = {
       inline_keyboard: [
         [
           {
-            text: `💬 Unlock Contact Info (${profile.unlock_fee || 50} ETB)`,
-            url: `https://t.me/${botUsername}?start=unlock_seeker_${profile.id}`,
-            style: 'success',
+            text: '🤝 Connect with Roommate ↗️',
+            url: `https://t.me/${botUsername}?start=${connectPayload}`,
           },
         ],
         [
           {
-            text: '🏠 I Have a Space to Rent',
-            url: `https://t.me/${botUsername}?start=property_type`,
-            style: 'primary',
-          },
-          {
-            text: '🔍 I Need a Roommate',
-            url: `https://t.me/${botUsername}?start=seeker_flow`,
-            style: 'primary',
-          },
-        ],
-        [
-          {
-            text: '📱 View Profile in Mini App',
+            text: '📱 View in Mini App ↗️',
             url: `https://t.me/${botUsername}/${appName}?startapp=seeker_${profile.id}`,
-            style: 'primary',
           },
         ],
       ],
@@ -243,35 +243,21 @@ ${space.description}
 
 🛡️ <b>Host Verification:</b> VERIFIED ✅
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-<i>Click below to unlock host contact details or view in Mini App!</i>
+<i>Tap below to view details and connect via @${botUsername}:</i>
     `.trim();
 
     const inlineKeyboard = {
       inline_keyboard: [
         [
           {
-            text: `🔑 Unlock Host Contact (${space.unlock_fee || 50} ETB)`,
+            text: '🔑 View & Connect with Host ↗️',
             url: `https://t.me/${botUsername}?start=order_${space.id}`,
-            style: 'success',
           },
         ],
         [
           {
-            text: '👥 I Need a Roommate',
-            url: `https://t.me/${botUsername}?start=seeker_flow`,
-            style: 'primary',
-          },
-          {
-            text: '🏠 List Another Space',
-            url: `https://t.me/${botUsername}?start=property_type`,
-            style: 'primary',
-          },
-        ],
-        [
-          {
-            text: '🔍 Open in Mini App',
+            text: '📱 View in Mini App ↗️',
             url: `https://t.me/${botUsername}/${appName}?startapp=listing_${space.id}`,
-            style: 'primary',
           },
         ],
       ],
