@@ -24,6 +24,7 @@ import {
   escapeHtml,
   setChatMenuButton,
   parseNumericInput,
+  deleteMessage,
   type Profile,
 } from '@/lib/telegram';
 
@@ -270,7 +271,7 @@ export async function handleOnboardingCallback(
   telegramUsername?: string,
   messageId?: number
 ): Promise<void> {
-  await answerCallbackQuery(callbackQueryId);
+  answerCallbackQuery(callbackQueryId).catch(() => {});
 
   // ── /start → begin onboarding ─────────────────────────────────────────────
   if (callbackData === 'onboard_start') {
@@ -374,12 +375,16 @@ export async function handleOnboardingMessage(
   chatId: number,
   step: string,
   message: {
+    message_id?: number;
     text?: string;
     contact?: { phone_number: string; first_name?: string; last_name?: string };
     photo?: { file_id: string; file_size?: number }[];
   },
   telegramUsername?: string
 ): Promise<boolean> {
+  if (message.message_id) {
+    deleteMessage(chatId, message.message_id).catch(() => {});
+  }
   // ── Budget text input ─────────────────────────────────────────────────────
   if (step === 'budget') {
     const raw = (message.text || '').trim();

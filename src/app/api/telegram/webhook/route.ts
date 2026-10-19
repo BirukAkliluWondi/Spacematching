@@ -25,6 +25,7 @@ import {
   updateChannelPostAsMatched,
   parseNumericInput,
   setChatMenuButton,
+  deleteMessage,
 } from '@/lib/telegram';
 import {
   handleOnboardingCallback,
@@ -245,7 +246,7 @@ Welcome to SpaceMatch Addis, the trusted roommate and housing platform in Addis 
       gridRows.push([
         {
           text: isAllSelected
-            ? '✅ All 12 Sub-Cities Selected (Proceed ➡️)'
+            ? '✅ All Selected (Proceed ➡️)'
             : '🌐 Select ALL Sub-Cities & Proceed ➡️',
           callback_data: 'match_select_all_subs',
         },
@@ -273,20 +274,13 @@ Welcome to SpaceMatch Addis, the trusted roommate and housing platform in Addis 
 
       gridRows.push([
         {
-          text: `➡️ Next: My Identity & Age (${selectedList.length} Selected)`,
-          callback_data: 'match_goto_identity',
+          text: `➡️ Next: My Gender (${selectedList.length} Selected)`,
+          callback_data: 'match_goto_gender',
         },
       ]);
       gridRows.push([{ text: '🏠 Main Menu', callback_data: 'nav_start' }]);
 
-      const text = `
-🎯 <b>SpaceMatch Roommate Engine — Step 1/3</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-📍 <b>Preferred Areas in Addis Ababa</b>
-
-Select the sub-cities where you would like to live.
-Tap <b>"🌐 Select ALL Sub-Cities"</b> or choose specific areas below:
-      `.trim();
+      const text = `📍 <b>Where would you like to live in Addis Ababa?</b>\n<i>Choose areas below or select all:</i>`;
 
       const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
       const activeMsgId = await sendOrEditCard(chatId, text, gridRows, targetMsgId);
@@ -300,120 +294,21 @@ Tap <b>"🌐 Select ALL Sub-Cities"</b> or choose specific areas below:
       });
     };
 
-    // Matchmaker Step 2: My Identity (Gender & Numerical Age - In-Place Edit)
-    const sendMatchmakerIdentityStep = async (
+    // Matchmaker Step 2: My Gender (In-Place Edit)
+    const sendMatchmakerGenderStep = async (
       chatId: number,
       currentDraft: Record<string, any> = {},
       messageIdToEdit?: number
     ) => {
-      const myGender = currentDraft.my_gender || '';
-      const myAge = currentDraft.age ? Number(currentDraft.age) : undefined;
-
-      const text = `
-🎯 <b>SpaceMatch Roommate Engine — Step 2/3</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>Your Identity & Age</b>
-
-• <b>Your Gender:</b> ${myGender ? (myGender === 'Female' ? '👩 Female' : '👨 Male') : '<i>⚪ Not selected yet</i>'}
-• <b>Your Age:</b> ${myAge ? `<code>${myAge} years old</code>` : '<i>⚪ Not entered yet</i>'}
-
-<blockquote>💬 <b>Direct Age Input:</b>
-Tap your gender below, then type your exact age as a number directly in chat (e.g. <code>24</code>).</blockquote>
-      `.trim();
+      const text = `👤 <b>What is your gender?</b>`;
 
       const keyboard = [
         [
-          {
-            text: `${myGender === 'Female' ? '🟢 ' : '⚪ '}👩 Female`,
-            callback_data: 'match_set_my_gender:Female',
-          },
-          {
-            text: `${myGender === 'Male' ? '🟢 ' : '⚪ '}👨 Male`,
-            callback_data: 'match_set_my_gender:Male',
-          },
-        ],
-        [
-          {
-            text: myAge ? `🎂 Age: ${myAge} yrs (Type in chat to change)` : '🎂 Type Your Age in Chat (e.g. 24)',
-            callback_data: 'match_prompt_age',
-          },
+          { text: '👩 Female', callback_data: 'match_set_my_gender:Female' },
+          { text: '👨 Male', callback_data: 'match_set_my_gender:Male' },
         ],
         [
           { text: '⬅️ Back to Areas', callback_data: 'matchmaker_start' },
-          { text: '➡️ Next: Roommate Prefs', callback_data: 'match_goto_prefs' },
-        ],
-        [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
-      ];
-
-      const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
-      const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
-      if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
-
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_match_identity',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-    };
-
-    // Matchmaker Step 3: Roommate Preferences & Numerical Budget (In-Place Edit)
-    const sendMatchmakerPrefStep = async (
-      chatId: number,
-      currentDraft: Record<string, any> = {},
-      messageIdToEdit?: number
-    ) => {
-      const prefGender = currentDraft.preferred_gender || 'Any';
-      const budgetMax = currentDraft.budget_max !== undefined ? Number(currentDraft.budget_max) : undefined;
-      const budgetStr = budgetMax && budgetMax > 0 ? `<code>${budgetMax.toLocaleString()} ETB / month</code>` : '<code>⚡ Any Budget (No Cap)</code>';
-
-      const text = `
-🎯 <b>SpaceMatch Roommate Engine — Step 3/3</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-👥 <b>Roommate Preferences & Budget</b>
-
-• <b>Preferred Roommate:</b> ${prefGender === 'Female' ? '👩 Female Only' : prefGender === 'Male' ? '👨 Male Only' : '👫 Any Gender Compatible'}
-• <b>Max Monthly Budget:</b> 💰 ${budgetStr}
-
-<blockquote>💬 <b>Direct Budget Input:</b>
-Type your maximum monthly budget in ETB directly in chat (e.g. <code>8000</code>, <code>12000</code>, or <code>15k</code>). Or tap <b>⚡ Any Budget</b>.</blockquote>
-      `.trim();
-
-      const keyboard = [
-        [
-          {
-            text: `${prefGender === 'Female' ? '🟢 ' : '⚪ '}👩 Female Only`,
-            callback_data: 'match_set_pref_gender:Female',
-          },
-          {
-            text: `${prefGender === 'Male' ? '🟢 ' : '⚪ '}👨 Male Only`,
-            callback_data: 'match_set_pref_gender:Male',
-          },
-        ],
-        [
-          {
-            text: `${prefGender === 'Any' ? '🟢 ' : '⚪ '}👫 Any Gender`,
-            callback_data: 'match_set_pref_gender:Any',
-          },
-          {
-            text: `${!budgetMax || budgetMax === 0 ? '🟢 ' : '⚪ '}⚡ Any Budget`,
-            callback_data: 'match_set_budget:0',
-          },
-        ],
-        [
-          {
-            text: budgetMax && budgetMax > 0 ? `💰 Budget: ${budgetMax.toLocaleString()} ETB (Type to change)` : '💰 Type Monthly Budget in Chat (ETB)',
-            callback_data: 'match_prompt_budget',
-          },
-        ],
-        [
-          {
-            text: '🚀 Find My Matches Now 🎯',
-            callback_data: 'match_run_search',
-          },
-        ],
-        [
-          { text: '⬅️ Back to Identity', callback_data: 'match_goto_identity' },
           { text: '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
@@ -424,7 +319,102 @@ Type your maximum monthly budget in ETB directly in chat (e.g. <code>8000</code>
 
       saveSession({
         telegram_id: chatId,
-        step: 'awaiting_match_prefs',
+        step: 'awaiting_match_gender',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+    };
+
+    // Matchmaker Step 3: My Age (Direct Numerical Input - In-Place Edit)
+    const sendMatchmakerAgeStep = async (
+      chatId: number,
+      currentDraft: Record<string, any> = {},
+      messageIdToEdit?: number,
+      errorMessage?: string
+    ) => {
+      const header = errorMessage ? `${errorMessage}\n\n` : '';
+      const text = `${header}🎂 <b>How old are you?</b>\n<i>Type your age in chat (e.g. <code>24</code>):</i>`;
+
+      const keyboard = [
+        [
+          { text: '⬅️ Back to Gender', callback_data: 'match_goto_gender' },
+          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+        ],
+      ];
+
+      const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+      const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+      if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_match_age',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+    };
+
+    // Matchmaker Step 4: Roommate Gender Preference (In-Place Edit)
+    const sendMatchmakerPrefGenderStep = async (
+      chatId: number,
+      currentDraft: Record<string, any> = {},
+      messageIdToEdit?: number
+    ) => {
+      const text = `👥 <b>Who do you prefer to live with?</b>`;
+
+      const keyboard = [
+        [
+          { text: '👩 Female Only', callback_data: 'match_set_pref_gender:Female' },
+          { text: '👨 Male Only', callback_data: 'match_set_pref_gender:Male' },
+        ],
+        [
+          { text: '👫 Any Gender Compatible', callback_data: 'match_set_pref_gender:Any' },
+        ],
+        [
+          { text: '⬅️ Back to Age', callback_data: 'match_goto_age' },
+          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+        ],
+      ];
+
+      const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+      const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+      if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_match_pref_gender',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
+    };
+
+    // Matchmaker Step 5: Monthly Rent Budget (Direct Input or Any Budget - In-Place Edit)
+    const sendMatchmakerBudgetStep = async (
+      chatId: number,
+      currentDraft: Record<string, any> = {},
+      messageIdToEdit?: number,
+      errorMessage?: string
+    ) => {
+      const header = errorMessage ? `${errorMessage}\n\n` : '';
+      const text = `${header}💰 <b>What is your maximum monthly rent budget?</b>\n<i>Type your budget in Birr (e.g. <code>8000</code> or <code>15k</code>), or tap below:</i>`;
+
+      const keyboard = [
+        [
+          { text: '⚡ Any Budget (No Cap)', callback_data: 'match_set_budget:0' },
+        ],
+        [
+          { text: '⬅️ Back to Preference', callback_data: 'match_goto_pref_gender' },
+          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+        ],
+      ];
+
+      const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+      const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+      if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_match_budget_input',
         draft_data: currentDraft,
         updated_at: new Date().toISOString(),
       });
@@ -448,7 +438,7 @@ Type your maximum monthly budget in ETB directly in chat (e.g. <code>8000</code>
       gridRows.push([
         {
           text: isAllSelected
-            ? '✅ All 12 Sub-Cities Selected (Proceed ➡️)'
+            ? '✅ All Selected (Proceed ➡️)'
             : '🌐 Select ALL Sub-Cities & Proceed ➡️',
           callback_data: 'seeker_select_all_and_proceed',
         },
@@ -482,14 +472,7 @@ Type your maximum monthly budget in ETB directly in chat (e.g. <code>8000</code>
       ]);
       gridRows.push([{ text: '🏠 Main Menu', callback_data: 'nav_start' }]);
 
-      const text = `
-👥 <b>SpaceMatch Addis — Seeker Step 1/6</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-📍 <b>Preferred Sub-Cities Selection</b> [ ▓▓░░░░░░░░ 15% ]
-
-Select where you want to find a room in Addis Ababa.
-Tap <b>"🌐 Select ALL Sub-Cities"</b> or choose specific areas below:
-      `.trim();
+      const text = `📍 <b>Where would you like to live in Addis Ababa?</b>\n<i>Choose areas below or select all:</i>`;
 
       const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
       const activeMsgId = await sendOrEditCard(chatId, text, gridRows, targetMsgId);
@@ -505,64 +488,37 @@ Tap <b>"🌐 Select ALL Sub-Cities"</b> or choose specific areas below:
 
     // Helper: Seeker Step 2 (My Gender)
     const sendSeekerMyGenderStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_my_gender',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-
-      const text = `
-👥 <b>SpaceMatch Addis — Seeker Step 2/6: Your Gender</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>Select Your Gender</b> [███▒▒▒▒▒▒▒] 30%
-
-Choose your gender below:
-      `.trim();
+      const text = `👤 <b>What is your gender?</b>`;
 
       const keyboard = [
         [
           { text: '👩 Female', callback_data: 'seeker_my_gender:Female' },
           { text: '👨 Male', callback_data: 'seeker_my_gender:Male' },
         ],
-        [{ text: '⬅️ Back to Sub-Cities', callback_data: 'seeker_subcity_menu' }],
+        [{ text: '⬅️ Back to Areas', callback_data: 'seeker_subcity_menu' }],
       ];
 
-      if (messageIdToEdit) {
-        await sendTelegram('editMessageText', {
-          chat_id: chatId,
-          message_id: messageIdToEdit,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      } else {
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      }
-    };
+      const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+      const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+      if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
 
-    // Helper: Seeker Step 3 (My Age - Direct Numerical Input)
-    const sendSeekerAgeStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
       saveSession({
         telegram_id: chatId,
-        step: 'awaiting_seeker_age',
+        step: 'awaiting_seeker_my_gender',
         draft_data: currentDraft,
         updated_at: new Date().toISOString(),
       });
+    };
 
-      const text = `
-👥 <b>SpaceMatch Addis — Seeker Step 3/6: Your Age</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎂 <b>How old are you?</b> [ ▓▓▓▓▓░░░░░ ] 50%
-
-Please type your exact age as a number directly in chat below:
-<i>(For example: <code>24</code>)</i>
-      `.trim();
+    // Helper: Seeker Step 3 (My Age - Direct Numerical Input)
+    const sendSeekerAgeStep = async (
+      chatId: number,
+      currentDraft: Record<string, any> = {},
+      messageIdToEdit?: number,
+      errorMessage?: string
+    ) => {
+      const header = errorMessage ? `${errorMessage}\n\n` : '';
+      const text = `${header}🎂 <b>How old are you?</b>\n<i>Type your age in chat (e.g. <code>24</code>):</i>`;
 
       const keyboard = [
         [
@@ -571,40 +527,21 @@ Please type your exact age as a number directly in chat below:
         ],
       ];
 
-      if (messageIdToEdit) {
-        await sendTelegram('editMessageText', {
-          chat_id: chatId,
-          message_id: messageIdToEdit,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      } else {
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      }
+      const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+      const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+      if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_age',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
     };
 
     // Helper: Seeker Step 4 (Preferred Roommate Gender)
     const sendSeekerPrefGenderStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_pref_gender',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-
-      const text = `
-👥 <b>SpaceMatch Addis — Seeker Step 4/6: Roommate Preference</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-👥 <b>What gender roommate do you prefer to live with?</b> [ ▓▓▓▓▓▓▓░░░ ] 65%
-
-Select your preferred roommate gender below:
-      `.trim();
+      const text = `👥 <b>Who do you prefer to live with?</b>`;
 
       const keyboard = [
         [
@@ -620,86 +557,50 @@ Select your preferred roommate gender below:
         ],
       ];
 
-      if (messageIdToEdit) {
-        await sendTelegram('editMessageText', {
-          chat_id: chatId,
-          message_id: messageIdToEdit,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      } else {
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      }
+      const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+      const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+      if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_pref_gender',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
     };
 
     // Helper: Seeker Step 5 (Budget Input - Direct Numerical ETB Amount)
-    const sendSeekerBudgetStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
+    const sendSeekerBudgetStep = async (
+      chatId: number,
+      currentDraft: Record<string, any> = {},
+      messageIdToEdit?: number,
+      errorMessage?: string
+    ) => {
+      const header = errorMessage ? `${errorMessage}\n\n` : '';
+      const text = `${header}💰 <b>What is your maximum monthly rent budget in ETB?</b>\n<i>Type your budget in chat (e.g. <code>8000</code> or <code>12000</code>):</i>`;
+
+      const keyboard = [
+        [
+          { text: '⬅️ Back to Preference', callback_data: 'seeker_goto_pref_gender' },
+          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+        ],
+      ];
+
+      const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+      const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+      if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+
       saveSession({
         telegram_id: chatId,
         step: 'awaiting_seeker_budget_text',
         draft_data: currentDraft,
         updated_at: new Date().toISOString(),
       });
-
-      const text = `
-👥 <b>SpaceMatch Addis — Seeker Step 5/6: Monthly Budget</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 <b>Maximum Monthly Budget (ETB)</b> [ ▓▓▓▓▓▓▓▓░░ ] 80%
-
-Please type your maximum monthly budget cap in ETB directly in chat below:
-<i>(For example: <code>8000</code>, <code>12000</code>, or <code>15000</code>)</i>
-      `.trim();
-
-      const keyboard = [
-        [
-          { text: '⬅️ Back to Roommate Pref', callback_data: 'seeker_goto_pref_gender' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
-        ],
-      ];
-
-      if (messageIdToEdit) {
-        await sendTelegram('editMessageText', {
-          chat_id: chatId,
-          message_id: messageIdToEdit,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      } else {
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      }
     };
 
     // Helper: Seeker Step 6 (Lifestyle Bio - Direct Input or Skip)
     const sendSeekerBioStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_bio_text',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-
-      const text = `
-👥 <b>SpaceMatch Addis — Seeker Step 6/6: Lifestyle & Bio</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 <b>Lifestyle & Bio Description</b> [ ▓▓▓▓▓▓▓▓▓▓ ] 95%
-
-Please type a brief description about yourself, your occupation, or lifestyle preferences in chat below:
-<i>(For example: "Quiet IT professional, non-smoker, clean and tidy")</i>
-
-👇 <i>Or tap <b>"⏭️ Skip Bio"</b> to proceed:</i>
-      `.trim();
+      const text = `📝 <b>Tell us briefly about yourself:</b>\n<i>Type in chat below (e.g. "Quiet accountant, non-smoker") or skip below:</i>`;
 
       const keyboard = [
         [{ text: '⏭️ Skip Bio', callback_data: 'seeker_skip_bio' }],
@@ -709,76 +610,51 @@ Please type a brief description about yourself, your occupation, or lifestyle pr
         ],
       ];
 
-      if (messageIdToEdit) {
-        await sendTelegram('editMessageText', {
-          chat_id: chatId,
-          message_id: messageIdToEdit,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      } else {
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      }
+      const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+      const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+      if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_bio_text',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
     };
 
     // Helper: Seeker Review & Final Submit
     const sendSeekerFaydaStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
-      saveSession({
-        telegram_id: chatId,
-        step: 'awaiting_seeker_fayda_upload',
-        draft_data: currentDraft,
-        updated_at: new Date().toISOString(),
-      });
-
       const subcitiesStr = (currentDraft.preferred_subcity || []).join(', ') || 'Addis Ababa';
       const bioText = currentDraft.lifestyle_bio ? `"${currentDraft.lifestyle_bio}"` : 'Seeking compatible roommate';
 
       const summaryText = `
 👥 <b>SpaceMatch Addis — Profile Review</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 <b>Your Seeker Profile Summary:</b>
 • 👤 <b>Gender & Age:</b> ${currentDraft.my_gender || 'Not specified'}${currentDraft.age ? `, <code>${currentDraft.age} yrs</code>` : ''}
 • 👥 <b>Preferred Roommate:</b> ${currentDraft.preferred_gender || 'Any'}
-• 📍 <b>Target Sub-Cities:</b> ${subcitiesStr}
-• 💰 <b>Monthly Budget Cap:</b> <code>${Number(currentDraft.budget_max || 10000).toLocaleString()} ETB / month</code>
+• 📍 <b>Target Areas:</b> ${subcitiesStr}
+• 💰 <b>Monthly Budget:</b> <code>${Number(currentDraft.budget_max || 10000).toLocaleString()} ETB / mo</code>
 • 📝 <b>Bio:</b> <i>${bioText}</i>
-
-🛡️ <b>Fayda National ID Verification:</b>
-Your profile will be verified before publishing to the public channel!
-
-👇 <i>Ready to submit? Tap below:</i>
       `.trim();
 
       const keyboard = [
         [{ text: '✅ Submit Seeker Profile', callback_data: 'seeker_final_submit' }],
         [
-          { text: '⬅️ Edit Details (Restart)', callback_data: 'seeker_flow' },
+          { text: '⬅️ Edit Details', callback_data: 'seeker_flow' },
           { text: '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
-      if (messageIdToEdit) {
-        await sendTelegram('editMessageText', {
-          chat_id: chatId,
-          message_id: messageIdToEdit,
-          text: summaryText,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      } else {
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: summaryText,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
-        });
-      }
+      const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+      const activeMsgId = await sendOrEditCard(chatId, summaryText, keyboard, targetMsgId);
+      if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+
+      saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_seeker_fayda_upload',
+        draft_data: currentDraft,
+        updated_at: new Date().toISOString(),
+      });
     };
 
     // Helper: Automated Matchmaking Engine Driven directly by User's Input Criteria (Live DB & In-Place Paginated Feed)
@@ -1266,12 +1142,13 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       const msgId: number | undefined = callback.message?.message_id;
       const fromUsername: string | undefined = callback.from?.username;
 
+      // Immediately acknowledge callback query so the button spinner clears in <100ms
+      if (callback.id) {
+        sendTelegram('answerCallbackQuery', { callback_query_id: callback.id }).catch(() => {});
+      }
+
       // Load session from Supabase before any getSession() call
       await preloadSession(chatId);
-
-      if (callback.id) {
-        await sendTelegram('answerCallbackQuery', { callback_query_id: callback.id });
-      }
 
       // ── NEW: Onboarding callbacks (gender, location, move-in) ──────────────
       if (isOnboardingCallback(callbackData)) {
@@ -1470,7 +1347,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       if (callbackData === 'match_select_all_subs') {
         const session = getSession(chatId);
         const updatedDraft = { ...session.draft_data, match_subcities: [...ALL_SUBCITIES] };
-        await sendMatchmakerIdentityStep(chatId, updatedDraft, msgId);
+        await sendMatchmakerGenderStep(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -1488,14 +1365,14 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         return NextResponse.json({ ok: true });
       }
 
-      if (callbackData === 'match_goto_identity') {
+      if (callbackData === 'match_goto_gender' || callbackData === 'match_goto_identity') {
         const session = getSession(chatId);
         const currentList: string[] = session.draft_data.match_subcities || [];
         const updatedDraft = {
           ...session.draft_data,
           match_subcities: currentList.length > 0 ? currentList : [...ALL_SUBCITIES],
         };
-        await sendMatchmakerIdentityStep(chatId, updatedDraft, msgId);
+        await sendMatchmakerGenderStep(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -1503,32 +1380,13 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         const myGender = callbackData.split(':')[1];
         const session = getSession(chatId);
         const updatedDraft = { ...session.draft_data, my_gender: myGender };
-        await sendMatchmakerIdentityStep(chatId, updatedDraft, msgId);
+        await sendMatchmakerAgeStep(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
-      if (callbackData === 'match_prompt_age') {
-        if (callback.id) {
-          await sendTelegram('answerCallbackQuery', {
-            callback_query_id: callback.id,
-            text: '💬 Type your exact age in chat below (e.g. 24)',
-            show_alert: false,
-          });
-        }
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData.startsWith('match_set_age:')) {
-        const bracket = callbackData.split(':')[1];
+      if (callbackData === 'match_goto_age') {
         const session = getSession(chatId);
-        const updatedDraft = { ...session.draft_data, age_bracket: bracket };
-        await sendMatchmakerIdentityStep(chatId, updatedDraft, msgId);
-        return NextResponse.json({ ok: true });
-      }
-
-      if (callbackData === 'match_goto_prefs') {
-        const session = getSession(chatId);
-        await sendMatchmakerPrefStep(chatId, session.draft_data, msgId);
+        await sendMatchmakerAgeStep(chatId, session.draft_data, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -1536,18 +1394,13 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         const prefGender = callbackData.split(':')[1];
         const session = getSession(chatId);
         const updatedDraft = { ...session.draft_data, preferred_gender: prefGender };
-        await sendMatchmakerPrefStep(chatId, updatedDraft, msgId);
+        await sendMatchmakerBudgetStep(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
-      if (callbackData === 'match_prompt_budget') {
-        if (callback.id) {
-          await sendTelegram('answerCallbackQuery', {
-            callback_query_id: callback.id,
-            text: '💬 Type your monthly budget in ETB in chat (e.g. 8000 or 15000)',
-            show_alert: false,
-          });
-        }
+      if (callbackData === 'match_goto_pref_gender' || callbackData === 'match_goto_prefs') {
+        const session = getSession(chatId);
+        await sendMatchmakerPrefGenderStep(chatId, session.draft_data, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -1555,7 +1408,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         const budget = parseInt(callbackData.split(':')[1], 10);
         const session = getSession(chatId);
         const updatedDraft = { ...session.draft_data, budget_max: budget };
-        await sendMatchmakerPrefStep(chatId, updatedDraft, msgId);
+        await executeAutomatedMatchmaker(chatId, updatedDraft, msgId, 0);
         return NextResponse.json({ ok: true });
       }
 
@@ -2204,77 +2057,81 @@ Browse our Matchmaker to find and connect directly with verified roommates!
 
       // Matchmaker Wizard: Age Text Input
       if (session.step === 'awaiting_match_identity' || session.step === 'awaiting_match_age') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const targetMsgId = session.draft_data.card_msg_id;
         const ageVal = parseNumericInput(text);
         if (!ageVal || ageVal < 18 || ageVal > 99) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: `⚠️ <b>Please type a valid numerical age between 18 and 99:</b>\n<i>(For example: <code>24</code>)</i>`,
-            parse_mode: 'HTML',
-          });
+          await sendMatchmakerAgeStep(chatId, session.draft_data, targetMsgId, '⚠️ <b>Please type a valid numerical age between 18 and 99:</b>');
           return NextResponse.json({ ok: true });
         }
 
         const updatedDraft = { ...session.draft_data, age: ageVal };
-        await sendMatchmakerIdentityStep(chatId, updatedDraft);
+        await sendMatchmakerPrefGenderStep(chatId, updatedDraft, targetMsgId);
         return NextResponse.json({ ok: true });
       }
 
       // Matchmaker Wizard: Budget Text Input
       if (session.step === 'awaiting_match_prefs' || session.step === 'awaiting_match_budget_input') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const targetMsgId = session.draft_data.card_msg_id;
         const budgetVal = parseNumericInput(text);
         if (!budgetVal || budgetVal <= 0 || budgetVal > 1000000) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: `⚠️ <b>Please type a valid numerical monthly budget cap in ETB:</b>\n<i>(For example: <code>8000</code> or <code>15000</code>)</i>`,
-            parse_mode: 'HTML',
-          });
+          await sendMatchmakerBudgetStep(chatId, session.draft_data, targetMsgId, '⚠️ <b>Please type a valid monthly budget cap in ETB:</b>');
           return NextResponse.json({ ok: true });
         }
 
         const updatedDraft = { ...session.draft_data, budget_max: budgetVal };
-        await sendMatchmakerPrefStep(chatId, updatedDraft);
+        await executeAutomatedMatchmaker(chatId, updatedDraft, targetMsgId, 0);
         return NextResponse.json({ ok: true });
       }
 
       // Seeker Wizard: Age Text Input
       if (session.step === 'awaiting_seeker_age') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const targetMsgId = session.draft_data.card_msg_id;
         const ageVal = parseNumericInput(text);
         if (!ageVal || ageVal < 18 || ageVal > 99) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: `⚠️ <b>Please enter a valid age between 18 and 99:</b>\n<i>(For example: <code>24</code>)</i>`,
-            parse_mode: 'HTML',
-          });
+          await sendSeekerAgeStep(chatId, session.draft_data, targetMsgId, '⚠️ <b>Please enter a valid age between 18 and 99:</b>');
           return NextResponse.json({ ok: true });
         }
 
         const updatedDraft = { ...session.draft_data, age: ageVal };
-        await sendSeekerPrefGenderStep(chatId, updatedDraft);
+        await sendSeekerPrefGenderStep(chatId, updatedDraft, targetMsgId);
         return NextResponse.json({ ok: true });
       }
 
       // Seeker Wizard: Budget Text Input
       if (session.step === 'awaiting_seeker_budget_text') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const targetMsgId = session.draft_data.card_msg_id;
         const budgetVal = parseNumericInput(text);
         if (!budgetVal || budgetVal < 500 || budgetVal > 1000000) {
-          await sendTelegram('sendMessage', {
-            chat_id: chatId,
-            text: `⚠️ <b>Please type a valid numerical monthly budget cap in ETB:</b>\n<i>(For example: <code>10000</code> or <code>15000</code>)</i>`,
-            parse_mode: 'HTML',
-          });
+          await sendSeekerBudgetStep(chatId, session.draft_data, targetMsgId, '⚠️ <b>Please type a valid monthly budget cap in ETB:</b>');
           return NextResponse.json({ ok: true });
         }
 
         const updatedDraft = { ...session.draft_data, budget_max: budgetVal };
-        await sendSeekerBioStep(chatId, updatedDraft);
+        await sendSeekerBioStep(chatId, updatedDraft, targetMsgId);
         return NextResponse.json({ ok: true });
       }
 
       // Seeker Wizard: Bio Text Input
       if (session.step === 'awaiting_seeker_bio_text') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const targetMsgId = session.draft_data.card_msg_id;
         const bioText = text.toLowerCase() === 'skip' ? '' : text;
         const updatedDraft = { ...session.draft_data, lifestyle_bio: bioText };
-        await sendSeekerFaydaStep(chatId, updatedDraft);
+        await sendSeekerFaydaStep(chatId, updatedDraft, targetMsgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -2701,6 +2558,7 @@ Browse our Matchmaker to find and connect directly with verified roommates!
           chatId,
           activeStep,
           {
+            message_id: message.message_id,
             text: message.text,
             contact: message.contact,
             photo: message.photo,

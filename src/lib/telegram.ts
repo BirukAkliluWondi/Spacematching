@@ -143,6 +143,16 @@ export async function editMessageText(
 }
 
 /**
+ * Delete a message from chat. In private chats, bots can delete user messages sent within 48h.
+ */
+export async function deleteMessage(
+  chatId: string | number,
+  messageId: number
+): Promise<TelegramApiResponse> {
+  return callTelegram('deleteMessage', { chat_id: chatId, message_id: messageId });
+}
+
+/**
  * Answer an inline button press. Optionally show a short toast/alert.
  */
 export async function answerCallbackQuery(
