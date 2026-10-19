@@ -252,10 +252,53 @@ async function sendPhoneStep(chatId: number) {
 }
 
 async function sendKycStep(chatId: number) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://spacematch1-flax.vercel.app';
+
+  // Check if already verified
+  try {
+    const { data: user } = await supabaseAdmin
+      .from('users')
+      .select('fayda_status')
+      .eq('telegram_id', chatId)
+      .maybeSingle();
+
+    if (user?.fayda_status === 'verified') {
+      const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
+      const displayCode: string = codeRow || `RM${Date.now()}`;
+      await updateProfile(chatId, {
+        kyc_status: 'verified',
+        status: 'active',
+        onboarding_step: 'completed',
+        display_code: displayCode,
+      });
+
+      await sendMessage(
+        chatId,
+        `🎉 <b>Profile Approved &amp; Live!</b>\n\nYour Fayda ID is verified, and listing <b>#${displayCode}</b> is active on the channel!`,
+        {
+          inline_keyboard: [
+            [{ text: '⚡ Find Roommates · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+          ],
+        }
+      );
+      return;
+    }
+  } catch {}
+
   await sendMessage(
     chatId,
-    `🔒 <b>Step 7 of 7 — Identity Verification</b>\n\nSpaceMatch Addis is a trusted, verified community.\n\nPlease upload a clear photo of your <b>Fayda National ID</b> or <b>Passport</b>.\n\n<blockquote>🔒 <i>Note: Your ID document is encrypted and never shared with other users.</i></blockquote>`,
-    { remove_keyboard: true }
+    `🔒 <b>Step 7 of 7 — Fayda ID Verification</b>\n\nSpaceMatch Addis requires all members to verify their identity.\n\n<blockquote>Scan the QR code on your Fayda card or digital slip using your camera in the Mini App for instant offline verification.</blockquote>`,
+    {
+      inline_keyboard: [
+        [
+          {
+            text: '🛡️ Scan Fayda QR Code in Mini App ↗️',
+            web_app: { url: `${appUrl}?startapp=verify_fayda` },
+          },
+        ],
+      ],
+    }
   );
 }
 

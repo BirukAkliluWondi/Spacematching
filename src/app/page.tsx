@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { FeedView, SpaceSummary, RoommateSeekerSummary } from '@/components/FeedView';
 import { SpaceDetailSheet } from '@/components/SpaceDetailSheet';
-import { FaydaUploadModal } from '@/components/FaydaUploadModal';
+import { FaydaQRScannerModal } from '@/components/FaydaQRScannerModal';
 
 const FALLBACK_SPACES: SpaceSummary[] = [
   {
@@ -155,7 +155,9 @@ export default function Home() {
     const urlParam = searchParams.get('startapp') || searchParams.get('tgWebAppStartParam') || '';
     const paramToUse = startParam || urlParam;
 
-    if (paramToUse.startsWith('listing_')) {
+    if (paramToUse === 'verify_fayda' || paramToUse.startsWith('verify_fayda')) {
+      setIsFaydaModalOpen(true);
+    } else if (paramToUse.startsWith('listing_')) {
       const listingId = paramToUse.replace('listing_', '').trim();
       if (listingId) {
         const target = spaces.find((s) => s.id === listingId);
@@ -206,14 +208,21 @@ export default function Home() {
           telegramId={currentTelegramId}
         />
 
-        {/* Fayda Upload Modal */}
-        <FaydaUploadModal
+        {/* Native Fayda QR Scanner Modal */}
+        <FaydaQRScannerModal
           isOpen={isFaydaModalOpen}
           onClose={() => setIsFaydaModalOpen(false)}
           telegramId={currentTelegramId}
           faydaStatus={faydaStatus}
-          onUploadSuccess={() => {
-            setFaydaStatus('pending');
+          onVerificationSuccess={(data) => {
+            setFaydaStatus('verified');
+            if (telegramUser) {
+              setTelegramUser({
+                ...telegramUser,
+                fayda_status: 'verified',
+                fayda_number: data.faydaNumber,
+              });
+            }
           }}
         />
       </div>

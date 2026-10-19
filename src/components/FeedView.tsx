@@ -133,6 +133,16 @@ export function FeedView({
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [selectedSubcityFilter, setSelectedSubcityFilter] = useState<string>('All');
 
+  const handleGatedAction = (e: React.MouseEvent) => {
+    if (faydaStatus !== 'verified') {
+      e.preventDefault();
+      e.stopPropagation();
+      onOpenFaydaModal?.();
+      return false;
+    }
+    return true;
+  };
+
   const toggleSave = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     setSavedIds((prev) =>
@@ -230,6 +240,7 @@ export function FeedView({
             href={`${cleanBotUrl}?start=seeker_flow`}
             target="_blank"
             rel="noreferrer"
+            onClick={(e) => handleGatedAction(e)}
             className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#0088CC] via-[#0099FF] to-[#00B4D8] hover:opacity-95 text-white font-black text-xs shadow-lg shadow-[#0088CC]/35 transition-all active:scale-95 flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
@@ -304,6 +315,38 @@ export function FeedView({
 
       {/* Main Content Area */}
       <main className="px-4 pt-4 space-y-4 relative z-10">
+        {/* Fayda ID Verification Gate / Status Banner */}
+        {faydaStatus !== 'verified' ? (
+          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-blue-500/15 to-[#0088CC]/15 border border-amber-500/35 flex items-center justify-between gap-3 shadow-lg backdrop-blur-xl">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white leading-tight">Fayda Verification Required</p>
+                <p className="text-[10px] text-slate-300">Verify your ID to post profiles and unlock contacts</p>
+              </div>
+            </div>
+            <button
+              onClick={onOpenFaydaModal}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-[#0088CC] hover:opacity-95 text-slate-950 font-black text-[11px] shadow-md shrink-0 flex items-center gap-1 active:scale-95 transition-all"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Scan QR</span>
+            </button>
+          </div>
+        ) : (
+          <div className="px-3.5 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-between text-xs backdrop-blur-md">
+            <div className="flex items-center gap-2 text-emerald-400 font-semibold text-[11px]">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span>Fayda Verified Resident · Full Access</span>
+            </div>
+            <span className="text-[10px] text-emerald-300 font-black bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-500/30">
+              VERIFIED 🛡️
+            </span>
+          </div>
+        )}
+
         {activeMainTab === 'seekers' ? (
           /* ================================================================= */
           /* PRIMARY TAB: ROOMMATE SEEKERS                                     */
@@ -325,6 +368,7 @@ export function FeedView({
                   href={`${cleanBotUrl}?start=seeker_flow`}
                   target="_blank"
                   rel="noreferrer"
+                  onClick={(e) => handleGatedAction(e)}
                   className="inline-block mt-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#0088CC] to-[#00A3FF] hover:opacity-95 text-white font-black text-xs shadow-lg shadow-[#0088CC]/30"
                 >
                   Post Your Seeker Profile
@@ -392,6 +436,7 @@ export function FeedView({
                     href={`${cleanBotUrl}?start=unlock_seeker_${seeker.id}`}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={(e) => handleGatedAction(e)}
                     className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all active:scale-95 group"
                   >
                     <Unlock className="w-4 h-4 stroke-[2.5] animate-icon-shake" />
@@ -461,7 +506,10 @@ export function FeedView({
                         href={`${cleanBotUrl}?start=order_${space.id}`}
                         target="_blank"
                         rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleGatedAction(e);
+                        }}
                         className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-[11px] shadow-md shadow-emerald-500/25 transition-all active:scale-95"
                       >
                         Unlock

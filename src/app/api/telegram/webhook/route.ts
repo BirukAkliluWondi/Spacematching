@@ -121,6 +121,66 @@ export async function POST(request: Request) {
       return sendRes?.result?.message_id;
     };
 
+    // Helper to check if a user is verified via Fayda (offline Verhoeff QR or admin approved)
+    const isUserFaydaVerified = async (chatId: number): Promise<boolean> => {
+      try {
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('fayda_status')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
+
+        if (user?.fayda_status === 'verified') return true;
+
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('kyc_status')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
+
+        if (profile?.kyc_status === 'verified') return true;
+      } catch (err) {
+        console.error('Error checking Fayda verification status:', err);
+      }
+      return false;
+    };
+
+    // Helper: Universal Fayda Gate Card
+    const sendFaydaGateCard = async (
+      chatId: number,
+      targetAction: string,
+      messageIdToEdit?: number
+    ): Promise<number | undefined> => {
+      const gateText = `
+🛡️ <b>SpaceMatch</b> · <b>Fayda ID Verification Required</b>
+
+Before you can <b>${targetAction}</b>, your Fayda National ID must be verified.
+
+• ⚡ <b>100% Instant &amp; Offline</b>: Decoded on-device via QR code checksum.
+• 🔒 <b>Privacy-First</b>: Your data never leaves our secure system.
+• 🛡️ <b>Fraud-Free Community</b>: Every roommate and space is verified.
+
+<i>Tap below to open your camera in the SpaceMatch Mini App and scan your Fayda QR code (from your physical ID card or digital e-Fayda slip).</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [
+          {
+            text: '🛡️ Scan Fayda QR Code in Mini App ↗️',
+            web_app: { url: `${appUrl}?startapp=verify_fayda` },
+          },
+        ],
+        [
+          {
+            text: '🏠 Back to Main Menu',
+            callback_data: 'nav_start',
+          },
+        ],
+      ];
+
+      return await sendOrEditCard(chatId, gateText, inlineKeyboard, messageIdToEdit);
+    };
+
     // Helper: Send Primary Start / Main Menu Screen
     const sendPrimaryWelcomeMenu = async (chatId: number, messageIdToEdit?: number) => {
       // Ensure the menu button in Telegram is reset to commands menu so mobile keyboards are unobstructed
@@ -310,6 +370,12 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       currentDraft: Record<string, any> = {},
       messageIdToEdit?: number
     ) => {
+      // Universal Gate: Fayda Verification required before matching/finding roommates
+      if (!(await isUserFaydaVerified(chatId))) {
+        await sendFaydaGateCard(chatId, 'use the Smart Matchmaker to find a roommate', messageIdToEdit);
+        return;
+      }
+
       const selectedList: string[] = currentDraft.match_subcities || [];
       const isAllSelected = ALL_SUBCITIES.every((s) => selectedList.includes(s));
 
@@ -502,6 +568,12 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       currentDraft: Record<string, any> = {},
       messageIdToEdit?: number
     ) => {
+      // Universal Gate: Fayda Verification required before posting seeker profile
+      if (!(await isUserFaydaVerified(chatId))) {
+        await sendFaydaGateCard(chatId, 'post a Roommate Seeker Profile', messageIdToEdit);
+        return;
+      }
+
       const selectedList: string[] = currentDraft.preferred_subcity || [];
       const isAllSelected = ALL_SUBCITIES.every((s) => selectedList.includes(s));
 
@@ -1080,6 +1152,12 @@ We could not find an exact match for your selected filters in those specific sub
       targetType: 'roommate_profile' | 'space_listing',
       messageIdToEdit?: number
     ) => {
+      // Universal Gate: Fayda Verification required before unlocking contact info
+      if (!(await isUserFaydaVerified(chatId))) {
+        await sendFaydaGateCard(chatId, 'unlock verified contact information', messageIdToEdit);
+        return;
+      }
+
       const unlockFee = 50.00;
 
       let title = 'Roommate Contact Unlock';
@@ -1212,6 +1290,12 @@ Transfer <code>${unlockFee} ETB</code> to either account:
 
     // Helper: Homeowner Space Prompts
     const sendPropertyTypePrompt = async (chatId: number, messageIdToEdit?: number) => {
+      // Universal Gate: Fayda Verification required before listing spaces for rent
+      if (!(await isUserFaydaVerified(chatId))) {
+        await sendFaydaGateCard(chatId, 'list a property or space for rent', messageIdToEdit);
+        return;
+      }
+
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_property_type',
@@ -1269,6 +1353,12 @@ Transfer <code>${unlockFee} ETB</code> to either account:
       // ── NEW: Match request confirmation (from deep-link preview card) ──────
       if (callbackData.startsWith('confirm_match:')) {
         const targetProfileId = callbackData.split(':')[1];
+
+        // Universal Gate: Fayda Verification required before sending mutual match requests
+        if (!(await isUserFaydaVerified(chatId))) {
+          await sendFaydaGateCard(chatId, 'send mutual match requests', msgId);
+          return NextResponse.json({ ok: true });
+        }
 
         // Get requester's profile
         const { data: requesterProfile } = await supabaseAdmin
@@ -1945,10 +2035,28 @@ Please send a message or photo in chat with:
 
       // Fayda ID Verification
       if (callbackData === 'verify_fayda') {
-        const faydaText = `🛡️ <b>SpaceMatch</b> · <b>Fayda National ID Verification</b>\n\nTo verify your identity, send a clear photo of your Fayda ID card or passport in chat.\n\n<blockquote>🔒 <i>Your ID document is securely encrypted and never shared. Verified profiles receive the 🛡️ Fayda Verified badge.</i></blockquote>`;
-        await sendOrEditCard(chatId, faydaText, [
-          [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
-        ], msgId);
+        const isVerified = await isUserFaydaVerified(chatId);
+        if (isVerified) {
+          const verifiedText = `
+🛡️ <b>SpaceMatch</b> · <b>Fayda ID Verified</b>
+
+✅ <b>Your Fayda National ID is Verified!</b>
+
+• <b>Status:</b> 🛡️ Verified Resident
+• <b>Access:</b> Full Platform Access (Matchmaker, Seeker Profiles, Contact Unlocks)
+• <b>Security:</b> Offline Verhoeff Checksum Validated
+
+<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
+          `.trim();
+          await sendOrEditCard(chatId, verifiedText, [
+            [{ text: '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: '👥 Post Seeker Profile', callback_data: 'seeker_flow' }],
+            [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+          ], msgId);
+          return NextResponse.json({ ok: true });
+        }
+
+        await sendFaydaGateCard(chatId, 'access all SpaceMatch verified features', msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -2677,6 +2785,33 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
       if (text === '/my_listings' || text === '/my_posts' || text === '/status') {
         await clearSession(chatId);
         await sendMyListingsScreen(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/fayda' || text === '/verify_fayda') {
+        await clearSession(chatId);
+        const isVerified = await isUserFaydaVerified(chatId);
+        if (isVerified) {
+          const verifiedText = `
+🛡️ <b>SpaceMatch</b> · <b>Fayda ID Verified</b>
+
+✅ <b>Your Fayda National ID is Verified!</b>
+
+• <b>Status:</b> 🛡️ Verified Resident
+• <b>Access:</b> Full Platform Access (Matchmaker, Seeker Profiles, Contact Unlocks)
+• <b>Security:</b> Offline Verhoeff Checksum Validated
+
+<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
+          `.trim();
+          await sendOrEditCard(chatId, verifiedText, [
+            [{ text: '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: '👥 Post Seeker Profile', callback_data: 'seeker_flow' }],
+            [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+          ]);
+          return NextResponse.json({ ok: true });
+        }
+
+        await sendFaydaGateCard(chatId, 'access all SpaceMatch verified features');
         return NextResponse.json({ ok: true });
       }
 

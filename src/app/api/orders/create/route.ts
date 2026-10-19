@@ -31,6 +31,17 @@ export async function POST(request: Request) {
       );
     }
 
+    // Enforce Fayda Verification
+    if (user.fayda_status !== 'verified') {
+      return NextResponse.json(
+        {
+          error: 'FAYDA_VERIFICATION_REQUIRED',
+          message: 'Fayda National ID verification is required before unlocking space contacts.',
+        },
+        { status: 403 }
+      );
+    }
+
     // 2. Fetch dynamic unlock_fee and status directly from the space listing
     const { data: space, error: spaceError } = await supabaseAdmin
       .from('spaces')
