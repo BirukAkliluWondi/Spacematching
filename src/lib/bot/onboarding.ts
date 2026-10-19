@@ -129,7 +129,7 @@ async function updateProfile(
 
   // Keep bot_sessions table in sync with onboarding step
   if (updates.onboarding_step) {
-    saveSession({
+    await saveSession({
       telegram_id: telegramId,
       step: String(updates.onboarding_step),
       draft_data: {},

@@ -114,41 +114,45 @@ export async function preloadSession(telegramId: number): Promise<BotSession> {
   }
 }
 
-export function saveSession(session: BotSession): void {
+export async function saveSession(session: BotSession): Promise<void> {
   // Update cache immediately so subsequent getSession() calls in the same
-  // request see the new state, then persist to Supabase asynchronously.
+  // request see the new state, then persist to Supabase and await.
   _sessionCache[String(session.telegram_id)] = session;
 
-  supabase
-    .from('bot_sessions')
-    .upsert(
-      {
-        telegram_id: String(session.telegram_id),
-        step: session.step,
-        draft_data: session.draft_data,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'telegram_id' }
-    )
-    .then(({ error }) => {
-      if (error) console.error('saveSession error:', error.message);
-    });
+  try {
+    const { error } = await supabase
+      .from('bot_sessions')
+      .upsert(
+        {
+          telegram_id: String(session.telegram_id),
+          step: session.step,
+          draft_data: session.draft_data,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'telegram_id' }
+      );
+    if (error) console.error('saveSession error:', error.message);
+  } catch (err) {
+    console.error('saveSession exception:', err);
+  }
 }
 
-export function clearSession(telegramId: number): void {
-  saveSession(emptySession(telegramId));
+export async function clearSession(telegramId: number): Promise<void> {
+  await saveSession(emptySession(telegramId));
 }
 
 // ---------------------------------------------------------------------------
 // Space Drafts — stored in `pending_space_drafts` Supabase table
 // ---------------------------------------------------------------------------
-export function saveDraft(draft: SpaceDraft): void {
-  supabase
-    .from('pending_space_drafts')
-    .upsert({ ...draft, updated_at: new Date().toISOString() }, { onConflict: 'id' })
-    .then(({ error }) => {
-      if (error) console.error('saveDraft error:', error.message);
-    });
+export async function saveDraft(draft: SpaceDraft): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('pending_space_drafts')
+      .upsert({ ...draft, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+    if (error) console.error('saveDraft error:', error.message);
+  } catch (err) {
+    console.error('saveDraft exception:', err);
+  }
 }
 
 export async function getDraft(draftId: string): Promise<SpaceDraft | null> {
@@ -177,13 +181,15 @@ export async function getAllSpaceDrafts(): Promise<Record<string, SpaceDraft>> {
 // ---------------------------------------------------------------------------
 // Roommate Profile Drafts — stored in `pending_roommate_drafts` Supabase table
 // ---------------------------------------------------------------------------
-export function saveRoommateDraft(draft: RoommateProfileDraft): void {
-  supabase
-    .from('pending_roommate_drafts')
-    .upsert({ ...draft, updated_at: new Date().toISOString() }, { onConflict: 'id' })
-    .then(({ error }) => {
-      if (error) console.error('saveRoommateDraft error:', error.message);
-    });
+export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('pending_roommate_drafts')
+      .upsert({ ...draft, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+    if (error) console.error('saveRoommateDraft error:', error.message);
+  } catch (err) {
+    console.error('saveRoommateDraft exception:', err);
+  }
 }
 
 export async function getRoommateDraft(draftId: string): Promise<RoommateProfileDraft | null> {
