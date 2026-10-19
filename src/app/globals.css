@@ -117,3 +117,18 @@
 .animate-pulse-subtle {
   animation: pulse-subtle 4s ease-in-out infinite;
 }
+
+@keyframes icon-shake {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  15% { transform: rotate(-14deg) scale(1.12); }
+  30% { transform: rotate(14deg) scale(1.12); }
+  45% { transform: rotate(-10deg) scale(1.08); }
+  60% { transform: rotate(10deg) scale(1.08); }
+  75% { transform: rotate(0deg) scale(1); }
+}
+
+.animate-icon-shake {
+  display: inline-block;
+  animation: icon-shake 2.2s ease-in-out infinite;
+  transform-origin: center;
+}

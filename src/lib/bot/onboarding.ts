@@ -148,7 +148,7 @@ async function sendGenderStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `👋 <b>Welcome to SpaceMatch Addis!</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nLet's find you a compatible roommate.\n\nFirst, select your gender below:`,
+    `✨ <b>SpaceMatch Addis · Welcome!</b>\n\nLet's find you a compatible roommate.\n\n<blockquote>First, select your gender below:</blockquote>`,
     {
       inline_keyboard: [
         [
@@ -210,14 +210,14 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 async function sendBudgetStep(chatId: number) {
   await sendMessage(
     chatId,
-    `💰 <b>Step 3 of 7 — Monthly Budget</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nWhat is your maximum monthly rent budget in Birr?\n\nPlease type your budget amount as a number directly in chat:\n<i>(For example: <code>8000</code> or <code>12000</code>)</i>`
+    `💰 <b>Step 3 of 7 — Monthly Budget</b>\n\nWhat is your maximum monthly rent budget in Birr?\n\n<blockquote>Please type your budget amount as a number directly in chat (e.g. <code>8000</code> or <code>12000</code>):</blockquote>`
   );
 }
 
 async function sendMoveInStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📅 <b>Step 4 of 7 — Move-in Date</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nWhen are you looking to move in?`,
+    `📅 <b>Step 4 of 7 — Move-in Date</b>\n\n<blockquote>When are you looking to move in?</blockquote>`,
     {
       inline_keyboard: [
         [
@@ -233,14 +233,14 @@ async function sendMoveInStep(chatId: number) {
 async function sendTraitsStep(chatId: number) {
   await sendMessage(
     chatId,
-    `🏠 <b>Step 5 of 7 — About You &amp; House Rules</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nTell us about your habits, lifestyle, or house rules.\n\n<i>For example: Non-smoker, quiet, student, tidy, no late-night guests, etc.</i>\n\nType your answer in chat below:`
+    `🏠 <b>Step 5 of 7 — About You &amp; House Rules</b>\n\nTell us about your habits, lifestyle, or house rules.\n\n<blockquote><i>Example: Non-smoker, quiet, student, tidy, no late-night guests, etc.</i></blockquote>\n\nType your answer in chat below:`
   );
 }
 
 async function sendPhoneStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📞 <b>Step 6 of 7 — Phone Number</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nPlease share your phone number. Tap the button below or type it directly:`,
+    `📞 <b>Step 6 of 7 — Phone Number</b>\n\nPlease share your phone number. Tap the button below or type it directly:`,
     {
       keyboard: [
         [{ text: '📱 Share My Contact', request_contact: true }],
@@ -254,7 +254,7 @@ async function sendPhoneStep(chatId: number) {
 async function sendKycStep(chatId: number) {
   await sendMessage(
     chatId,
-    `🔒 <b>Step 7 of 7 — Identity Verification</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nSpaceMatch Addis is a trusted, verified community.\n\nPlease upload a clear photo of your <b>Fayda National ID</b> or <b>Passport</b>.\n\n<i>🔒 Note: Your ID document is encrypted and never shared with other users.</i>`,
+    `🔒 <b>Step 7 of 7 — Identity Verification</b>\n\nSpaceMatch Addis is a trusted, verified community.\n\nPlease upload a clear photo of your <b>Fayda National ID</b> or <b>Passport</b>.\n\n<blockquote>🔒 <i>Note: Your ID document is encrypted and never shared with other users.</i></blockquote>`,
     { remove_keyboard: true }
   );
 }

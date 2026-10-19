@@ -4,7 +4,9 @@ import { supabaseAdmin } from '@/lib/supabase-server';
 const FALLBACK_SEEKERS = [
   {
     id: 'seeker-1',
-    first_name: 'Helina',
+    display_code: 'RM482',
+    first_name: 'Roommate #RM482',
+    display_name: 'Roommate #RM482',
     preferred_subcity: ['Bole', 'Kazanchis'],
     my_gender: 'Female',
     preferred_gender: 'Female',
@@ -16,7 +18,9 @@ const FALLBACK_SEEKERS = [
   },
   {
     id: 'seeker-2',
-    first_name: 'Amanuel',
+    display_code: 'RM719',
+    first_name: 'Roommate #RM719',
+    display_name: 'Roommate #RM719',
     preferred_subcity: ['CMC', 'Sarbet'],
     my_gender: 'Male',
     preferred_gender: 'Male',
@@ -28,7 +32,9 @@ const FALLBACK_SEEKERS = [
   },
   {
     id: 'seeker-3',
-    first_name: 'Selam',
+    display_code: 'RM205',
+    first_name: 'Roommate #RM205',
+    display_name: 'Roommate #RM205',
     preferred_subcity: ['Piassa', '4 Kilo'],
     my_gender: 'Female',
     preferred_gender: 'Any',
@@ -50,23 +56,28 @@ export async function GET(request: Request) {
     try {
       const { data: dbSeekers } = await supabaseAdmin
         .from('roommate_profiles')
-        .select('*, users!inner(first_name, fayda_status)')
+        .select('*, users(fayda_status)')
         .eq('status', 'approved')
         .order('created_at', { ascending: false });
 
       if (dbSeekers && dbSeekers.length > 0) {
-        seekers = dbSeekers.map((s: any) => ({
-          id: s.id,
-          first_name: s.users?.first_name || 'Seeker',
-          preferred_subcity: s.preferred_subcity || [],
-          my_gender: s.my_gender,
-          preferred_gender: s.preferred_gender,
-          budget_max: Number(s.budget_max || 0),
-          lifestyle_bio: s.lifestyle_bio || '',
-          fayda_status: s.users?.fayda_status || 'verified',
-          unlock_fee: Number(s.unlock_fee || 50),
-          created_at: s.created_at,
-        }));
+        seekers = dbSeekers.map((s: any) => {
+          const code = s.display_code || `RM${s.id.slice(0, 4).toUpperCase()}`;
+          return {
+            id: s.id,
+            display_code: code,
+            first_name: `Roommate #${code}`,
+            display_name: `Roommate #${code}`,
+            preferred_subcity: s.preferred_subcity || [],
+            my_gender: s.my_gender,
+            preferred_gender: s.preferred_gender,
+            budget_max: Number(s.budget_max || 0),
+            lifestyle_bio: s.lifestyle_bio || '',
+            fayda_status: s.users?.fayda_status || 'verified',
+            unlock_fee: Number(s.unlock_fee || 50),
+            created_at: s.created_at,
+          };
+        });
       }
     } catch {
       // Supabase unreachable, fallback gracefully

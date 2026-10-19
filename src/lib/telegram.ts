@@ -313,22 +313,23 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
     : 'Open to compatible housemates.';
 
   const cardText = `
-🤝 <b>New Roommate Seeker #${escapeHtml(profile.display_code)}</b>
-━━━━━━━━━━━━━━━━━━━
-👤 <b>Gender:</b> ${escapeHtml(profile.gender || 'Not specified')}
-📍 <b>Preferred Areas:</b> ${escapeHtml(locations)}
-💰 <b>Budget Range:</b> ${budgetMin} – ${budgetMax} ETB/month
-📅 <b>Move-in Date:</b> ${moveIn}
-🏠 <b>About / Rules:</b> <i>${traits}</i>
+✨ <b>SpaceMatch</b> · <b>Roommate Seeker #${escapeHtml(profile.display_code)}</b>
+📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified</b>
 
-🔒 <i>Contact details remain sealed until both match &amp; verify.</i>
+• <b>Gender:</b> ${escapeHtml(profile.gender || 'Not specified')}
+• <b>Budget:</b> <code>${budgetMin} – ${budgetMax} ETB/month</code>
+• <b>Move-in Date:</b> ${moveIn}
+
+<blockquote>"${traits}"</blockquote>
+
+🔒 <i>Contact details remain sealed until both parties match &amp; verify.</i>
 `.trim();
 
   const replyMarkup: InlineKeyboard = {
     inline_keyboard: [
       [
         {
-          text: `🤝 Connect with Roommate #${profile.display_code}`,
+          text: `⚡ Connect with Roommate #${profile.display_code} ↗️`,
           url: `https://t.me/${botUsername}?start=req_${profile.display_code}`,
         },
       ],
@@ -362,11 +363,11 @@ export async function updateChannelPostAsMatched(
   const channelId = CHANNEL_ID();
 
   const closedText = `
-🔴🔴🔴 <b>__CLOSED / MATCHED__</b> 🔴🔴🔴
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔴 <b>CLOSED · MATCHED</b>
+
 🤝 <b>Roommate #${escapeHtml(displayCode)} has found a match! 🎉</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ <i>This listing is officially closed. No further contact unlock requests are accepted.</i>
+
+<blockquote>✅ This listing is officially closed. No further contact unlock requests are accepted.</blockquote>
 `.trim();
 
   try {

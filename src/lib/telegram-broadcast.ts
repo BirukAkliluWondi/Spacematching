@@ -83,19 +83,19 @@ export async function broadcastRoommateProfileToChannel(
       } catch {}
     }
 
+    const codeTag = displayCode ? `#${displayCode}` : `#RM${profile.id.slice(0, 4).toUpperCase()}`;
+    const bioContent = (profile.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
     const text = `
-👥 <b>#ROOMMATE_SEEKER</b>${displayCode ? ` <b>#${displayCode}</b>` : ''} | 📍 <b>${subcitiesStr}</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>Seeker Gender:</b> ${profile.my_gender}
-👥 <b>Preferred Roommate:</b> ${profile.preferred_gender}
-💰 <b>Budget Cap:</b> Up to ${Number(profile.budget_max).toLocaleString()} ETB / month
+✨ <b>SpaceMatch</b> · <b>Roommate Seeker ${codeTag}</b>
+📍 <code>${subcitiesStr}</code> · 🛡️ <b>${faydaBadge}</b>
 
-📝 <b>Bio & Lifestyle:</b>
-<i>"${profile.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa.'}"</i>
+• <b>Gender:</b> ${profile.my_gender} (Prefers: ${profile.preferred_gender})
+• <b>Budget Cap:</b> <code>Up to ${Number(profile.budget_max).toLocaleString()} ETB / month</code>
 
-🛡️ <b>Fayda National ID:</b> ${faydaBadge}
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-<i>Tap below to connect securely via @${botUsername}:</i>
+<blockquote>"${bioContent}"</blockquote>
+
+🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
     `.trim();
 
     const connectPayload = displayCode ? `req_${displayCode}` : `req_${profile.id}`;
@@ -103,7 +103,7 @@ export async function broadcastRoommateProfileToChannel(
       inline_keyboard: [
         [
           {
-            text: '🤝 Connect with Roommate ↗️',
+            text: '⚡ Connect with Roommate ↗️',
             url: `https://t.me/${botUsername}?start=${connectPayload}`,
           },
         ],
@@ -231,19 +231,19 @@ export async function broadcastListingToChannel(
       };
     }
 
+    const descContent = (space.description || 'Verified space available for rent in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
     const captionText = `
-🏠 <b>#SPACE_FOR_RENT</b> | 📍 <b>${space.neighborhood || 'Addis Ababa'}</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-<b>${space.title}</b>
-💵 <b>Monthly Rent:</b> ${Number(space.price_per_month).toLocaleString()} ETB / month
-🔓 <b>Unlock Fee:</b> ${space.unlock_fee || 50} ETB
+🏠 <b>SpaceMatch</b> · <b>Space for Rent</b>
+📍 <code>${space.neighborhood || 'Addis Ababa'}</code> · 🛡️ <b>Host Verified</b>
 
-📝 <b>Description:</b>
-${space.description}
+• <b>Property:</b> <b>${space.title}</b>
+• <b>Monthly Rent:</b> <code>${Number(space.price_per_month).toLocaleString()} ETB / month</code>
+• <b>Unlock Fee:</b> <code>${space.unlock_fee || 50} ETB</code>
 
-🛡️ <b>Host Verification:</b> VERIFIED ✅
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-<i>Tap below to view details and connect via @${botUsername}:</i>
+<blockquote>"${descContent}"</blockquote>
+
+🔒 <i>Host contact details unlock instantly via @${botUsername}</i>
     `.trim();
 
     const inlineKeyboard = {
@@ -457,7 +457,7 @@ export async function closeChannelPost(
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
   }
 
-  const closedNotice = `🔴🔴🔴 <b>__CLOSED / MATCHED__</b> 🔴🔴🔴\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 <i>${itemTitle} has found a match! This listing is officially closed.</i>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n<i>No further contact unlock requests are accepted.</i>`;
+  const closedNotice = `🔴 <b>CLOSED · MATCHED</b>\n\n🤝 <b>${itemTitle}</b> has found a match! 🎉\n\n<blockquote>✅ This listing is officially closed. No further contact unlock requests are accepted.</blockquote>`;
 
   try {
     const endpoint = isPhoto ? 'editMessageCaption' : 'editMessageText';

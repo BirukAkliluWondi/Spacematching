@@ -127,20 +127,20 @@ export async function POST(request: Request) {
       setChatMenuButton({ type: 'commands' }, chatId).catch(() => {});
 
       const welcomeText = `
-✨ <b>SPACEMATCH ADDIS</b> ✨
-<i>Addis Ababa's Premier Roommate & Housing Platform</i>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-🛡️ <b>Fayda National ID Verified Community</b>
-🔒 <b>Privacy-First Anonymous Contact Matching</b>
-⚡ <b>Instant Real-Time Compatibility Engine</b>
+✨ <b>SpaceMatch Addis</b>
+<i>Addis Ababa's Premier Verified Housing Community</i>
 
-👇 <i>Select an option below to begin:</i>
+• 🛡️ <b>Fayda ID Verified</b> · 100% Genuine Renters
+• 🔒 <b>Privacy-First</b> · Contacts Sealed Until Paid Match
+• ⚡ <b>Instant Engine</b> · Intelligent Matchmaking
+
+<blockquote>Select an option below to get started:</blockquote>
       `.trim();
 
       const inlineKeyboard = [
         [
           {
-            text: '🔍 Find a Roommate (Matchmaker)',
+            text: '⚡ Find a Roommate · Matchmaker 🔍',
             callback_data: 'matchmaker_start',
           },
         ],
@@ -197,7 +197,7 @@ export async function POST(request: Request) {
 
     // Helper: Send My Active Listings & Close Management Screen
     const sendMyListingsScreen = async (chatId: number, messageIdToEdit?: number) => {
-      let text = `<b>📋 My Active Listings</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      let text = `✨ <b>SpaceMatch</b> · <b>My Listings &amp; Status</b>\n\n`;
       const buttons: any[] = [];
       let count = 0;
 
@@ -213,7 +213,7 @@ export async function POST(request: Request) {
             count++;
             const isClosed = p.status === 'matched' || p.status === 'closed';
             const statusBadge = isClosed ? '🔴 CLOSED' : '🟢 ACTIVE ON CHANNEL';
-            text += `\n🤝 <b>Roommate #${p.display_code}</b> (${statusBadge})\n📍 ${(p.locations || []).join(', ') || 'Addis Ababa'}\n💰 ${Number(p.budget_max || p.budget_min || 0).toLocaleString()} ETB/month\n`;
+            text += `🤝 <b>Roommate #${p.display_code}</b> · ${statusBadge}\n• 📍 <code>${(p.locations || []).join(', ') || 'Addis Ababa'}</code>\n• 💰 <code>${Number(p.budget_max || p.budget_min || 0).toLocaleString()} ETB/month</code>\n\n`;
             if (!isClosed) {
               buttons.push([{ text: `🔴 Mark #${p.display_code} as Matched & Close`, callback_data: `user_close_listing:${p.id}` }]);
             }
@@ -234,7 +234,7 @@ export async function POST(request: Request) {
             const code = rm.display_code || `RM${rm.id.slice(0, 4)}`;
             const isClosed = rm.status === 'matched' || rm.status === 'closed';
             const statusBadge = isClosed ? '🔴 CLOSED' : '🟢 ACTIVE ON CHANNEL';
-            text += `\n👥 <b>Seeker Listing #${code}</b> (${statusBadge})\n📍 ${(rm.preferred_subcity || []).join(', ')}\n💰 ${Number(rm.budget_max || 0).toLocaleString()} ETB/month\n`;
+            text += `👥 <b>Seeker Listing #${code}</b> · ${statusBadge}\n• 📍 <code>${(rm.preferred_subcity || []).join(', ')}</code>\n• 💰 <code>${Number(rm.budget_max || 0).toLocaleString()} ETB/month</code>\n\n`;
             if (!isClosed) {
               buttons.push([{ text: `🔴 Mark #${code} as Matched & Close`, callback_data: `user_close_listing:${rm.id}` }]);
             }
@@ -243,12 +243,12 @@ export async function POST(request: Request) {
       } catch {}
 
       if (count === 0) {
-        text += `<i>You don't have any active listings yet.</i>\n\nPost your roommate seeker profile to broadcast to our Telegram channel!`;
+        text += `<blockquote>You do not have any active channel listings yet. Post your profile to broadcast to our Telegram community!</blockquote>\n\n`;
         buttons.push([{ text: '👥 Post Seeker Profile', callback_data: 'seeker_flow' }]);
       }
 
       buttons.push([
-        { text: '🔍 Find Roommates', callback_data: 'matchmaker_start' },
+        { text: '⚡ Find Roommates · Matchmaker 🔍', callback_data: 'matchmaker_start' },
         { text: '🏠 Main Menu', callback_data: 'nav_start' },
       ]);
 
@@ -258,9 +258,9 @@ export async function POST(request: Request) {
     // Helper: Platform Help & User Guide
     const sendHelpGuide = async (chatId: number, messageIdToEdit?: number) => {
       const guideText = `
-📖 <b>SPACEMATCH ADDIS — USER GUIDE</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-Welcome to SpaceMatch Addis, the trusted roommate and housing platform in Addis Ababa!
+✨ <b>SpaceMatch Addis · User Guide</b>
+
+Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Ababa!
 
 🎯 <b>1. Roommate Matchmaker</b>
 • Tap <b>Find a Roommate</b> or use <code>/match</code>
@@ -726,23 +726,23 @@ Welcome to SpaceMatch Addis, the trusted roommate and housing platform in Addis 
     // Helper: Seeker Review & Final Submit
     const sendSeekerFaydaStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
       const subcitiesStr = (currentDraft.preferred_subcity || []).join(', ') || 'Addis Ababa';
-      const bioText = currentDraft.lifestyle_bio ? `"${currentDraft.lifestyle_bio}"` : 'Seeking compatible roommate';
+      const cleanBio = (currentDraft.lifestyle_bio || 'Seeking compatible roommate').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
       const summaryText = `
-📋 <b>ROOMMATE SEEKER PROFILE REVIEW</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>Gender & Age:</b> ${currentDraft.my_gender || 'Not specified'}${currentDraft.age ? `, <code>${currentDraft.age} yrs</code>` : ''}
-👥 <b>Preferred Roommate:</b> ${currentDraft.preferred_gender || 'Any'}
-📍 <b>Target Areas:</b> ${subcitiesStr}
-💰 <b>Monthly Budget:</b> <code>${Number(currentDraft.budget_max || 10000).toLocaleString()} ETB / mo</code>
-📝 <b>Bio:</b> <i>${bioText}</i>
-📞 <b>Phone:</b> <code>${currentDraft.contact_phone || 'Provided'}</code>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-<i>Ready to publish to the SpaceMatch community channel?</i>
+✨ <b>SpaceMatch</b> · <b>Profile Summary &amp; Review</b>
+📍 <code>${subcitiesStr}</code>
+
+• <b>Profile:</b> ${currentDraft.my_gender || 'Not specified'}${currentDraft.age ? `, <code>${currentDraft.age} yrs</code>` : ''} · Prefers: ${currentDraft.preferred_gender || 'Any'}
+• <b>Monthly Budget:</b> <code>${Number(currentDraft.budget_max || 10000).toLocaleString()} ETB / month</code>
+• <b>Contact Phone:</b> <code>${currentDraft.contact_phone || 'Provided'}</code>
+
+<blockquote>"${cleanBio}"</blockquote>
+
+🔒 <b>Privacy Shield Active:</b> Your real name, phone number, and Telegram username are 100% hidden and will NEVER be shown on public channel posts or public feeds. Contacts unlock only after verified payment.
       `.trim();
 
       const keyboard = [
-        [{ text: '📢 Publish to Channel & Matchmaker 🚀', callback_data: 'seeker_final_submit' }],
+        [{ text: '⚡ Publish to Channel & Matchmaker 🚀', callback_data: 'seeker_final_submit' }],
         [
           { text: '⬅️ Edit Details', callback_data: 'seeker_flow' },
           { text: '🏠 Main Menu', callback_data: 'nav_start' },
@@ -882,12 +882,12 @@ Welcome to SpaceMatch Addis, the trusted roommate and housing platform in Addis 
       // Check empty state
       if (allProfiles.length === 0) {
         const emptyText = `
-🔍 <b>SpaceMatch Roommate Engine — No Other Profiles Yet</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 <b>SpaceMatch</b> · <b>No Roommate Profiles Yet</b>
+
 There are currently no other active roommate listings in our database.
 
-🌟 <b>Be Featured on Our Channel!</b>
-Post your seeker profile now — it will be posted directly to our channel so compatible roommates in Addis Ababa can connect with you!
+<blockquote>🌟 <b>Be Featured on Our Channel!</b>
+Post your seeker profile now — it will broadcast directly to our Telegram channel so compatible roommates can connect with you!</blockquote>
         `.trim();
 
         const emptyKeyboard = {
@@ -964,11 +964,11 @@ Post your seeker profile now — it will be posted directly to our channel so co
 
       if (scoredMatches.length === 0) {
         const noMatchesText = `
-🔍 <b>SpaceMatch Roommate Engine — No Exact Matches Yet</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-We couldn't find an exact match for your selected filters in those specific sub-cities right now.
+🔍 <b>SpaceMatch</b> · <b>No Exact Matches Found</b>
 
-💡 <i>Try browsing all active seekers in Addis Ababa or post your profile so compatible roommates can reach out to you!</i>
+We could not find an exact match for your selected filters in those specific sub-cities right now.
+
+<blockquote>💡 Try browsing all active seekers across Addis Ababa or post your seeker profile so compatible roommates can reach out to you!</blockquote>
         `.trim();
 
         const noMatchesKeyboard = {
@@ -1007,21 +1007,19 @@ We couldn't find an exact match for your selected filters in those specific sub-
         : 'Addis Ababa';
       const badge = match.fayda_status === 'verified' ? 'VERIFIED ✅ 🛡️' : 'PENDING REVIEW ⚠️';
       const ageDisplay = match.age ? `, ${match.age} yrs` : '';
+      const bioContent = (match.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
       const matchCardText = `
-🎯 <b>MATCH #${safeIndex + 1} of ${scoredMatches.length} • ${match.matchScore}% Compatibility</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>Candidate:</b> Verified Seeker (${match.my_gender}${ageDisplay})
-🛡️ <b>Fayda National ID:</b> ${badge}
-📍 <b>Preferred Areas:</b> ${subcitiesStr}
-👥 <b>Looking For:</b> ${match.preferred_gender} Roommate
-💰 <b>Monthly Budget:</b> Up to ${Number(match.budget_max).toLocaleString()} ETB / month
+🎯 <b>Match #${safeIndex + 1} of ${scoredMatches.length}</b> · <b>${match.matchScore}% Match</b>
+📍 <code>${subcitiesStr}</code> · 🛡️ <b>${badge}</b>
 
-📝 <b>About & Habits:</b>
-<i>"${match.lifestyle_bio}"</i>
+• <b>Candidate:</b> Verified Seeker (${match.my_gender}${ageDisplay})
+• <b>Looking For:</b> ${match.preferred_gender} Roommate
+• <b>Monthly Budget:</b> <code>Up to ${Number(match.budget_max).toLocaleString()} ETB / month</code>
 
-🔒 <i>Personal identity, phone number, and Telegram handle are concealed for privacy.</i>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+<blockquote>"${bioContent}"</blockquote>
+
+🔒 <i>Personal identity, phone number, and Telegram handle are concealed until payment.</i>
       `.trim();
 
       const inlineKeyboardRows: any[] = [];
@@ -1029,7 +1027,7 @@ We couldn't find an exact match for your selected filters in those specific sub-
       // Primary Action: Unlock Contact (Only revealed after payment!)
       inlineKeyboardRows.push([
         {
-          text: `🔒 Unlock Verified Contact (${match.unlock_fee || 50} ETB)`,
+          text: `🔒 Unlock Verified Contact · ${match.unlock_fee || 50} ETB ⚡`,
           callback_data: `start_unlock_seeker:${match.id}`,
         },
       ]);
@@ -1186,22 +1184,20 @@ We couldn't find an exact match for your selected filters in those specific sub-
         updated_at: new Date().toISOString(),
       });
 
+      const cleanBio = bioInfo ? bioInfo.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
       const paywallText = `
-🔒 <b>LOCKED CONTACT — DIRECT UNLOCK PAYWALL</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 <b>Selected Profile:</b> ${title}
-📍 <b>Location:</b> ${subcity}
-${genderInfo ? `${genderInfo}\n` : ''}${budgetInfo ? `${budgetInfo}\n` : ''}${bioInfo ? `📝 <b>Details:</b> <i>"${bioInfo}"</i>\n` : ''}━━━━━━━━━━━━━━━━━━━━━━━━━━
-💵 <b>Contact Unlock Fee:</b> <b>${unlockFee} ETB</b>
+🔒 <b>SpaceMatch</b> · <b>Verified Contact Unlock</b>
+📍 <code>${subcity}</code> · <b>Target:</b> ${title}
 
-💳 <b>INSTANT TELEBIRR / CBE PAYMENT INSTRUCTIONS:</b>
-Transfer <b>${unlockFee} ETB</b> using either channel:
+• <b>Contact Unlock Fee:</b> <code>${unlockFee} ETB</code>
+${genderInfo ? `• ${genderInfo}\n` : ''}${budgetInfo ? `• ${budgetInfo}\n` : ''}${cleanBio ? `<blockquote>"${cleanBio}"</blockquote>\n` : ''}
+💳 <b>Instant Payment Instructions:</b>
+Transfer <code>${unlockFee} ETB</code> to either account:
 
-📱 <b>Telebirr:</b> <code>${receiverPhone}</code>
-🏦 <b>CBE Account:</b> <code>${cbeAccount}</code>
+📱 <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)
+🏦 <b>CBE Account:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)
 
-💬 <b>After Transfer:</b>
-Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <code>FT24...</code>) directly in chat to unlock verified contact details instantly!
+💬 <i>Once transferred, type your Transaction Reference Code (e.g. <code>FT24...</code> or <code>TX...</code>) here to unlock contact details immediately!</i>
       `.trim();
 
       const paywallKeyboard = [
@@ -1224,8 +1220,8 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
       });
 
       const text = `
-🏠 <b>SpaceMatch Addis — List Space to Rent</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏠 <b>SpaceMatch Addis · List Space to Rent</b>
+
 <b>What type of space are you renting out?</b>
       `.trim();
 
@@ -1284,10 +1280,10 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         if (!requesterProfile) {
           await sendOrEditCard(
             chatId,
-            `⚠️ <b>Profile Needed for Mutual Match</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nTo send a mutual connection request, create a quick seeker profile so they know who is requesting.\n\nAlternatively, you can unlock their verified contact directly:`,
+            `⚠️ <b>Profile Needed for Mutual Match</b>\n\nTo send a mutual connection request, create a quick seeker profile so they can review your preferences.\n\n<blockquote>Alternatively, you can unlock their verified direct contact:</blockquote>`,
             [
               [{ text: '👥 Create Seeker Profile', callback_data: 'seeker_flow' }],
-              [{ text: '🔓 Direct Contact Unlock (50 ETB)', callback_data: `start_unlock_seeker:${targetProfileId}` }],
+              [{ text: '🔒 Direct Contact Unlock · 50 ETB ⚡', callback_data: `start_unlock_seeker:${targetProfileId}` }],
               [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
             ],
             msgId
@@ -1399,9 +1395,9 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         // Notify requester in-place
         await sendOrEditCard(
           chatId,
-          `✅ <b>Match Request Sent!</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nYour request has been delivered to Roommate <b>#${targetProfile.display_code}</b>.\n\n🔔 You will receive a notification here immediately when they respond!`,
+          `✅ <b>Match Request Delivered!</b>\n\nYour request has been sent to Roommate <b>#${targetProfile.display_code}</b>.\n\n<blockquote>🔔 You will receive an instant notification here the moment they accept!</blockquote>`,
           [
-            [{ text: '🔍 Find Other Roommates', callback_data: 'matchmaker_start' }],
+            [{ text: '⚡ Find Other Roommates 🔍', callback_data: 'matchmaker_start' }],
             [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
           ],
           msgId
@@ -1412,7 +1408,7 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
           ? requesterProfile.locations.join(', ')
           : 'Addis Ababa';
 
-        const notifyText = `🤝 <b>You Have a Match Request!</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nA verified user saw your post in the channel and wants to connect!\n\n👤 <b>Requester Snapshot:</b>\n• <b>Gender:</b> ${requesterProfile.gender || 'Not specified'}\n• <b>Budget:</b> ${Number(requesterProfile.budget_min || 0).toLocaleString()} – ${Number(requesterProfile.budget_max || 0).toLocaleString()} ETB\n• <b>Locations:</b> ${requesterLocations}\n\nWould you like to connect?`;
+        const notifyText = `🤝 <b>SpaceMatch</b> · <b>New Connection Request!</b>\n\nA verified user saw your channel listing and wants to connect!\n\n• <b>Profile:</b> ${requesterProfile.gender || 'Not specified'}\n• <b>Budget:</b> <code>${Number(requesterProfile.budget_min || 0).toLocaleString()} – ${Number(requesterProfile.budget_max || 0).toLocaleString()} ETB</code>\n• <b>Target Areas:</b> <code>${requesterLocations}</code>\n\n<blockquote>Would you like to connect with this roommate?</blockquote>`;
 
         if (targetProfile.telegram_id) {
           await tgSend(
@@ -1761,11 +1757,11 @@ Type your <b>Transaction Reference Code</b> (e.g., <code>TX12345678</code> or <c
         }
 
         const closedSuccessText = `
-✅ <b>Listing Marked as Closed!</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-Your listing <b>#${displayCode}</b> has been marked as matched.
+✅ <b>Listing Closed &amp; Updated</b>
 
-The post on our Telegram channel has been updated with 🔴🔴🔴 <b>__CLOSED / MATCHED__</b> 🔴🔴🔴 and action buttons have been removed.
+Your listing <b>#${displayCode}</b> has been marked as matched! 🎉
+
+<blockquote>The channel broadcast post has been updated to <b>CLOSED · MATCHED</b>, and action buttons have been removed.</blockquote>
         `.trim();
 
         await sendOrEditCard(chatId, closedSuccessText, [
@@ -1819,9 +1815,12 @@ The post on our Telegram channel has been updated with 🔴🔴🔴 <b>__CLOSED 
           });
         } catch {}
 
+        let displayCode = `RM${Date.now()}`;
         try {
           const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
-          const displayCode: string = codeRow || `RM${Date.now()}`;
+          if (codeRow) displayCode = codeRow;
+          roommateDraft.display_code = displayCode;
+          await saveRoommateDraft(roommateDraft);
 
           await supabaseAdmin.from('profiles').upsert({
             telegram_id: callback.from.id,
@@ -1845,19 +1844,18 @@ The post on our Telegram channel has been updated with 🔴🔴🔴 <b>__CLOSED 
           console.error('Roommate broadcast error:', err);
         }
 
-        // Notify Admins
+        // Notify Admins (Identity masked to preserve privacy)
         try {
           const adminIds = await getAdminIds();
           const subcitiesStr = (roommateDraft.preferred_subcity || []).join(', ');
           const adminNotice = `
-👥 <b>New Roommate Profile Published</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-<b>Seeker:</b> ${seekerName} (@${callback.from.username || 'N/A'})
-👤 <b>Gender & Age:</b> ${roommateDraft.my_gender}, ${roommateDraft.age} yrs
-👥 <b>Pref:</b> ${roommateDraft.preferred_gender}
-📍 <b>Sub-Cities:</b> ${subcitiesStr}
-💰 <b>Budget:</b> ${roommateDraft.budget_max} ETB/mo
-📞 <b>Phone:</b> ${roommateDraft.contact_phone}
+👥 <b>SpaceMatch</b> · <b>New Profile Published</b>
+📍 <code>${subcitiesStr}</code>
+
+• <b>Seeker Identifier:</b> <code>#${displayCode}</code>
+• <b>Gender & Age:</b> ${roommateDraft.my_gender}, ${roommateDraft.age} yrs · Prefers: ${roommateDraft.preferred_gender}
+• <b>Budget Cap:</b> <code>${Number(roommateDraft.budget_max).toLocaleString()} ETB / month</code>
+• <b>Contact Details:</b> <i>[Encrypted & Stored Securely in DB]</i>
           `.trim();
           for (const adminId of adminIds) {
             sendTelegram('sendMessage', {
@@ -1871,15 +1869,17 @@ The post on our Telegram channel has been updated with 🔴🔴🔴 <b>__CLOSED 
         await clearSession(chatId);
 
         const confirmationText = `
-🎉 <b>PROFILE PUBLISHED SUCCESSFULLY!</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-Your roommate listing is now <b>LIVE</b> on our Telegram channel and in the Matchmaker!
+🎉 <b>SpaceMatch</b> · <b>Profile Published!</b>
 
-🔔 You will receive instant notifications here whenever potential roommates send a match request.
+Your roommate listing (<code>#${displayCode}</code>) is now <b>LIVE</b> on our Telegram channel and in the Matchmaker!
+
+<blockquote>🔒 <b>Privacy Shield Active:</b> Your name, phone number, and Telegram handle are completely hidden. Other users can only view your compatibility profile and must pay the matching fee to unlock your direct contact.</blockquote>
+
+🔔 <i>You will receive instant notifications here whenever someone requests to connect with you!</i>
         `.trim();
 
         const successKeyboard = [
-          [{ text: '🔍 Find Roommates Now', callback_data: 'matchmaker_start' }],
+          [{ text: '⚡ Find Roommates Now · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
           [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
         ];
 
@@ -1926,16 +1926,15 @@ Your roommate listing is now <b>LIVE</b> on our Telegram channel and in the Matc
       if (callbackData.startsWith('prop_type:')) {
         const propType = callbackData.split(':')[1];
         const promptText = `
-🏠 <b>List Your Space for Rent</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-<b>Property Type:</b> ${propType.toUpperCase()}
+🏠 <b>SpaceMatch · List Space for Rent</b>
+<b>Property Type:</b> <code>${propType.toUpperCase()}</code>
 
 Please send a message or photo in chat with:
-• <b>Sub-city & Area</b> (e.g. Bole, Kazanchis)
-• <b>Monthly Rent</b> (e.g. 12,000 ETB)
+• <b>Sub-city & Area:</b> (e.g. Bole, Kazanchis)
+• <b>Monthly Rent:</b> (e.g. 12,000 ETB)
 • <b>Description & contact phone number</b>
 
-Our admin team will review and publish it directly to the channel!
+<blockquote>Our admin team will review and publish it directly to the channel!</blockquote>
         `.trim();
 
         await sendOrEditCard(chatId, promptText, [
@@ -1946,7 +1945,7 @@ Our admin team will review and publish it directly to the channel!
 
       // Fayda ID Verification
       if (callbackData === 'verify_fayda') {
-        const faydaText = `🛡️ <b>Fayda National ID Verification</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nTo verify your Fayda National ID, please send a photo of your Fayda ID card in chat.\n\n<i>Your identity will be verified securely. Verified users get a ✅ badge on their profiles.</i>`;
+        const faydaText = `🛡️ <b>SpaceMatch</b> · <b>Fayda National ID Verification</b>\n\nTo verify your identity, send a clear photo of your Fayda ID card or passport in chat.\n\n<blockquote>🔒 <i>Your ID document is securely encrypted and never shared. Verified profiles receive the 🛡️ Fayda Verified badge.</i></blockquote>`;
         await sendOrEditCard(chatId, faydaText, [
           [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
         ], msgId);
@@ -1956,20 +1955,20 @@ Our admin team will review and publish it directly to the channel!
       // Platform Guide
       if (callbackData === 'nav_help') {
         const helpText = `
-❓ <b>How SpaceMatch Addis Works</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-<b>1. Find Roommates (Matchmaker)</b>
-Select your target sub-cities, enter your gender, age, and budget to immediately view compatible verified roommates.
+✨ <b>SpaceMatch Addis · How It Works</b>
 
-<b>2. Post Seeker Profile</b>
-Create your anonymous listing. Once verified, it gets posted to our Telegram channel with privacy-protected contact matching.
+• <b>1. Smart Matchmaker</b>
+Select your target sub-cities and budget to immediately explore compatible verified roommates.
 
-<b>3. Safe & Anonymous Matching</b>
-Contact details are kept confidential and only unlocked through verified mutual interest.
+• <b>2. Anonymous Seeker Listings</b>
+Publish your profile to our channel. Your real name, phone, and Telegram handle remain 100% confidential.
+
+• <b>3. Verified Contact Unlock</b>
+Connect via mutual match or instant contact unlock with Fayda-verified security.
         `.trim();
 
         await sendOrEditCard(chatId, helpText, [
-          [{ text: '🔍 Find a Roommate', callback_data: 'matchmaker_start' }],
+          [{ text: '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
           [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
         ], msgId);
         return NextResponse.json({ ok: true });
@@ -1997,20 +1996,18 @@ Contact details are kept confidential and only unlocked through verified mutual 
 
         if (ordersList.length === 0) {
           const emptyText = `
-📂 <b>My Unlocked Contacts</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-<i>You haven't unlocked any contacts yet.</i>
+📂 <b>SpaceMatch</b> · <b>My Unlocked Contacts</b>
 
-Browse our Matchmaker to find and connect directly with verified roommates!
+<blockquote>You haven't unlocked any contacts yet. Browse the Matchmaker to find verified roommates!</blockquote>
           `.trim();
           await sendOrEditCard(chatId, emptyText, [
-            [{ text: '🔍 Find a Roommate (Matchmaker)', callback_data: 'matchmaker_start' }],
+            [{ text: '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
             [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
           ], msgId);
           return NextResponse.json({ ok: true });
         }
 
-        let msg = `<b>📂 My Unlocked Contacts (${ordersList.length})</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        let msg = `📂 <b>SpaceMatch</b> · <b>My Unlocked Contacts (${ordersList.length})</b>\n\n`;
         const buttons: any[] = [];
 
         for (let idx = 0; idx < ordersList.length; idx++) {
@@ -2158,14 +2155,14 @@ Browse our Matchmaker to find and connect directly with verified roommates!
               id: r.id,
               type: 'roommate',
               channel_message_id: r.channel_message_id,
-              title: `Roommate: ${r.user_name}`,
+              title: `Roommate #${r.display_code || 'RM' + r.id.slice(0, 4)}`,
               is_photo: false,
             });
           }
         }
 
         if (activePosts.length === 0) {
-          const text = `📢 <b>Active Channel Posts</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n<i>No active open channel posts found at this time.</i>`;
+          const text = `📢 <b>SpaceMatch Admin · Active Channel Posts</b>\n\n<blockquote>No active open channel posts found at this time.</blockquote>`;
           const keyboard = {
             inline_keyboard: [[{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }]],
           };
@@ -2199,7 +2196,7 @@ Browse our Matchmaker to find and connect directly with verified roommates!
         }
         buttons.push([{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }]);
 
-        const text = `📢 <b>Active Channel Posts (${activePosts.length})</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nTap any post below to mark it as 🔴🔴🔴 <b>__CLOSED / MATCHED__</b> 🔴🔴🔴 on the channel and disable contact unlock requests:`;
+        const text = `📢 <b>SpaceMatch Admin</b> · <b>Active Channel Posts (${activePosts.length})</b>\n\nTap any post below to mark it as <b>CLOSED · MATCHED</b> on the channel and remove connect buttons:`;
 
         if (msgId) {
           await sendTelegram('editMessageText', {
@@ -2273,7 +2270,7 @@ Browse our Matchmaker to find and connect directly with verified roommates!
         const closeResult = await closeChannelPost(channelMsgId, itemTitle, isPhoto);
 
         const text = closeResult.success
-          ? `✅ <b>Post #${channelMsgId} Officially Closed!</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 <i>"${itemTitle}" has been updated on the channel with 🔴🔴🔴 <b>__CLOSED / MATCHED__</b> 🔴🔴🔴 and action buttons were removed.</i>`
+          ? `✅ <b>Post #${channelMsgId} Officially Closed!</b>\n\n🤝 <i>"${itemTitle}" has been updated on the channel with <b>CLOSED · MATCHED</b> and action buttons were removed.</i>`
           : `⚠️ <b>Could not update channel post #${channelMsgId}:</b>\n${closeResult.message}`;
 
         const keyboard = {
@@ -2496,9 +2493,9 @@ Browse our Matchmaker to find and connect directly with verified roommates!
           if (!targetProfile) {
             await sendOrEditCard(
               chatId,
-              `⚠️ <b>Listing Not Found</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nRoommate <b>#${lookupCode}</b> is no longer available or was removed.`,
+              `⚠️ <b>SpaceMatch</b> · <b>Listing Not Available</b>\n\nRoommate <b>#${lookupCode}</b> is no longer available or was removed.\n\n<blockquote>Browse other active verified roommates below:</blockquote>`,
               [
-                [{ text: '🔍 Find Active Roommates', callback_data: 'matchmaker_start' }],
+                [{ text: '⚡ Find Active Roommates · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
                 [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
               ]
             );
@@ -2509,9 +2506,9 @@ Browse our Matchmaker to find and connect directly with verified roommates!
           if (targetProfile.status === 'matched' || targetProfile.status === 'closed') {
             await sendOrEditCard(
               chatId,
-              `🔴 <b>LISTING CLOSED / MATCHED</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 Roommate <b>#${targetProfile.display_code || lookupCode}</b> has already found a match!\n\n🔍 <i>This listing is officially closed and no longer accepting requests. Browse other verified roommates below:</i>`,
+              `🔴 <b>SpaceMatch</b> · <b>Listing Closed / Matched</b>\n\n🤝 Roommate <b>#${targetProfile.display_code || lookupCode}</b> has already found a match! 🎉\n\n<blockquote>This listing is officially closed. Browse other verified roommates below:</blockquote>`,
               [
-                [{ text: '🔍 Find Roommates Now', callback_data: 'matchmaker_start' }],
+                [{ text: '⚡ Find Roommates Now · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
                 [{ text: '👥 Post Seeker Profile', callback_data: 'seeker_flow' }],
                 [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
               ]
@@ -2523,7 +2520,7 @@ Browse our Matchmaker to find and connect directly with verified roommates!
           if (String(targetProfile.telegram_id) === String(chatId)) {
             await sendOrEditCard(
               chatId,
-              `ℹ️ <b>Your Own Channel Listing</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nThis is your active channel post (Roommate <b>#${targetProfile.display_code || lookupCode}</b>).\n\nIf you have already found a roommate, you can mark it as closed to update the channel post!`,
+              `ℹ️ <b>SpaceMatch</b> · <b>Your Active Channel Post</b>\n\nThis is your active listing for Roommate <b>#${targetProfile.display_code || lookupCode}</b>.\n\n<blockquote>If you have found a roommate, tap below to mark it as closed:</blockquote>`,
               [
                 [{ text: '🔴 Mark as Closed / Matched', callback_data: `user_close_listing:${targetProfile.id}` }],
                 [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
@@ -2541,15 +2538,17 @@ Browse our Matchmaker to find and connect directly with verified roommates!
             ? `Up to ${Number(targetProfile.budget_max).toLocaleString()} ETB/month`
             : `${Number(targetProfile.budget_min || 0).toLocaleString()} – ${Number(targetProfile.budget_max || 0).toLocaleString()} ETB/month`;
 
+          const bioContent = (targetProfile.roommate_traits || 'Seeking a compatible roommate in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const inspectionCard = `
-🤝 <b>Roommate #${targetProfile.display_code || lookupCode}</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>Gender:</b> ${targetProfile.gender || 'Not specified'}
-📍 <b>Preferred Areas:</b> ${targetLocations}
-💰 <b>Budget:</b> ${budgetStr}
-${targetProfile.roommate_traits ? `📝 <b>About / Bio:</b> <i>"${targetProfile.roommate_traits}"</i>\n` : ''}🛡️ <b>Fayda National ID:</b> VERIFIED ✅
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔒 <i>Direct phone & username remain sealed until mutual match & verification.</i>
+🤝 <b>Verified Roommate · #${targetProfile.display_code || lookupCode}</b>
+📍 <code>${targetLocations}</code> · 🛡️ <b>Fayda Verified</b>
+
+• <b>Profile:</b> ${targetProfile.gender || 'Not specified'}
+• <b>Budget Range:</b> <code>${budgetStr}</code>
+
+<blockquote>"${bioContent}"</blockquote>
+
+🔒 <i>Personal identity, direct phone, and Telegram handle unlock instantly after payment verification.</i>
           `.trim();
 
           await sendOrEditCard(
@@ -2560,7 +2559,7 @@ ${targetProfile.roommate_traits ? `📝 <b>About / Bio:</b> <i>"${targetProfile.
                 { text: '❤️ Send Mutual Match Request', callback_data: `confirm_match:${targetProfile.id}` },
               ],
               [
-                { text: '🔓 Direct Contact Unlock (50 ETB)', callback_data: `start_unlock_seeker:${targetProfile.id}` },
+                { text: '🔒 Direct Contact Unlock · 50 ETB ⚡', callback_data: `start_unlock_seeker:${targetProfile.id}` },
               ],
               [
                 { text: '🏠 Main Menu', callback_data: 'nav_start' },
@@ -3006,13 +3005,13 @@ ${targetProfile.roommate_traits ? `📝 <b>About / Bio:</b> <i>"${targetProfile.
         await clearSession(chatId);
 
         const unlockedContactMsg = `
-🎉 <b>PAYMENT VERIFIED! CONTACT DETAILS UNLOCKED</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>Full Name:</b> ${candidateName}
-📞 <b>Phone Number:</b> <code>${candidatePhone}</code>
-${candidateUsername ? `💬 <b>Telegram:</b> @${candidateUsername.replace('@', '')}\n` : ''}🛡️ <b>Fayda ID:</b> VERIFIED ✅
+🎉 <b>SpaceMatch</b> · <b>Contact Details Unlocked!</b>
+🛡️ <b>Fayda ID Verified</b>
 
-<i>This contact has been saved to your account. You can revisit it anytime under 'My Unlocked Contacts'.</i>
+• <b>Full Name:</b> <b>${candidateName}</b>
+• <b>Phone Number:</b> <code>${candidatePhone}</code>
+${candidateUsername ? `• <b>Telegram:</b> @${candidateUsername.replace('@', '')}\n` : ''}
+<blockquote>✅ Payment verified successfully. This contact is permanently saved to your account under 'My Saved Contacts'.</blockquote>
         `.trim();
 
         const actionButtons: any[] = [];

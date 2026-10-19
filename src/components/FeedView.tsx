@@ -49,6 +49,8 @@ export interface SpaceSummary {
 
 export interface RoommateSeekerSummary {
   id: string;
+  display_code?: string;
+  display_name?: string;
   first_name: string;
   preferred_subcity: string[];
   my_gender: string;
@@ -73,7 +75,9 @@ interface FeedViewProps {
 const FALLBACK_SEEKERS: RoommateSeekerSummary[] = [
   {
     id: 'seeker-1',
-    first_name: 'Helina',
+    display_code: 'RM482',
+    display_name: 'Roommate #RM482',
+    first_name: 'Roommate #RM482',
     preferred_subcity: ['Bole', 'Kazanchis'],
     my_gender: 'Female',
     preferred_gender: 'Female',
@@ -85,7 +89,9 @@ const FALLBACK_SEEKERS: RoommateSeekerSummary[] = [
   },
   {
     id: 'seeker-2',
-    first_name: 'Amanuel',
+    display_code: 'RM719',
+    display_name: 'Roommate #RM719',
+    first_name: 'Roommate #RM719',
     preferred_subcity: ['CMC', 'Sarbet'],
     my_gender: 'Male',
     preferred_gender: 'Male',
@@ -97,7 +103,9 @@ const FALLBACK_SEEKERS: RoommateSeekerSummary[] = [
   },
   {
     id: 'seeker-3',
-    first_name: 'Selam',
+    display_code: 'RM205',
+    display_name: 'Roommate #RM205',
+    first_name: 'Roommate #RM205',
     preferred_subcity: ['Piassa', '4 Kilo'],
     my_gender: 'Female',
     preferred_gender: 'Any',
@@ -331,12 +339,14 @@ export function FeedView({
                   {/* Seeker Header */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#0088CC] to-[#006699] text-white font-black text-base flex items-center justify-center shadow-md shadow-[#0088CC]/30">
-                        {seeker.first_name[0]}
+                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#0088CC] to-[#006699] text-white font-black text-xs flex items-center justify-center shadow-md shadow-[#0088CC]/30 tracking-tight">
+                        RM
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-sm text-white">{seeker.first_name}</h3>
+                          <h3 className="font-bold text-sm text-white">
+                            {seeker.display_name || seeker.first_name}
+                          </h3>
                           {seeker.fayda_status === 'verified' && (
                             <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-[9px] font-black text-emerald-400 flex items-center gap-1">
                               <ShieldCheck className="w-3 h-3 text-emerald-400" />
@@ -377,14 +387,14 @@ export function FeedView({
                     )}
                   </div>
 
-                  {/* Unlock Contact Button */}
+                  {/* Unlock Contact Button with shaking animated icon */}
                   <a
                     href={`${cleanBotUrl}?start=unlock_seeker_${seeker.id}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all active:scale-95"
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all active:scale-95 group"
                   >
-                    <Unlock className="w-4 h-4 stroke-[2.5]" />
+                    <Unlock className="w-4 h-4 stroke-[2.5] animate-icon-shake" />
                     <span>Unlock Contact Info ({seeker.unlock_fee || 50} ETB via Telebirr)</span>
                   </a>
                 </div>

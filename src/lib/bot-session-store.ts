@@ -20,6 +20,7 @@ export interface BotSession {
 
 export interface RoommateProfileDraft {
   id: string;
+  display_code?: string;
   user_telegram_id: number;
   user_name: string;
   username: string | null;
