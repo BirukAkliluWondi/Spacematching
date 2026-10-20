@@ -333,6 +333,12 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
           url: `https://t.me/${botUsername}?start=req_${profile.display_code}`,
         },
       ],
+      [
+        {
+          text: '📢 Post Your Profile to Channel ↗️',
+          url: `https://t.me/${botUsername}?start=post_to_channel`,
+        },
+      ],
     ],
   };
 

@@ -30,15 +30,58 @@ export async function broadcastRoommateProfileToChannel(
   try {
     let profile: any = null;
 
-    const { data: dbProfile } = await supabaseAdmin
-      .from('roommate_profiles')
-      .select('*, users!inner(*)')
-      .eq('id', profileId)
-      .single();
+    let dbProfile: any = null;
+    try {
+      const { data: pById } = await supabaseAdmin
+        .from('roommate_profiles')
+        .select('*, users(*)')
+        .eq('id', profileId)
+        .maybeSingle();
+      dbProfile = pById;
+    } catch {}
+
+    if (!dbProfile) {
+      try {
+        const { data: pByCode } = await supabaseAdmin
+          .from('roommate_profiles')
+          .select('*, users(*)')
+          .eq('display_code', profileId)
+          .maybeSingle();
+        dbProfile = pByCode;
+      } catch {}
+    }
+
+    if (!dbProfile) {
+      try {
+        const { data: pFromProfiles } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .or(`id.eq.${profileId},display_code.eq.${profileId}`)
+          .maybeSingle();
+
+        if (pFromProfiles) {
+          dbProfile = {
+            id: pFromProfiles.id,
+            display_code: pFromProfiles.display_code,
+            my_gender: pFromProfiles.gender || 'Member',
+            preferred_gender: 'Any',
+            preferred_subcity: pFromProfiles.locations || [],
+            budget_max: pFromProfiles.budget_max || 10000,
+            lifestyle_bio: pFromProfiles.roommate_traits || 'Seeking compatible roommate in Addis Ababa.',
+            unlock_fee: 50,
+            users: {
+              first_name: pFromProfiles.full_name || 'Seeker',
+              fayda_status: pFromProfiles.kyc_status || 'verified',
+            },
+          };
+        }
+      } catch {}
+    }
 
     if (dbProfile) {
       profile = {
         id: dbProfile.id,
+        display_code: dbProfile.display_code,
         user_name: dbProfile.users?.first_name || 'Seeker',
         preferred_subcity: dbProfile.preferred_subcity || [],
         my_gender: dbProfile.my_gender,
@@ -103,8 +146,14 @@ export async function broadcastRoommateProfileToChannel(
       inline_keyboard: [
         [
           {
-            text: '⚡ Connect with Roommate ↗️',
+            text: `⚡ Connect with Roommate ${codeTag} ↗️`,
             url: `https://t.me/${botUsername}?start=${connectPayload}`,
+          },
+        ],
+        [
+          {
+            text: '📢 Post Your Profile to Channel ↗️',
+            url: `https://t.me/${botUsername}?start=post_to_channel`,
           },
         ],
         [
@@ -252,6 +301,12 @@ export async function broadcastListingToChannel(
           {
             text: '🔑 View & Connect with Host ↗️',
             url: `https://t.me/${botUsername}?start=order_${space.id}`,
+          },
+        ],
+        [
+          {
+            text: '📢 Post Your Profile to Channel ↗️',
+            url: `https://t.me/${botUsername}?start=post_to_channel`,
           },
         ],
         [

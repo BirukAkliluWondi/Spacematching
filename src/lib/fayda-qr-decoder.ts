@@ -231,3 +231,44 @@ function extractFromTextString(text: string): FaydaDecodedResult {
 
   return { success: false };
 }
+
+/**
+ * Validates a directly typed or pasted Fayda FAN / FIN number.
+ * - Strips whitespace, hyphens, and non-digits.
+ * - Accepts 12-digit FIN (with Verhoeff checksum validation).
+ * - Accepts 16-digit FAN/VID format.
+ */
+export function validateFaydaFan(input: string): {
+  valid: boolean;
+  fanNumber?: string;
+  error?: string;
+} {
+  if (!input || typeof input !== 'string') {
+    return { valid: false, error: 'Please enter a valid Fayda FAN number.' };
+  }
+
+  const clean = input.replace(/\D/g, '');
+
+  if (clean.length !== 12 && clean.length !== 16) {
+    return {
+      valid: false,
+      error: `Invalid length (${clean.length} digits). Fayda numbers are either 12 digits (FIN) or 16 digits (FAN).`,
+    };
+  }
+
+  // 12-digit FIN uses the Verhoeff checksum algorithm
+  if (clean.length === 12) {
+    const isChecksumValid = validateVerhoeffChecksum(clean);
+    if (!isChecksumValid) {
+      return {
+        valid: false,
+        error: 'Invalid Fayda check digit. Please check the 12-digit number on your card for typos.',
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    fanNumber: clean,
+  };
+}
