@@ -156,12 +156,6 @@ export async function broadcastRoommateProfileToChannel(
             url: `https://t.me/${botUsername}?start=post_to_channel`,
           },
         ],
-        [
-          {
-            text: '📱 View in Mini App ↗️',
-            url: `https://t.me/${botUsername}/${appName}?startapp=seeker_${profile.id}`,
-          },
-        ],
       ],
     };
 

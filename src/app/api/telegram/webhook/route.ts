@@ -146,28 +146,34 @@ export async function POST(request: Request) {
       return false;
     };
 
-    // Helper: Universal Fayda Gate Card
+    // Helper: Universal Fayda Gate Card (Dual-Mode: Type FAN or Scan QR)
     const sendFaydaGateCard = async (
       chatId: number,
       targetAction: string,
       messageIdToEdit?: number
     ): Promise<number | undefined> => {
+      await saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_standalone_fayda_fan',
+        draft_data: { card_msg_id: messageIdToEdit, target_action: targetAction },
+        updated_at: new Date().toISOString(),
+      });
+
       const gateText = `
-🛡️ <b>SpaceMatch</b> · <b>Fayda ID Verification Required</b>
+🛡️ <b>SpaceMatch · Fayda ID Verification Required</b>
 
 Before you can <b>${targetAction}</b>, your Fayda National ID must be verified.
 
-• ⚡ <b>100% Instant &amp; Offline</b>: Decoded on-device via QR code checksum.
-• 🔒 <b>Privacy-First</b>: Your data never leaves our secure system.
-• 🛡️ <b>Fraud-Free Community</b>: Every roommate and space is verified.
+• <b>Option A:</b> Reply here with your <b>12-digit or 16-digit FAN number</b>:
+<i>Example: <code>1234 5678 9012</code></i>
 
-<i>Tap below to open your camera in the SpaceMatch Mini App and scan your Fayda QR code (from your physical ID card or digital e-Fayda slip).</i>
+• <b>Option B:</b> Tap below to open your camera and scan your Fayda QR code:
       `.trim();
 
       const inlineKeyboard = [
         [
           {
-            text: '🛡️ Scan Fayda QR Code in Mini App ↗️',
+            text: '📷 Open Camera to Scan Fayda QR ↗️',
             web_app: { url: `${appUrl}?startapp=verify_fayda` },
           },
         ],
@@ -476,8 +482,8 @@ SpaceMatch Addis is a 100% verified housing community.
         ],
         [
           {
-            text: '👥 Post Seeker Profile',
-            callback_data: 'seeker_flow',
+            text: '📢 Post Profile to Channel ↗️',
+            callback_data: 'post_to_channel_start',
           },
           {
             text: '🏠 List Space for Rent',
@@ -1762,16 +1768,7 @@ Transfer <code>${unlockFee} ETB</code> to either account:
           .single();
 
         if (!requesterProfile) {
-          await sendOrEditCard(
-            chatId,
-            `⚠️ <b>Profile Needed for Mutual Match</b>\n\nTo send a mutual connection request, create a quick seeker profile so they can review your preferences.\n\n<blockquote>Alternatively, you can unlock their verified direct contact:</blockquote>`,
-            [
-              [{ text: '👥 Create Seeker Profile', callback_data: 'seeker_flow' }],
-              [{ text: '🔒 Direct Contact Unlock · 50 ETB ⚡', callback_data: `start_unlock_seeker:${targetProfileId}` }],
-              [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
-            ],
-            msgId
-          );
+          await sendDynamicCardStep1Age(chatId, { target_id: targetProfileId }, msgId);
           return NextResponse.json({ ok: true });
         }
 
@@ -1892,7 +1889,12 @@ Transfer <code>${unlockFee} ETB</code> to either account:
           ? requesterProfile.locations.join(', ')
           : 'Addis Ababa';
 
-        const notifyText = `🤝 <b>SpaceMatch</b> · <b>New Connection Request!</b>\n\nA verified user saw your channel listing and wants to connect!\n\n• <b>Profile:</b> ${requesterProfile.gender || 'Not specified'}\n• <b>Budget:</b> <code>${Number(requesterProfile.budget_min || 0).toLocaleString()} – ${Number(requesterProfile.budget_max || 0).toLocaleString()} ETB</code>\n• <b>Target Areas:</b> <code>${requesterLocations}</code>\n\n<blockquote>Would you like to connect with this roommate?</blockquote>`;
+        const requesterAgeStr = requesterProfile.age ? `, Age ${requesterProfile.age}` : '';
+        const requesterBudgetStr = requesterProfile.budget_max
+          ? `Up to ${Number(requesterProfile.budget_max).toLocaleString()} ETB / month`
+          : `${Number(requesterProfile.budget_min || 0).toLocaleString()} – ${Number(requesterProfile.budget_max || 0).toLocaleString()} ETB / month`;
+
+        const notifyText = `🤝 <b>SpaceMatch</b> · <b>New Connection Request!</b>\n\nA verified user saw your channel listing and wants to connect!\n\n• <b>Profile:</b> ${requesterProfile.gender || 'Member'}${requesterAgeStr}\n• <b>Budget Cap:</b> <code>${requesterBudgetStr}</code>\n• <b>Target Areas:</b> <code>${requesterLocations}</code>\n\n<blockquote>Would you like to connect with this roommate?</blockquote>`;
 
         if (targetProfile.telegram_id) {
           await tgSend(
@@ -1976,8 +1978,13 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
         const requesterTgId = (match.requester as any)?.telegram_id;
         const targetTgId = (match.target as any)?.telegram_id;
 
+        if (msgId) {
+          await sendOrEditCard(chatId, `✅ <b>You Accepted the Match Request!</b>\n\n${paymentInstructions}`, [], msgId);
+        } else if (targetTgId) {
+          await tgSend(targetTgId, paymentInstructions);
+        }
+
         if (requesterTgId) await tgSend(requesterTgId, paymentInstructions);
-        if (targetTgId) await tgSend(targetTgId, paymentInstructions);
 
         return NextResponse.json({ ok: true });
       }
@@ -2003,14 +2010,24 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
           .eq('id', matchId);
 
         // Notify decliner
-        await tgSend(chatId, `✅ You've declined the match request.`);
+        if (msgId) {
+          await sendOrEditCard(chatId, `✅ You've declined the match request.`, [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]], msgId);
+        } else {
+          await tgSend(chatId, `✅ You've declined the match request.`);
+        }
 
         // Notify requester
         const requesterTgId = (match.requester as any)?.telegram_id;
         if (requesterTgId) {
           await tgSend(
             requesterTgId,
-            `📭 <b>Match Unavailable</b>\n\nPotential Roommate is unavailable. Keep looking on the channel! 🏠`
+            `📭 <b>Match Unavailable</b>\n\nPotential Roommate is unavailable. Keep looking on the channel or post your profile! 🏠`,
+            {
+              inline_keyboard: [
+                [{ text: '📢 Post My Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
+                [{ text: '⚡ Find Other Roommates · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+              ],
+            }
           );
         }
 
@@ -2125,8 +2142,7 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
 
       // PRIMARY SEEKER CREATION WIZARD CALLBACK HANDLERS
       if (callbackData === 'seeker_subcity_menu' || callbackData === 'seeker_flow') {
-        const session = getSession(chatId);
-        await sendSeekerSubcityStep(chatId, session.draft_data, msgId);
+        await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' }, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -2858,9 +2874,22 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
         return NextResponse.json({ ok: true });
       }
 
-      if (text === '👥 Post Seeker Profile' || text === '👥 Post Seeker Profile (Looking for Roommate)') {
+      if (
+        text === '👥 Post Seeker Profile' ||
+        text === '👥 Post Seeker Profile (Looking for Roommate)' ||
+        text === '📢 Post Profile to Channel' ||
+        text === '📢 Post Your Profile to Channel'
+      ) {
         await clearSession(chatId);
-        await sendSeekerSubcityStep(chatId);
+        const isVerified = await isUserFaydaVerified(chatId);
+        if (isVerified) {
+          const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
+          if (p) {
+            await sendChannelPublishPreviewCard(chatId, p);
+            return NextResponse.json({ ok: true });
+          }
+        }
+        await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' });
         return NextResponse.json({ ok: true });
       }
 
@@ -2871,11 +2900,106 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
       }
 
       if (text === '🛡️ Verify Fayda ID') {
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: `<b>🛡️ Fayda National ID Verification</b>\n\nPlease attach and send a photo of your Fayda National ID in chat now for verification!`,
-          parse_mode: 'HTML',
-        });
+        await clearSession(chatId);
+        const isVerified = await isUserFaydaVerified(chatId);
+        if (isVerified) {
+          const verifiedText = `
+🛡️ <b>SpaceMatch</b> · <b>Fayda ID Verified</b>
+
+✅ <b>Your Fayda National ID is Verified!</b>
+
+• <b>Status:</b> 🛡️ Verified Resident
+• <b>Access:</b> Full Platform Access (Matchmaker, Seeker Profiles, Contact Unlocks)
+• <b>Security:</b> Offline Verhoeff Checksum Validated
+
+<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
+          `.trim();
+          await sendOrEditCard(chatId, verifiedText, [
+            [{ text: '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: '📢 Post Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
+            [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+          ]);
+          return NextResponse.json({ ok: true });
+        }
+        await sendFaydaGateCard(chatId, 'access all SpaceMatch verified features');
+        return NextResponse.json({ ok: true });
+      }
+
+      // Standalone Fayda FAN Input (from /fayda or gate cards)
+      if (session.step === 'awaiting_standalone_fayda_fan') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const fanResult = validateFaydaFan(text);
+
+        if (!fanResult.valid || !fanResult.fanNumber) {
+          await sendOrEditCard(
+            chatId,
+            `🛡️ <b>SpaceMatch · Fayda ID Verification Required</b>\n\n⚠️ <b>${fanResult.error || 'Invalid Fayda FAN number. Please check the digits and try again.'}</b>\n\nPlease reply with your 12-digit or 16-digit FAN number:`,
+            [
+              [{ text: '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
+              [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+            ],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        const { data: existingUser } = await supabaseAdmin
+          .from('users')
+          .select('id, telegram_id')
+          .eq('fayda_number', fanResult.fanNumber)
+          .neq('telegram_id', chatId)
+          .maybeSingle();
+
+        if (existingUser) {
+          await sendOrEditCard(
+            chatId,
+            `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda National ID is already registered to another account.`,
+            [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        await supabaseAdmin
+          .from('users')
+          .upsert({
+            telegram_id: chatId,
+            fayda_status: 'verified',
+            fayda_number: fanResult.fanNumber,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'telegram_id' });
+
+        await supabaseAdmin
+          .from('profiles')
+          .update({ kyc_status: 'verified', status: 'active' })
+          .eq('telegram_id', chatId);
+
+        await clearSession(chatId);
+
+        const verifiedText = `
+🎉 <b>FAYDA NATIONAL ID VERIFIED!</b>
+🛡️ <b>Status:</b> VERIFIED ✅
+
+• <b>Fayda ID:</b> <code>•••• •••• ${fanResult.fanNumber.slice(-4)}</code>
+• <b>Access:</b> Full Platform Access (Matchmaker, Seeker Profiles, Mutual Connections)
+• <b>Validation:</b> Instant Offline Dihedral Checksum Validated ✅
+
+<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
+        `.trim();
+
+        await sendOrEditCard(
+          chatId,
+          verifiedText,
+          [
+            [{ text: '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: '📢 Post Your Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
+            [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+          ],
+          activeMsgId
+        );
         return NextResponse.json({ ok: true });
       }
 
@@ -3431,7 +3555,7 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
           const isVerified = await isUserFaydaVerified(chatId);
           const { data: myProfile } = await supabaseAdmin
             .from('profiles')
-            .select('id, kyc_status, status')
+            .select('*')
             .eq('telegram_id', chatId)
             .maybeSingle();
 
@@ -3444,26 +3568,29 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
             return NextResponse.json({ ok: true });
           }
 
-          // Present the Listing Inspection Card to verified user
+          // Present the Personalized Returning User Card to verified user
           const targetLocations = Array.isArray(targetProfile.locations)
             ? targetProfile.locations.join(', ')
             : 'Addis Ababa';
 
-          const budgetStr = targetProfile.budget_max
-            ? `Up to ${Number(targetProfile.budget_max).toLocaleString()} ETB/month`
-            : `${Number(targetProfile.budget_min || 0).toLocaleString()} – ${Number(targetProfile.budget_max || 0).toLocaleString()} ETB/month`;
+          const myCode = myProfile.display_code || 'Verified Member';
+          const myLocations = Array.isArray(myProfile.locations) ? myProfile.locations.join(', ') : 'Addis Ababa';
+          const myBudgetStr = myProfile.budget_max ? `Up to ${Number(myProfile.budget_max).toLocaleString()} ETB` : 'Flexible';
+          const myGenderStr = myProfile.gender || 'Member';
+          const myAgeStr = myProfile.age ? `, ${myProfile.age} yrs` : '';
 
-          const bioContent = (targetProfile.roommate_traits || 'Seeking a compatible roommate in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const inspectionCard = `
-🤝 <b>Verified Roommate · #${targetProfile.display_code || lookupCode}</b>
-📍 <code>${targetLocations}</code> · 🛡️ <b>Fayda Verified</b>
+🤝 <b>SpaceMatch · Connect with Roommate #${targetProfile.display_code || lookupCode}</b>
 
-• <b>Profile:</b> ${targetProfile.gender || 'Not specified'}
-• <b>Budget Range:</b> <code>${budgetStr}</code>
+Send your verified profile to #${targetProfile.display_code || lookupCode}?
 
-<blockquote>"${bioContent}"</blockquote>
+• <b>Target Roommate:</b> #${targetProfile.display_code || lookupCode} (📍 <code>${targetLocations}</code>)
+• <b>Your Profile:</b> #${myCode} (${myGenderStr}${myAgeStr})
+• <b>Your Budget:</b> <code>${myBudgetStr}</code>
+• <b>Your Target Areas:</b> <code>${myLocations}</code>
+• <b>Status:</b> 🛡️ <b>Fayda Verified</b>
 
-🔒 <i>Personal identity, direct phone, and Telegram handle unlock instantly after payment verification.</i>
+🔒 <i>Personal identity, phone number, and Telegram handle unlock instantly after mutual agreement and payment.</i>
           `.trim();
 
           await sendOrEditCard(
@@ -3471,7 +3598,7 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
             inspectionCard,
             [
               [
-                { text: '❤️ Send Mutual Match Request', callback_data: `confirm_match:${targetProfile.id}` },
+                { text: `🚀 Send Request to #${targetProfile.display_code || lookupCode}`, callback_data: `confirm_match:${targetProfile.id}` },
               ],
               [
                 { text: '✏️ Edit My Profile', callback_data: 'post_to_channel_start' },
@@ -3485,6 +3612,14 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
 
         // Channel Button: Post profile to channel
         if (text === '/start post_to_channel' || text.startsWith('/start post_to_channel')) {
+          const isVerified = await isUserFaydaVerified(chatId);
+          if (isVerified) {
+            const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
+            if (p) {
+              await sendChannelPublishPreviewCard(chatId, p);
+              return NextResponse.json({ ok: true });
+            }
+          }
           await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' });
           return NextResponse.json({ ok: true });
         }
@@ -3515,7 +3650,7 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
         }
 
         if (text === '/start seeker_flow' || text === '/start seeker') {
-          await sendSeekerSubcityStep(chatId);
+          await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' });
           return NextResponse.json({ ok: true });
         }
 
@@ -3581,9 +3716,17 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
         return NextResponse.json({ ok: true });
       }
 
-      if (text === '/seeker' || text === '/seeker_flow') {
+      if (text === '/seeker' || text === '/seeker_flow' || text === '/post_profile' || text === '/post_to_channel') {
         await clearSession(chatId);
-        await sendSeekerSubcityStep(chatId);
+        const isVerified = await isUserFaydaVerified(chatId);
+        if (isVerified) {
+          const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
+          if (p) {
+            await sendChannelPublishPreviewCard(chatId, p);
+            return NextResponse.json({ ok: true });
+          }
+        }
+        await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' });
         return NextResponse.json({ ok: true });
       }
 
