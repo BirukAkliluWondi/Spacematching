@@ -191,7 +191,10 @@ Before you can <b>${targetAction}</b>, your Fayda National ID must be verified.
     // Helper to format dynamic context header
     const getDynamicContextHeader = (draft: Record<string, any>) => {
       if (draft.target_code) {
-        return `🤝 <b>SpaceMatch · Connecting with Roommate #${draft.target_code}</b>\n<i>Before sending your request, please tell #${draft.target_code} about yourself:</i>\n`;
+        const loc = draft.target_locations ? `📍 <code>${draft.target_locations}</code>` : '';
+        const bud = draft.target_budget ? ` · 💰 <code>${draft.target_budget}</code>` : '';
+        const subline = (loc || bud) ? `${loc}${bud}\n` : '';
+        return `🤝 <b>SpaceMatch · Connecting with Roommate #${draft.target_code}</b>\n${subline}<i>Before sending your request, please tell #${draft.target_code} about yourself:</i>\n`;
       }
       return `📢 <b>SpaceMatch · Post Roommate Profile to Channel</b>\n<i>Create your verified anonymous profile for the Addis channel:</i>\n`;
     };
@@ -1597,6 +1600,140 @@ Transfer <code>${unlockFee} ETB</code> to either account:
     };
 
     // -------------------------------------------------------------------------
+    // 0. HANDLE CHANNEL POSTS & EDITED CHANNEL POSTS (Bot acts as Channel Admin)
+    // -------------------------------------------------------------------------
+    const channelPost = update.channel_post || update.edited_channel_post;
+    if (channelPost && channelPost.chat) {
+      const channelId = channelPost.chat.id;
+      const messageId = channelPost.message_id;
+      const postText = (channelPost.text || channelPost.caption || '').trim();
+
+      // Skip if post is already marked as matched or closed
+      if (postText.includes('MATCHED') || postText.includes('CLOSED')) {
+        return NextResponse.json({ ok: true });
+      }
+
+      // Check if post already has the "Connect with Roommate" button
+      const existingKb = channelPost.reply_markup?.inline_keyboard;
+      const hasConnectBtn = existingKb?.some((row: any[]) =>
+        row.some((btn: any) => btn.text?.includes('Connect with Roommate'))
+      );
+
+      if (!hasConnectBtn) {
+        // Extract display_code (#RM... or RM...)
+        let displayCode: string | null = null;
+        const rmMatch = postText.match(/#?(RM[A-Za-z0-9_-]+)/i);
+        if (rmMatch) {
+          displayCode = rmMatch[1].toUpperCase();
+        } else {
+          const tagMatch = postText.match(/#([A-Za-z0-9_-]+)/);
+          if (tagMatch) {
+            displayCode = tagMatch[1].toUpperCase();
+          }
+        }
+
+        // If no displayCode found in text, fallback to RM<message_id>
+        if (!displayCode) {
+          displayCode = `RM${messageId}`;
+        }
+
+        const buttonTitle = `⚡ Connect with Roommate #${displayCode} ↗️`;
+        const connectPayload = `req_${displayCode}`;
+
+        // Link channel_message_id in DB if displayCode matches existing profile or roommate_profile
+        let targetFound = false;
+        try {
+          const { data: pRows } = await supabaseAdmin
+            .from('profiles')
+            .update({ channel_message_id: messageId })
+            .ilike('display_code', displayCode)
+            .select('id');
+          if (pRows && pRows.length > 0) targetFound = true;
+
+          const { data: rmRows } = await supabaseAdmin
+            .from('roommate_profiles')
+            .update({ channel_message_id: messageId })
+            .ilike('display_code', displayCode)
+            .select('id');
+          if (rmRows && rmRows.length > 0) targetFound = true;
+        } catch (linkErr) {
+          console.error('[webhook] Error linking channel_message_id:', linkErr);
+        }
+
+        // If this post was posted directly by channel admin and has no profile yet,
+        // create an active profile entry so clicks on the button connect directly!
+        if (!targetFound) {
+          try {
+            const adminIds = await getAdminIds();
+            const adminChatId = adminIds[0] || 800701176;
+
+            const commonSubcities = [
+              'Bole', 'Kazanchis', 'Sarbet', 'CMC', 'Gerji', 'Megenagna', 'Piassa',
+              '4 Kilo', '22 Mazoria', 'Bisrate Gabriel', 'Summit', 'Lebu', 'Jomo',
+              'Ayat', 'Torhailoch', 'Bethel', 'Gotera', 'Kera', 'Nifas Silk',
+              'Kolfe Keraniyo', 'Gullele', 'Lideta'
+            ];
+            const matchedSubs = commonSubcities.filter((s) =>
+              postText.toLowerCase().includes(s.toLowerCase())
+            );
+
+            const budgetMatch = postText.match(/(\d+[\d,]*)\s*(etb|birr|\/mo|\/month|k\b)/i);
+            let parsedBudget = 0;
+            if (budgetMatch) {
+              const rawNum = budgetMatch[1].replace(/,/g, '');
+              parsedBudget = parseInt(rawNum, 10);
+              if (budgetMatch[2]?.toLowerCase() === 'k') parsedBudget *= 1000;
+            }
+
+            const isFemale = postText.toLowerCase().includes('female') || postText.toLowerCase().includes('ሴት');
+            const isMale = postText.toLowerCase().includes('male') || postText.toLowerCase().includes('ወንድ');
+            const genderVal = isFemale ? 'Female' : isMale ? 'Male' : 'Any';
+
+            await supabaseAdmin.from('profiles').upsert(
+              {
+                telegram_id: adminChatId,
+                display_code: displayCode,
+                channel_message_id: messageId,
+                gender: genderVal,
+                locations: matchedSubs.length > 0 ? matchedSubs : ['Addis Ababa'],
+                budget_min: 0,
+                budget_max: parsedBudget || 10000,
+                roommate_traits: postText.slice(0, 300) || 'Channel Roommate Listing',
+                kyc_status: 'verified',
+                status: 'active',
+                onboarding_step: 'completed',
+              },
+              { onConflict: 'display_code' }
+            );
+          } catch (createErr) {
+            console.error('[webhook] Error creating channel post profile placeholder:', createErr);
+          }
+        }
+
+        const newButtons = [
+          [{ text: buttonTitle, url: `https://t.me/${botUsername}?start=${connectPayload}` }],
+          [{ text: '📢 Post Your Profile to Channel ↗️', url: `https://t.me/${botUsername}?start=post_to_channel` }],
+        ];
+
+        const updatedInlineKeyboard = existingKb && existingKb.length > 0
+          ? [...existingKb, ...newButtons]
+          : newButtons;
+
+        const editRes = await sendTelegram('editMessageReplyMarkup', {
+          chat_id: channelId,
+          message_id: messageId,
+          reply_markup: {
+            inline_keyboard: updatedInlineKeyboard,
+          },
+        });
+
+        console.log(`[webhook] editMessageReplyMarkup for channel post ${messageId} in ${channelId}:`, editRes?.ok ? 'SUCCESS' : editRes?.description);
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // -------------------------------------------------------------------------
     // 1. HANDLE INLINE CALLBACK QUERIES
     // -------------------------------------------------------------------------
     if (update.callback_query) {
@@ -1628,7 +1765,9 @@ Transfer <code>${unlockFee} ETB</code> to either account:
 
       // ── Dynamic Card Wizard Callbacks ──────────────────────────────────────
       if (callbackData === 'post_to_channel_start') {
-        await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' }, msgId);
+        const session = getSession(chatId);
+        const draft = session.draft_data?.target_code ? session.draft_data : { mode: 'post_to_channel' };
+        await sendDynamicCardStep1Age(chatId, draft, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -1773,23 +1912,14 @@ Transfer <code>${unlockFee} ETB</code> to either account:
         }
 
         // Prevent self-request
-        if (requesterProfile.id === targetProfileId || String(requesterProfile.telegram_id) === String(chatId)) {
-          // Check if target is indeed the user's own listing
-          const { data: ownTarget } = await supabaseAdmin
-            .from('profiles')
-            .select('telegram_id')
-            .eq('id', targetProfileId)
-            .single();
-
-          if (ownTarget && String(ownTarget.telegram_id) === String(chatId)) {
-            await sendOrEditCard(
-              chatId,
-              `ℹ️ <b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
-              [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
-              msgId
-            );
-            return NextResponse.json({ ok: true });
-          }
+        if (requesterProfile.id === targetProfileId) {
+          await sendOrEditCard(
+            chatId,
+            `ℹ️ <b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
+            [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            msgId
+          );
+          return NextResponse.json({ ok: true });
         }
 
         // Get target profile
@@ -1827,6 +1957,16 @@ Transfer <code>${unlockFee} ETB</code> to either account:
             chatId,
             `⚠️ <b>Listing Not Found</b>\n\nThis listing is no longer available.`,
             [[{ text: '🔍 Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            msgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        if (String(targetProfile.telegram_id) === String(chatId)) {
+          await sendOrEditCard(
+            chatId,
+            `ℹ️ <b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
+            [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
             msgId
           );
           return NextResponse.json({ ok: true });
@@ -3469,15 +3609,16 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
         // ── NEW: Deep-link from channel button → /start req_<display_code> ──
         // ── NEW: Deep-link from channel button → /start req_<display_code_or_id> ──
         if (text.startsWith('/start req_')) {
-          const lookupCode = text.replace('/start req_', '').trim();
+          const rawCode = text.replace('/start req_', '').trim();
+          const lookupCode = rawCode.replace(/^#/, '').trim();
 
           // Lookup target profile from profiles or roommate_profiles
           let targetProfile: any = null;
           const { data: pCode } = await supabaseAdmin
             .from('profiles')
             .select('*')
-            .eq('display_code', lookupCode)
-            .single();
+            .ilike('display_code', lookupCode)
+            .maybeSingle();
 
           if (pCode) {
             targetProfile = pCode;
@@ -3486,15 +3627,15 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
               .from('profiles')
               .select('*')
               .eq('id', lookupCode)
-              .single();
+              .maybeSingle();
             if (pId) {
               targetProfile = pId;
             } else {
               const { data: rm } = await supabaseAdmin
                 .from('roommate_profiles')
                 .select('*')
-                .eq('id', lookupCode)
-                .single();
+                .or(`id.eq.${lookupCode},display_code.ilike.${lookupCode}`)
+                .maybeSingle();
               if (rm) {
                 targetProfile = {
                   id: rm.id,
@@ -3509,6 +3650,67 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
                   channel_message_id: rm.channel_message_id,
                 };
               }
+            }
+          }
+
+          // Check by channel_message_id if lookupCode has a number or starts with post_ / RM
+          if (!targetProfile) {
+            const numPart = lookupCode.replace(/^post_/i, '').replace(/^RM/i, '');
+            const channelMsgId = parseInt(numPart, 10);
+            if (!isNaN(channelMsgId) && channelMsgId > 0) {
+              const { data: pByMsg } = await supabaseAdmin
+                .from('profiles')
+                .select('*')
+                .eq('channel_message_id', channelMsgId)
+                .maybeSingle();
+              if (pByMsg) {
+                targetProfile = pByMsg;
+              } else {
+                const { data: rmByMsg } = await supabaseAdmin
+                  .from('roommate_profiles')
+                  .select('*')
+                  .eq('channel_message_id', channelMsgId)
+                  .maybeSingle();
+                if (rmByMsg) {
+                  targetProfile = {
+                    id: rmByMsg.id,
+                    telegram_id: rmByMsg.user_telegram_id,
+                    display_code: rmByMsg.display_code || lookupCode,
+                    gender: rmByMsg.my_gender,
+                    locations: rmByMsg.preferred_subcity,
+                    budget_min: rmByMsg.budget_min,
+                    budget_max: rmByMsg.budget_max,
+                    roommate_traits: rmByMsg.lifestyle_bio,
+                    status: rmByMsg.status,
+                    channel_message_id: rmByMsg.channel_message_id,
+                  };
+                }
+              }
+            }
+          }
+
+          // Fallback: If still not found and it starts with post_ or RM, create active profile placeholder
+          if (!targetProfile && (lookupCode.toLowerCase().startsWith('post_') || /^RM\d+$/i.test(lookupCode))) {
+            const adminIds = await getAdminIds();
+            const primaryAdmin = adminIds[0] || 800701176;
+            const { data: createdProfile } = await supabaseAdmin
+              .from('profiles')
+              .upsert({
+                telegram_id: primaryAdmin,
+                display_code: lookupCode.toUpperCase(),
+                gender: 'Any',
+                locations: ['Addis Ababa'],
+                budget_min: 0,
+                budget_max: 10000,
+                roommate_traits: 'Channel Roommate Listing',
+                kyc_status: 'verified',
+                status: 'active',
+                onboarding_step: 'completed',
+              }, { onConflict: 'display_code' })
+              .select('*')
+              .maybeSingle();
+            if (createdProfile) {
+              targetProfile = createdProfile;
             }
           }
 
@@ -3551,6 +3753,13 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
             return NextResponse.json({ ok: true });
           }
 
+          const targetLocations = Array.isArray(targetProfile.locations)
+            ? targetProfile.locations.join(', ')
+            : (Array.isArray(targetProfile.preferred_subcity) ? targetProfile.preferred_subcity.join(', ') : 'Addis Ababa');
+          const targetBudgetStr = targetProfile.budget_max
+            ? `${Number(targetProfile.budget_max).toLocaleString()} ETB/mo`
+            : '';
+
           // Check if requesting user is already Fayda verified and has a completed profile
           const isVerified = await isUserFaydaVerified(chatId);
           const { data: myProfile } = await supabaseAdmin
@@ -3564,14 +3773,24 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
             await sendDynamicCardStep1Age(chatId, {
               target_id: targetProfile.id,
               target_code: targetProfile.display_code || lookupCode,
+              target_locations: targetLocations,
+              target_budget: targetBudgetStr,
             });
             return NextResponse.json({ ok: true });
           }
 
           // Present the Personalized Returning User Card to verified user
-          const targetLocations = Array.isArray(targetProfile.locations)
-            ? targetProfile.locations.join(', ')
-            : 'Addis Ababa';
+          await saveSession({
+            telegram_id: chatId,
+            step: 'returning_user_review',
+            draft_data: {
+              target_id: targetProfile.id,
+              target_code: targetProfile.display_code || lookupCode,
+              target_locations: targetLocations,
+              target_budget: targetBudgetStr,
+            },
+            updated_at: new Date().toISOString(),
+          });
 
           const myCode = myProfile.display_code || 'Verified Member';
           const myLocations = Array.isArray(myProfile.locations) ? myProfile.locations.join(', ') : 'Addis Ababa';
