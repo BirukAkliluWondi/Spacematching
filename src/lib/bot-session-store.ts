@@ -234,3 +234,115 @@ export async function getAllRoommateDrafts(): Promise<Record<string, RoommatePro
     return {};
   }
 }
+
+// ---------------------------------------------------------------------------
+// Managed Channels — Dynamic Multi-Channel Support
+// ---------------------------------------------------------------------------
+export interface ManagedChannel {
+  channel_id: string | number; // e.g. "-1001234567890" or "@roommatch_addis"
+  channel_title: string;
+  channel_username: string | null;
+  added_by?: number;
+  is_active: boolean;
+  added_at: string;
+  updated_at: string;
+}
+
+const MANAGED_CHANNELS_SESSION_ID = -999999;
+let cachedManagedChannels: ManagedChannel[] | null = null;
+let managedChannelsCacheTime = 0;
+
+export async function getManagedChannels(): Promise<ManagedChannel[]> {
+  const now = Date.now();
+  if (cachedManagedChannels && now - managedChannelsCacheTime < 60000) {
+    return cachedManagedChannels;
+  }
+
+  try {
+    const { data } = await supabase
+      .from('bot_sessions')
+      .select('draft_data')
+      .eq('telegram_id', MANAGED_CHANNELS_SESSION_ID)
+      .maybeSingle();
+
+    if (data && data.draft_data && Array.isArray(data.draft_data.channels)) {
+      cachedManagedChannels = data.draft_data.channels;
+      managedChannelsCacheTime = now;
+      return cachedManagedChannels!;
+    }
+  } catch (err) {
+    console.error('getManagedChannels error:', err);
+  }
+
+  // Fallback default from environment if available
+  const defaultChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+  const defaults: ManagedChannel[] = [
+    {
+      channel_id: defaultChannel,
+      channel_title: 'SpaceMatch Addis Default',
+      channel_username: defaultChannel.startsWith('@') ? defaultChannel : null,
+      is_active: true,
+      added_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ];
+  cachedManagedChannels = defaults;
+  managedChannelsCacheTime = now;
+  return defaults;
+}
+
+export async function saveManagedChannel(channel: ManagedChannel): Promise<void> {
+  try {
+    const current = await getManagedChannels();
+    const existingIndex = current.findIndex(
+      (c) =>
+        String(c.channel_id) === String(channel.channel_id) ||
+        (channel.channel_username && c.channel_username && c.channel_username.toLowerCase() === channel.channel_username.toLowerCase())
+    );
+
+    let updated: ManagedChannel[];
+    if (existingIndex >= 0) {
+      updated = [...current];
+      updated[existingIndex] = { ...updated[existingIndex], ...channel, updated_at: new Date().toISOString() };
+    } else {
+      updated = [...current.filter(c => c.channel_id !== '@roommatch_addis' || c.added_by), channel];
+    }
+
+    cachedManagedChannels = updated;
+    managedChannelsCacheTime = Date.now();
+
+    await supabase.from('bot_sessions').upsert({
+      telegram_id: MANAGED_CHANNELS_SESSION_ID,
+      step: 'managed_channels',
+      draft_data: { channels: updated },
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'telegram_id' });
+  } catch (err) {
+    console.error('saveManagedChannel error:', err);
+  }
+}
+
+export async function removeManagedChannel(channelId: string | number): Promise<void> {
+  try {
+    const current = await getManagedChannels();
+    const updated = current.map((c) =>
+      String(c.channel_id) === String(channelId) ||
+      (c.channel_username && String(channelId).toLowerCase() === c.channel_username.toLowerCase())
+        ? { ...c, is_active: false, updated_at: new Date().toISOString() }
+        : c
+    );
+
+    cachedManagedChannels = updated;
+    managedChannelsCacheTime = Date.now();
+
+    await supabase.from('bot_sessions').upsert({
+      telegram_id: MANAGED_CHANNELS_SESSION_ID,
+      step: 'managed_channels',
+      draft_data: { channels: updated },
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'telegram_id' });
+  } catch (err) {
+    console.error('removeManagedChannel error:', err);
+  }
+}
+

@@ -141,3 +141,23 @@ Every post posted via the bot to the channel attaches:
   - `contacts_unlocked_at` (TIMESTAMPTZ): Timestamp when mutual contacts were revealed.
   - `checkin_24h_sent` (BOOLEAN): Flag indicating if 24h follow-up was dispatched.
   - `status` (TEXT): `'pending_acceptance'`, `'pending_payment'`, `'matched'`, `'declined'`.
+
+---
+
+## 4. Dynamic Multi-Channel Architecture & Admin Discovery
+
+The bot is not restricted to a single channel. It operates dynamically across **any Telegram channel** where it is added as an administrator:
+
+### 4.1 Automatic Channel & Admin Discovery
+1. **`my_chat_member` Webhook Handler**:
+   - When the bot is added as an administrator to any channel, Telegram sends a `my_chat_member` update.
+   - The bot automatically records the channel (`channel_id`, `channel_title`, `channel_username`, `added_by`).
+   - Automatically invalidates the administrator cache so the new channel's admins are instantly recognized.
+2. **`getChatAdministrators` Dynamic Resolution**:
+   - When checking user authorization (`getAdminIds()`), the bot queries `getChatAdministrators` across all active managed channels.
+   - Every owner and administrator of any connected channel is automatically granted administrative privileges inside the bot—no manual configuration of usernames needed!
+3. **Admin Channel Commands**:
+   - `/channels`: Displays all connected channels, their active/inactive status, and channel IDs.
+   - `/setchannel <@channel_username_or_channel_id>`: Manually link any channel where the bot has administrator permissions.
+   - `/admin`: Interactive admin panel with pending approvals, post creation, and channel management.
+

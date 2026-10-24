@@ -13,6 +13,10 @@ import {
   preloadSession,
   SpaceDraft,
   RoommateProfileDraft,
+  getManagedChannels,
+  saveManagedChannel,
+  removeManagedChannel,
+  ManagedChannel,
 } from '@/lib/bot-session-store';
 import { verifyTelebirrPayment } from '@/lib/verify-et';
 import {
@@ -114,21 +118,39 @@ export async function POST(request: Request) {
         console.error('Error fetching DB admins:', err);
       }
 
-      // 2. Fetch from Telegram Channel Administrators (@roommatch_addis)
-      const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+      // 2. Fetch from all active Telegram channels dynamically via getChatAdministrators
       if (botToken) {
         try {
-          const res = await fetch(`https://api.telegram.org/bot${botToken}/getChatAdministrators`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: targetChannel }),
-          });
-          const json = await res.json();
-          if (json.ok && Array.isArray(json.result)) {
-            for (const member of json.result) {
-              if (member.user && !member.user.is_bot && member.user.id) {
-                adminSet.add(Number(member.user.id));
+          const channels = await getManagedChannels();
+          const targetChannels = new Set<string | number>();
+          if (process.env.TELEGRAM_CHANNEL_ID) targetChannels.add(process.env.TELEGRAM_CHANNEL_ID);
+          for (const ch of channels) {
+            if (ch.is_active) {
+              if (ch.channel_id) targetChannels.add(ch.channel_id);
+              if (ch.channel_username) targetChannels.add(ch.channel_username);
+            }
+          }
+          if (targetChannels.size === 0) {
+            targetChannels.add('@roommatch_addis');
+          }
+
+          for (const ch of targetChannels) {
+            try {
+              const res = await fetch(`https://api.telegram.org/bot${botToken}/getChatAdministrators`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: ch }),
+              });
+              const json = await res.json();
+              if (json.ok && Array.isArray(json.result)) {
+                for (const member of json.result) {
+                  if (member.user && !member.user.is_bot && member.user.id) {
+                    adminSet.add(Number(member.user.id));
+                  }
+                }
               }
+            } catch (chErr) {
+              console.error('Error fetching admins for channel:', ch, chErr);
             }
           }
         } catch (err) {
@@ -139,6 +161,33 @@ export async function POST(request: Request) {
       const result = Array.from(adminSet);
       cachedAdminIds = { ids: result, expiresAt: now + 5 * 60 * 1000 };
       return result;
+    };
+
+    // Helper to get the primary channel or active channels for broadcasting
+    const getPrimaryChannel = async (): Promise<string | number> => {
+      try {
+        const channels = await getManagedChannels();
+        const active = channels.filter((c) => c.is_active);
+        if (active.length > 0) {
+          return active[0].channel_username || active[0].channel_id;
+        }
+      } catch (err) {
+        console.error('getPrimaryChannel error:', err);
+      }
+      return process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+    };
+
+    const getAllActiveChannels = async (): Promise<(string | number)[]> => {
+      try {
+        const channels = await getManagedChannels();
+        const active = channels.filter((c) => c.is_active);
+        if (active.length > 0) {
+          return active.map((c) => c.channel_username || c.channel_id);
+        }
+      } catch (err) {
+        console.error('getAllActiveChannels error:', err);
+      }
+      return [process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis'];
     };
 
     // Helper to close a channel listing manually or automatically
@@ -207,7 +256,8 @@ export async function POST(request: Request) {
       }
 
       // 2. Call updateChannelPostAsMatched
-      const closedSuccess = await updateChannelPostAsMatched(channelMsgId, displayCode);
+      const primaryCh = await getPrimaryChannel();
+      const closedSuccess = await updateChannelPostAsMatched(channelMsgId, displayCode, undefined, primaryCh);
 
       // 3. Mark DB as closed / matched
       try {
@@ -2422,6 +2472,54 @@ Transfer <code>${unlockFee} ETB</code> to either account:
     };
 
     // -------------------------------------------------------------------------
+    // -1. HANDLE BOT CHAT MEMBER UPDATES (Bot added / removed as admin in any channel)
+    // -------------------------------------------------------------------------
+    if (update.my_chat_member) {
+      const mcm = update.my_chat_member;
+      const chat = mcm.chat;
+      const newStatus = mcm.new_chat_member?.status;
+      const addedBy = mcm.from?.id;
+
+      if (chat && (chat.type === 'channel' || chat.type === 'supergroup')) {
+        const channelId = chat.id;
+        const channelTitle = chat.title || 'Channel';
+        const channelUsername = chat.username ? `@${chat.username}` : null;
+
+        if (newStatus === 'administrator') {
+          await saveManagedChannel({
+            channel_id: channelId,
+            channel_title: channelTitle,
+            channel_username: channelUsername,
+            added_by: addedBy,
+            is_active: true,
+            added_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+
+          // Invalidate admin cache so newly discovered channel's admins are recognized immediately
+          cachedAdminIds = null;
+
+          console.log(`[webhook] Bot added as admin to channel: ${channelTitle} (${channelId}) by user ${addedBy}`);
+
+          // Notify the administrator who added the bot
+          if (addedBy) {
+            await sendTelegram('sendMessage', {
+              chat_id: addedBy,
+              text: `🎉 <b>Channel Successfully Connected to SpaceMatch!</b>\n\nSpaceMatch Bot is now an active administrator of <b>${channelTitle}</b> (${channelUsername || channelId}).\n\n• All administrators of this channel can now manage, approve, and close roommate listings via the bot.\n• Approved roommate listings will automatically broadcast to this channel with interactive 3-button cards!`,
+              parse_mode: 'HTML',
+            });
+          }
+        } else if (newStatus === 'left' || newStatus === 'kicked') {
+          await removeManagedChannel(channelId);
+          cachedAdminIds = null;
+          console.log(`[webhook] Bot removed from channel: ${channelTitle} (${channelId})`);
+        }
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // -------------------------------------------------------------------------
     // 0. HANDLE CHANNEL POSTS & EDITED CHANNEL POSTS (Bot acts as Channel Admin)
     // -------------------------------------------------------------------------
     const channelPost = update.channel_post || update.edited_channel_post;
@@ -2726,7 +2824,7 @@ Transfer <code>${unlockFee} ETB</code> to either account:
         } catch {}
 
         // 3. Broadcast to channel with the 3 mandatory buttons
-        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+        const targetChannel = await getPrimaryChannel();
         const postCardText = `
 <b>Roommate Available</b> #${displayCode}
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
@@ -2771,7 +2869,7 @@ Transfer <code>${unlockFee} ETB</code> to either account:
         await clearSession(chatId);
 
         // 5. Render Admin Management Card
-        const channelHandle = targetChannel.replace('@', '');
+        const channelHandle = String(targetChannel).replace('@', '');
         const postLink = channelMsgId ? `https://t.me/${channelHandle}/${channelMsgId}` : '';
 
         const successText = `
@@ -2807,8 +2905,8 @@ When a user clicks to connect, the bot will track #${displayCode} and notify you
 
         const res = await executeChannelPostClose(targetIdentifier, chatId);
 
-        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
-        const channelHandle = targetChannel.replace('@', '');
+        const targetChannel = await getPrimaryChannel();
+        const channelHandle = String(targetChannel).replace('@', '');
         const postLink = res.messageId ? `https://t.me/${channelHandle}/${res.messageId}` : '';
 
         const resultCard = `
@@ -2996,7 +3094,7 @@ ${res.message}
         });
 
         // Notify user
-        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+        const targetChannel = await getPrimaryChannel();
         const userConfirmText = `
 ⏳ <b>SpaceMatch · Space Listing Submitted for Review!</b>
 
@@ -3264,7 +3362,7 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
         } catch {}
 
         // 2. Show confirmation waiting card to the user
-        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+        const targetChannel = await getPrimaryChannel();
         const userConfirmText = `
 ⏳ <b>SpaceMatch · Submitted for Admin Approval!</b>
 
@@ -3373,8 +3471,8 @@ A user has requested to post their profile to the channel <code>${targetChannel}
             .ilike('display_code', targetCode);
         } catch {}
 
-        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
-        const channelHandle = targetChannel.replace('@', '');
+        const targetChannel = await getPrimaryChannel();
+        const channelHandle = String(targetChannel).replace('@', '');
         const postLink = channelMsgId ? `https://t.me/${channelHandle}/${channelMsgId}` : '';
 
         const adminSuccessText = `
@@ -4373,6 +4471,7 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
           inline_keyboard: [
             [{ text: `⏳ Pending Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
             [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
+            [{ text: '📡 Connected Channels & Settings 📢', callback_data: 'admin_list_channels' }],
             [{ text: '🔴 Active Channel Posts & Close / Match', callback_data: 'admin_list_active_posts' }],
             [{ text: '📢 Post Custom Announcement', callback_data: 'admin_custom_prompt' }],
             [{ text: '❌ Exit Admin Menu', callback_data: 'admin_cancel' }],
@@ -4445,6 +4544,39 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
           buttons,
           msgId
         );
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin: View Connected Channels & Management
+      if (callbackData === 'admin_list_channels') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          return NextResponse.json({ ok: true });
+        }
+
+        const channels = await getManagedChannels();
+        let text = `📢 <b>Connected Channels & Broadcasting (${channels.length})</b>\n\n`;
+        if (channels.length === 0) {
+          text += `<i>No channels currently registered. The bot uses the default channel (@roommatch_addis).\n\nTo link a channel, add this bot as an administrator to that channel, or send:</i>\n<code>/setchannel @your_channel</code>`;
+        } else {
+          for (let i = 0; i < channels.length; i++) {
+            const ch = channels[i];
+            const icon = ch.is_active ? '🟢' : '🔴';
+            text += `${i + 1}. ${icon} <b>${ch.channel_title}</b>\n`;
+            text += `   • ID: <code>${ch.channel_id}</code>\n`;
+            if (ch.channel_username) text += `   • Username: <b>${ch.channel_username}</b>\n`;
+            text += `   • Status: ${ch.is_active ? 'Active' : 'Inactive'}\n\n`;
+          }
+          text += `<i>💡 Any channel where @${botUsername} is added as administrator will automatically connect here and recognize its channel admins!</i>`;
+        }
+
+        const buttons = [
+          [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+          [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+        ];
+
+        await sendOrEditCard(chatId, text, buttons, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -4694,8 +4826,8 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
           }
 
           const targetIdentifier = foundCode || (forwardMsgId ? String(forwardMsgId) : 'POST');
-          const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
-          const channelHandle = targetChannel.replace('@', '');
+          const targetChannel = await getPrimaryChannel();
+          const channelHandle = String(targetChannel).replace('@', '');
           const postLink = forwardMsgId ? `https://t.me/${channelHandle}/${forwardMsgId}` : '';
 
           const forwardPromptText = `
@@ -6147,8 +6279,8 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
         }
 
         const res = await executeChannelPostClose(query, chatId);
-        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
-        const channelHandle = targetChannel.replace('@', '');
+        const targetChannel = await getPrimaryChannel();
+        const channelHandle = String(targetChannel).replace('@', '');
         const postLink = res.messageId ? `https://t.me/${channelHandle}/${res.messageId}` : '';
 
         await sendTelegram('sendMessage', {
@@ -6405,6 +6537,158 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
           parse_mode: 'HTML',
         });
         return NextResponse.json({ ok: true });
+      }
+
+      // ── SpaceMatch Channel Management Commands ─────────────────────────────
+      if (text === '/channels') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⛔ <b>Access Denied.</b> Channel list is restricted to SpaceMatch administrators.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const channels = await getManagedChannels();
+        let channelsMsg = `📢 <b>Connected Channels (${channels.length})</b>\n\n`;
+        if (channels.length === 0) {
+          channelsMsg += `<i>No external channels connected yet. The bot uses the default channel (@roommatch_addis).\n\nTo connect any channel, add this bot as an administrator to the channel, or run:</i>\n<code>/setchannel @your_channel</code>`;
+        } else {
+          for (let i = 0; i < channels.length; i++) {
+            const ch = channels[i];
+            const statusIcon = ch.is_active ? '🟢' : '🔴';
+            channelsMsg += `${i + 1}. ${statusIcon} <b>${ch.channel_title}</b>\n`;
+            channelsMsg += `   • ID: <code>${ch.channel_id}</code>\n`;
+            if (ch.channel_username) channelsMsg += `   • Username: <b>${ch.channel_username}</b>\n`;
+            channelsMsg += `   • Status: ${ch.is_active ? 'Active' : 'Inactive'}\n\n`;
+          }
+          channelsMsg += `<i>💡 To connect a new channel, add @${botUsername} as an administrator to your channel, or run <code>/setchannel @channel</code>.</i>`;
+        }
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: channelsMsg,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '👑 Admin Menu', callback_data: 'admin_menu' }],
+              [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+            ],
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/setchannel' || text.startsWith('/setchannel ')) {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⛔ <b>Access Denied.</b> Only SpaceMatch administrators can configure channels.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const channelInput = text.replace('/setchannel', '').trim();
+        if (!channelInput) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `
+📢 <b>SpaceMatch Admin · Connect Channel</b>
+
+<b>Usage:</b> <code>/setchannel &lt;@channel_username_or_channel_id&gt;</code>
+
+<b>Examples:</b>
+• <code>/setchannel @addis_roommates</code>
+• <code>/setchannel -1001234567890</code>
+
+<b>Instructions:</b>
+1. Add @${botUsername} as an administrator in your channel with <i>Post Messages</i> & <i>Edit Messages</i> permissions.
+2. Send <code>/setchannel @your_channel</code> here.
+            `.trim(),
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        // Test if the bot is indeed an admin in that channel
+        try {
+          const res = await fetch(`https://api.telegram.org/bot${botToken}/getChatAdministrators`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: channelInput }),
+          });
+          const json = await res.json();
+
+          if (!json.ok) {
+            await sendTelegram('sendMessage', {
+              chat_id: chatId,
+              text: `⚠️ <b>Could not access channel:</b> <code>${channelInput}</code>\n\nTelegram response: <i>${json.description || 'Channel not found or bot is not an admin'}</i>\n\nPlease ensure @${botUsername} is added as an administrator to the channel first!`,
+              parse_mode: 'HTML',
+            });
+            return NextResponse.json({ ok: true });
+          }
+
+          // Fetch chat details
+          const chatRes = await fetch(`https://api.telegram.org/bot${botToken}/getChat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: channelInput }),
+          });
+          const chatJson = await chatRes.json();
+          const chatInfo = chatJson.result || {};
+
+          const channelId = chatInfo.id || channelInput;
+          const channelTitle = chatInfo.title || 'Connected Channel';
+          const channelUsername = chatInfo.username ? `@${chatInfo.username}` : (channelInput.startsWith('@') ? channelInput : null);
+
+          await saveManagedChannel({
+            channel_id: channelId,
+            channel_title: channelTitle,
+            channel_username: channelUsername,
+            added_by: chatId,
+            is_active: true,
+            added_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+
+          // Invalidate admin cache so newly discovered channel's admins are recognized immediately
+          cachedAdminIds = null;
+
+          const adminCount = Array.isArray(json.result) ? json.result.filter((m: any) => !m.user?.is_bot).length : 0;
+
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `
+✅ <b>Channel Successfully Connected!</b> 🎉
+
+• <b>Title:</b> <b>${channelTitle}</b>
+• <b>Channel ID:</b> <code>${channelId}</code>
+• <b>Username:</b> <b>${channelUsername || 'Private Channel'}</b>
+• <b>Admins Recognized:</b> <code>${adminCount}</code>
+
+All administrators of this channel can now use bot admin features, and approved listings will be posted to this channel with full 3-button tracking!
+            `.trim(),
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📢 View Connected Channels', callback_data: 'admin_list_channels' }],
+                [{ text: '👑 Admin Menu', callback_data: 'admin_menu' }],
+              ],
+            },
+          });
+          return NextResponse.json({ ok: true });
+        } catch (netErr: any) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `❌ Error connecting channel: ${netErr.message || 'Unknown network error'}`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
       }
 
       if (text === '/cancel') {

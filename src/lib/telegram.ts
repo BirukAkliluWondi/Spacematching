@@ -373,9 +373,10 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
 export async function updateChannelPostAsMatched(
   channelMessageId: number,
   displayCode: string,
-  existingContent?: string
+  existingContent?: string,
+  targetChannelId?: string | number
 ): Promise<boolean> {
-  const channelId = CHANNEL_ID();
+  const channelId = targetChannelId || CHANNEL_ID();
   const rawBotUsername = BOT_USERNAME();
   const botUsername = rawBotUsername.replace(/^@/, '');
 
