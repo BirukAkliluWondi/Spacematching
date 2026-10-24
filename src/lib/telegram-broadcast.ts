@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase-server';
-import { getRoommateDraft, getDraft, getAllRoommateDrafts } from '@/lib/bot-session-store';
+import { getRoommateDraft, getDraft, getAllRoommateDrafts, getManagedChannels } from '@/lib/bot-session-store';
 
 export interface BroadcastResult {
   success: boolean;
@@ -18,7 +18,20 @@ export async function broadcastRoommateProfileToChannel(
   const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
   const botUsername = rawBotUsername.replace('@', '');
   const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
-  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+
+  let targetChannel = channelId;
+  if (!targetChannel) {
+    try {
+      const channels = await getManagedChannels();
+      const active = channels.filter((c) => c.is_active);
+      if (active.length > 0) {
+        targetChannel = String(active[0].channel_username || active[0].channel_id);
+      }
+    } catch {}
+  }
+  if (!targetChannel) {
+    targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+  }
 
   if (!botToken) {
     return {
@@ -156,6 +169,81 @@ export async function broadcastRoommateProfileToChannel(
       }
     }
 
+    // 4. Secondary fallback: Search bot_sessions directly if still not found
+    if (!profile) {
+      try {
+        const { data: sessions } = await supabaseAdmin.from('bot_sessions').select('*');
+        if (sessions && Array.isArray(sessions)) {
+          const last4 = cleanCode.replace(/^rm/i, '');
+          const matchedSession = sessions.find((s: any) => {
+            const d = s.draft_data || {};
+            const code = (d.display_code || '').toLowerCase();
+            const tgStr = String(s.telegram_id || '');
+            return (
+              code === cleanCode.toLowerCase() ||
+              code === `rm${last4.toLowerCase()}` ||
+              tgStr === cleanCode ||
+              (last4.length >= 3 && tgStr.endsWith(last4))
+            );
+          });
+
+          if (matchedSession && matchedSession.draft_data) {
+            const d = matchedSession.draft_data;
+            profile = {
+              id: cleanCode,
+              display_code: d.display_code || cleanCode,
+              user_telegram_id: Number(matchedSession.telegram_id),
+              user_name: d.user_name || 'Verified Space Owner',
+              preferred_subcity: d.preferred_subcity || [d.location || 'Addis Ababa'],
+              my_gender: d.gender || d.my_gender || 'Member',
+              age: d.age || 24,
+              preferred_gender: d.preferred_gender || 'Any',
+              budget_max: d.space_rent || d.budget_max || 10000,
+              lifestyle_bio: d.roommate_traits || d.lifestyle_bio || 'Roommate available with a room in Addis Ababa.',
+              listing_category: d.listing_category || (d.space_rent ? 'space_available' : 'seeker'),
+              space_type: d.space_type || 'Private Bedroom in Shared Flat',
+              space_rent: d.space_rent ? Number(d.space_rent) : undefined,
+              space_share: d.space_share ? Number(d.space_share) : undefined,
+              space_amenities: d.space_amenities || [],
+              space_photos: d.space_photos || [],
+              unlock_fee: 50,
+              fayda_status: 'verified',
+            };
+          }
+        }
+      } catch (sessErr) {
+        console.warn('[broadcastRoommateProfileToChannel] bot_sessions lookup error:', sessErr);
+      }
+    }
+
+    // 5. Enrich with space details from bot_sessions if profile was loaded from profiles table without space info
+    if (profile && (!profile.space_rent || profile.listing_category !== 'space_available')) {
+      try {
+        const tgId = profile.user_telegram_id;
+        if (tgId) {
+          const { data: sRow } = await supabaseAdmin
+            .from('bot_sessions')
+            .select('draft_data')
+            .eq('telegram_id', String(tgId))
+            .maybeSingle();
+
+          if (sRow?.draft_data?.listing_category === 'space_available' || sRow?.draft_data?.space_rent) {
+            const d = sRow.draft_data;
+            profile.listing_category = 'space_available';
+            profile.space_type = d.space_type || profile.space_type || 'Private Bedroom in Shared Flat';
+            profile.space_rent = d.space_rent ? Number(d.space_rent) : profile.space_rent;
+            profile.space_share = d.space_share ? Number(d.space_share) : profile.space_share;
+            profile.space_amenities = d.space_amenities || profile.space_amenities || [];
+            profile.space_photos = d.space_photos || profile.space_photos || [];
+            if (d.age) profile.age = d.age;
+            if (d.preferred_subcity) profile.preferred_subcity = d.preferred_subcity;
+          }
+        }
+      } catch (enrichErr) {
+        console.warn('[broadcastRoommateProfileToChannel] space enrichment warning:', enrichErr);
+      }
+    }
+
     if (!profile) {
       return {
         success: false,
@@ -240,18 +328,39 @@ export async function broadcastRoommateProfileToChannel(
     };
 
     let response: any;
+    let data: any = null;
     if (hasPhotos) {
-      response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: targetChannel,
-          photo: profile.space_photos[0],
-          caption: text,
-          parse_mode: 'HTML',
-          reply_markup: inlineKeyboard,
-        }),
-      });
+      try {
+        response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: targetChannel,
+            photo: profile.space_photos[0],
+            caption: text.length > 1024 ? text.slice(0, 1020) + '…' : text,
+            parse_mode: 'HTML',
+            reply_markup: inlineKeyboard,
+          }),
+        });
+        data = await response.json();
+      } catch {
+        data = { ok: false };
+      }
+
+      // Fallback to text message if photo delivery failed
+      if (!data || !data.ok) {
+        response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: targetChannel,
+            text,
+            parse_mode: 'HTML',
+            reply_markup: inlineKeyboard,
+          }),
+        });
+        data = await response.json();
+      }
     } else {
       response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
@@ -263,9 +372,8 @@ export async function broadcastRoommateProfileToChannel(
           reply_markup: inlineKeyboard,
         }),
       });
+      data = await response.json();
     }
-
-    const data = await response.json();
 
     if (!data.ok) {
       return {

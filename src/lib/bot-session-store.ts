@@ -199,40 +199,165 @@ export async function getAllSpaceDrafts(): Promise<Record<string, SpaceDraft>> {
 }
 
 // ---------------------------------------------------------------------------
-// Roommate Profile Drafts — stored in `pending_roommate_drafts` Supabase table
+// Roommate Profile Drafts — stored in `pending_roommate_drafts` + in-memory & session fallback
 // ---------------------------------------------------------------------------
+const _roommateDraftsCache = new Map<string, RoommateProfileDraft>();
+
 export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<void> {
+  const cleanId = (draft.id || '').trim();
+  const cleanCode = (draft.display_code || cleanId).trim();
+
+  // 1. In-memory cache for ultra-fast zero-fail retrieval
+  if (cleanId) _roommateDraftsCache.set(cleanId.toLowerCase(), draft);
+  if (cleanCode) _roommateDraftsCache.set(cleanCode.toLowerCase(), draft);
+  if (draft.user_telegram_id) {
+    _roommateDraftsCache.set(String(draft.user_telegram_id), draft);
+  }
+
+  // 2. Persist to bot_sessions draft_data so photos and space metadata survive restarts
+  if (draft.user_telegram_id) {
+    try {
+      const session = getSession(draft.user_telegram_id);
+      session.draft_data = {
+        ...(session.draft_data || {}),
+        ...draft,
+        display_code: cleanCode,
+      };
+      await saveSession(session);
+    } catch (sErr) {
+      console.warn('[saveRoommateDraft] bot_sessions update error:', sErr);
+    }
+  }
+
+  // 3. Upsert into pending_roommate_drafts with ONLY valid DB columns to prevent PostgreSQL schema cache errors
   try {
+    const validDbPayload = {
+      id: cleanId,
+      user_telegram_id: draft.user_telegram_id,
+      user_name: draft.user_name || 'Roommate Seeker',
+      username: draft.username || null,
+      preferred_subcity: Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity : [],
+      my_gender: draft.my_gender || 'Member',
+      preferred_gender: draft.preferred_gender || 'Any',
+      budget_min: Number(draft.budget_min || 0),
+      budget_max: Number(draft.budget_max || 10000),
+      lifestyle_bio: draft.lifestyle_bio || '',
+      fayda_status: draft.fayda_status || 'verified',
+      fayda_document_url: draft.fayda_document_url || null,
+      unlock_fee: Number(draft.unlock_fee || 50),
+      status: draft.status || 'pending_approval',
+      updated_at: new Date().toISOString(),
+    };
+
     const { error } = await supabase
       .from('pending_roommate_drafts')
-      .upsert({ ...draft, updated_at: new Date().toISOString() }, { onConflict: 'id' });
-    if (error) console.error('saveRoommateDraft error:', error.message);
+      .upsert(validDbPayload, { onConflict: 'id' });
+    if (error) console.warn('[saveRoommateDraft] DB upsert warning:', error.message);
   } catch (err) {
-    console.error('saveRoommateDraft exception:', err);
+    console.warn('[saveRoommateDraft] DB exception:', err);
   }
 }
 
 export async function getRoommateDraft(draftId: string): Promise<RoommateProfileDraft | null> {
+  const cleanId = (draftId || '').trim().toLowerCase();
+
+  // 1. Check in-memory cache first
+  if (_roommateDraftsCache.has(cleanId)) {
+    return _roommateDraftsCache.get(cleanId)!;
+  }
+
+  // 2. Try pending_roommate_drafts table
+  let dbDraft: any = null;
   try {
     const { data } = await supabase
       .from('pending_roommate_drafts')
       .select('*')
       .eq('id', draftId)
-      .single();
-    return data ?? null;
-  } catch {
-    return null;
+      .maybeSingle();
+    if (data) dbDraft = data;
+  } catch {}
+
+  // 3. Check bot_sessions fallback to find space photos, space type, and metadata
+  try {
+    const last4 = cleanId.replace(/^rm/i, '');
+    const { data: sessions } = await supabase.from('bot_sessions').select('*');
+    if (sessions && Array.isArray(sessions)) {
+      const match = sessions.find((s: any) => {
+        const d = s.draft_data || {};
+        const code = (d.display_code || '').toLowerCase();
+        const tgStr = String(s.telegram_id || '');
+        return (
+          code === cleanId ||
+          code === `rm${last4}` ||
+          tgStr === cleanId ||
+          (last4.length >= 3 && tgStr.endsWith(last4))
+        );
+      });
+
+      if (match && match.draft_data) {
+        const d = match.draft_data;
+        const mergedDraft: RoommateProfileDraft = {
+          id: d.display_code || dbDraft?.id || draftId,
+          display_code: d.display_code || dbDraft?.id || draftId,
+          user_telegram_id: Number(match.telegram_id || dbDraft?.user_telegram_id),
+          user_name: d.user_name || dbDraft?.user_name || 'Verified Member',
+          username: d.username || dbDraft?.username || null,
+          age: d.age || 24,
+          my_gender: d.gender || d.my_gender || dbDraft?.my_gender || 'Member',
+          preferred_gender: d.preferred_gender || dbDraft?.preferred_gender || 'Any',
+          preferred_subcity: d.preferred_subcity || dbDraft?.preferred_subcity || [d.location || 'Addis Ababa'],
+          budget_min: Number(d.space_share || d.budget_min || dbDraft?.budget_min || 0),
+          budget_max: Number(d.space_rent || d.budget_max || dbDraft?.budget_max || 10000),
+          lifestyle_bio: d.roommate_traits || d.lifestyle_bio || dbDraft?.lifestyle_bio || 'Roommate listing in Addis Ababa.',
+          listing_category: d.listing_category || (d.space_rent ? 'space_available' : 'seeker'),
+          space_type: d.space_type || 'Private Bedroom in Shared Flat',
+          space_rent: d.space_rent ? Number(d.space_rent) : undefined,
+          space_share: d.space_share ? Number(d.space_share) : undefined,
+          space_amenities: d.space_amenities || [],
+          space_photos: d.space_photos || [],
+          unlock_fee: 50,
+          fayda_status: 'verified',
+          status: 'pending_approval',
+          created_at: dbDraft?.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        _roommateDraftsCache.set(cleanId, mergedDraft);
+        return mergedDraft;
+      }
+    }
+  } catch (err) {
+    console.warn('[getRoommateDraft] bot_sessions fallback error:', err);
   }
+
+  if (dbDraft) {
+    _roommateDraftsCache.set(cleanId, dbDraft);
+    return dbDraft;
+  }
+
+  return null;
 }
 
 export async function getAllRoommateDrafts(): Promise<Record<string, RoommateProfileDraft>> {
+  const result: Record<string, RoommateProfileDraft> = {};
+
   try {
     const { data } = await supabase.from('pending_roommate_drafts').select('*');
-    if (!data) return {};
-    return Object.fromEntries(data.map((d: RoommateProfileDraft) => [d.id, d]));
-  } catch {
-    return {};
+    if (data && Array.isArray(data)) {
+      data.forEach((d: any) => {
+        result[d.id] = d;
+      });
+    }
+  } catch {}
+
+  // Merge in-memory drafts
+  for (const [k, v] of _roommateDraftsCache.entries()) {
+    if (v && v.id) {
+      result[v.id] = { ...(result[v.id] || {}), ...v };
+    }
   }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------

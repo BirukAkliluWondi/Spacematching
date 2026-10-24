@@ -3035,18 +3035,25 @@ ${res.message}
         const amenities = draft.space_amenities || [];
         const photos = draft.space_photos || [];
 
-        // Upsert into profiles
+        // Save session draft data with display_code and listing_category
+        session.draft_data = {
+          ...draft,
+          display_code: cleanCode,
+          listing_category: 'space_available',
+        };
+        await saveSession(session);
+
+        // Upsert into profiles (safe columns only: no age column, valid enum status 'paused')
         await supabaseAdmin.from('profiles').upsert({
           telegram_id: chatId,
           display_code: cleanCode,
           gender: draft.gender || 'Member',
-          age: draft.age || 24,
           locations: [subcity],
           budget_min: shareNum,
           budget_max: rentNum,
-          roommate_traits: draft.roommate_traits || 'Roommate available with a room in Addis Ababa.',
+          roommate_traits: `Age ${draft.age || 24} · ${draft.roommate_traits || 'Roommate available with a room in Addis Ababa.'}`,
           kyc_status: 'verified',
-          status: 'pending_approval',
+          status: 'paused',
         }, { onConflict: 'telegram_id' });
 
         // Save into draft store so photos and space metadata are preserved
@@ -3346,10 +3353,10 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
         const ageStr = prof?.age ? `${prof.age} yrs` : '24 yrs';
         const bioStr = prof?.roommate_traits || 'Seeking compatible roommate in Addis Ababa.';
 
-        // 1. Mark status as pending_approval in Supabase
+        // 1. Mark status as paused (valid enum for pending approval) in Supabase
         await supabaseAdmin
           .from('profiles')
-          .update({ status: 'pending_approval' })
+          .update({ status: 'paused' })
           .ilike('display_code', displayCode);
 
         try {
@@ -3541,7 +3548,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
 
         await supabaseAdmin
           .from('profiles')
-          .update({ status: 'rejected' })
+          .update({ status: 'paused' })
           .ilike('display_code', targetCode);
 
         try {
