@@ -145,7 +145,20 @@ export async function saveSession(session: BotSession): Promise<void> {
 }
 
 export async function clearSession(telegramId: number): Promise<void> {
-  await saveSession(emptySession(telegramId));
+  const current = getSession(telegramId);
+  const preservedDraft: Record<string, any> = {};
+  if (current?.draft_data?.checkin_scheduled) {
+    preservedDraft.checkin_scheduled = true;
+    preservedDraft.checkin_due = current.draft_data.checkin_due;
+    preservedDraft.target_display_code = current.draft_data.target_display_code;
+    preservedDraft.target_channel_message_id = current.draft_data.target_channel_message_id;
+  }
+  await saveSession({
+    telegram_id: telegramId,
+    step: 'idle',
+    draft_data: preservedDraft,
+    updated_at: new Date().toISOString(),
+  });
 }
 
 // ---------------------------------------------------------------------------

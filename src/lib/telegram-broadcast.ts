@@ -617,16 +617,42 @@ export async function closeChannelPost(
   messageId: number,
   itemTitle: string,
   isPhoto: boolean = false,
-  channelId?: string
+  channelId?: string,
+  existingContent?: string
 ): Promise<{ success: boolean; message: string }> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
+  const botUsername = rawBotUsername.replace('@', '');
   const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
 
   if (!botToken) {
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
   }
 
-  const closedNotice = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 <i>This listing is officially closed &amp; matched!</i>\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n\n✨ <b>${itemTitle} has found a match! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted.</blockquote>`;
+  const closedHeader = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 <i>This listing is officially closed &amp; matched!</i>\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴`;
+
+  const closedNotice = existingContent?.trim()
+    ? `${closedHeader}\n\n${existingContent.trim()}\n\n🔒 <i>Listing closed. Browse active verified roommates below:</i>`
+    : `${closedHeader}\n\n✨ <b>${itemTitle} has found a match! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted.</blockquote>`;
+
+  const safeCaption = closedNotice.length > 1024 ? closedNotice.slice(0, 1020) + '…' : closedNotice;
+
+  const closedMarkup = {
+    inline_keyboard: [
+      [
+        {
+          text: '🔒 Listing Closed · Search Roommates ↗️',
+          url: `https://t.me/${botUsername}?start=search_roommate`,
+        },
+      ],
+      [
+        {
+          text: '📢 Post My Profile ↗️',
+          url: `https://t.me/${botUsername}?start=post_profile`,
+        },
+      ],
+    ],
+  };
 
   try {
     const endpoint = isPhoto ? 'editMessageCaption' : 'editMessageText';
@@ -634,11 +660,11 @@ export async function closeChannelPost(
       chat_id: targetChannel,
       message_id: messageId,
       parse_mode: 'HTML',
-      reply_markup: { inline_keyboard: [] },
+      reply_markup: closedMarkup,
     };
 
     if (isPhoto) {
-      body.caption = closedNotice;
+      body.caption = safeCaption;
     } else {
       body.text = closedNotice;
     }
@@ -659,7 +685,7 @@ export async function closeChannelPost(
         fallbackBody.text = closedNotice;
       } else {
         delete fallbackBody.text;
-        fallbackBody.caption = closedNotice;
+        fallbackBody.caption = safeCaption;
       }
 
       const res2 = await fetch(`https://api.telegram.org/bot${botToken}/${fallbackEndpoint}`, {

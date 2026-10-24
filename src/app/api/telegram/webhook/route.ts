@@ -250,20 +250,21 @@ export async function POST(request: Request) {
     // Helper: 24-Hour Automated Follow-Up Check-in Protocol
     const checkPending24hCheckins = async () => {
       try {
+        const now = Date.now();
+
+        // 1. Check sessions scheduled in bot_sessions
         const { data: pendingSessions } = await supabaseAdmin
           .from('bot_sessions')
           .select('*')
           .filter('draft_data->>checkin_scheduled', 'eq', 'true')
           .limit(20);
 
-        if (!pendingSessions || pendingSessions.length === 0) return;
-
-        const now = Date.now();
-        for (const s of pendingSessions) {
-          const due = Number(s.draft_data?.checkin_due || 0);
-          if (due > 0 && due <= now) {
-            const displayCode = s.draft_data?.target_display_code || 'ROOMMATE';
-            const checkinText = `
+        if (pendingSessions && pendingSessions.length > 0) {
+          for (const s of pendingSessions) {
+            const due = Number(s.draft_data?.checkin_due || 0);
+            if (due > 0 && due <= now) {
+              const displayCode = s.draft_data?.target_display_code || 'ROOMMATE';
+              const checkinText = `
 👋 <b>SpaceMatch · 24-Hour Roommate Follow-Up</b>
 
 It has been 24 hours since your roommate contact was unlocked!
@@ -271,40 +272,99 @@ It has been 24 hours since your roommate contact was unlocked!
 <b>Do you want to keep your profile posted on the channel?</b>
 
 • <b>Listing Code:</b> <b>#${displayCode}</b>
-            `.trim();
+              `.trim();
 
-            const checkinKeyboard = [
-              [
-                {
-                  text: '❌ No, close it (Roommate match was successful!)',
-                  callback_data: `owner_close_listing:${displayCode}`,
+              const checkinKeyboard = [
+                [
+                  {
+                    text: '❌ No, close it (Roommate match was successful!)',
+                    callback_data: `owner_close_listing:${displayCode}`,
+                  },
+                ],
+                [
+                  {
+                    text: '✅ Keep it (I want other roommate matches)',
+                    callback_data: `owner_keep_listing:${displayCode}`,
+                  },
+                ],
+              ];
+
+              await sendTelegram('sendMessage', {
+                chat_id: s.telegram_id,
+                text: checkinText,
+                parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: checkinKeyboard },
+              }).catch(() => {});
+
+              await saveSession({
+                telegram_id: s.telegram_id,
+                step: s.step || 'idle',
+                draft_data: {
+                  ...s.draft_data,
+                  checkin_scheduled: false,
+                  checkin_sent_at: new Date().toISOString(),
                 },
-              ],
-              [
-                {
-                  text: '✅ Keep it (I want other roommate matches)',
-                  callback_data: `owner_keep_listing:${displayCode}`,
-                },
-              ],
-            ];
+                updated_at: new Date().toISOString(),
+              });
+            }
+          }
+        }
 
-            await sendTelegram('sendMessage', {
-              chat_id: s.telegram_id,
-              text: checkinText,
-              parse_mode: 'HTML',
-              reply_markup: { inline_keyboard: checkinKeyboard },
-            });
+        // 2. Dual redundancy: Also check matches table where contacts were unlocked > 24 hours ago
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data: pendingMatches } = await supabaseAdmin
+          .from('matches')
+          .select('id, target:target_id(id, telegram_id, display_code, channel_message_id), contacts_unlocked_at, checkin_24h_sent')
+          .eq('status', 'completed')
+          .not('contacts_unlocked_at', 'is', null)
+          .lte('contacts_unlocked_at', twentyFourHoursAgo)
+          .or('checkin_24h_sent.is.null,checkin_24h_sent.eq.false')
+          .limit(10);
 
-            await saveSession({
-              telegram_id: s.telegram_id,
-              step: s.step || 'idle',
-              draft_data: {
-                ...s.draft_data,
-                checkin_scheduled: false,
-                checkin_sent_at: new Date().toISOString(),
-              },
-              updated_at: new Date().toISOString(),
-            });
+        if (pendingMatches && pendingMatches.length > 0) {
+          for (const m of pendingMatches) {
+            const targetData = m.target as any;
+            const targetTgId = targetData?.telegram_id;
+            const displayCode = targetData?.display_code || 'ROOMMATE';
+
+            if (targetTgId) {
+              const checkinText = `
+👋 <b>SpaceMatch · 24-Hour Roommate Follow-Up</b>
+
+It has been 24 hours since your roommate contact was unlocked!
+
+<b>Do you want to keep your profile posted on the channel?</b>
+
+• <b>Listing Code:</b> <b>#${displayCode}</b>
+              `.trim();
+
+              const checkinKeyboard = [
+                [
+                  {
+                    text: '❌ No, close it (Roommate match was successful!)',
+                    callback_data: `owner_close_listing:${displayCode}`,
+                  },
+                ],
+                [
+                  {
+                    text: '✅ Keep it (I want other roommate matches)',
+                    callback_data: `owner_keep_listing:${displayCode}`,
+                  },
+                ],
+              ];
+
+              await sendTelegram('sendMessage', {
+                chat_id: targetTgId,
+                text: checkinText,
+                parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: checkinKeyboard },
+              }).catch(() => {});
+
+              await supabaseAdmin
+                .from('matches')
+                .update({ checkin_24h_sent: true, updated_at: new Date().toISOString() })
+                .eq('id', m.id);
+            }
           }
         }
       } catch (err) {
@@ -2375,55 +2435,60 @@ Transfer <code>${unlockFee} ETB</code> to either account:
         return NextResponse.json({ ok: true });
       }
 
-      // Check if post already has the "Connect with Roommate" button
+      // Check if post already has the "Contact with Roommate" button
       const existingKb = channelPost.reply_markup?.inline_keyboard;
       const hasConnectBtn = existingKb?.some((row: any[]) =>
-        row.some((btn: any) => btn.text?.includes('Connect with Roommate'))
+        row.some((btn: any) => btn.text?.includes('Contact with Roommate') || btn.text?.includes('Connect with Roommate'))
       );
 
-      if (!hasConnectBtn) {
-        // Extract display_code (#RM... or RM...)
-        let displayCode: string | null = null;
-        const rmMatch = postText.match(/#?(RM[A-Za-z0-9_-]+)/i);
-        if (rmMatch) {
-          displayCode = rmMatch[1].toUpperCase();
-        } else {
-          const tagMatch = postText.match(/#([A-Za-z0-9_-]+)/);
-          if (tagMatch) {
-            displayCode = tagMatch[1].toUpperCase();
-          }
-        }
+      // Check if post was forwarded from bot (Checklist 1.3: direct channel posts without the bot are unaffected)
+      const isForwardedFromBot = !!(
+        (channelPost as any).forward_from?.is_bot ||
+        (channelPost as any).forward_from_chat ||
+        (channelPost as any).forward_origin
+      );
 
-        // If no displayCode found in text, fallback to RM<message_id>
-        if (!displayCode) {
-          displayCode = `RM${messageId}`;
+      // Extract display_code (#RM... or RM...)
+      let displayCode: string | null = null;
+      const rmMatch = postText.match(/#?(RM[A-Za-z0-9_-]+)/i);
+      if (rmMatch) {
+        displayCode = rmMatch[1].toUpperCase();
+      } else {
+        const tagMatch = postText.match(/#([A-Za-z0-9_-]+)/);
+        if (tagMatch) {
+          displayCode = tagMatch[1].toUpperCase();
         }
+      }
 
-        const buttonTitle = `⚡ Connect with Roommate #${displayCode} ↗️`;
+      if (!displayCode) {
+        displayCode = `RM${messageId}`;
+      }
+
+      // Link channel_message_id in DB if displayCode matches existing profile or roommate_profile
+      let targetFound = false;
+      try {
+        const { data: pRows } = await supabaseAdmin
+          .from('profiles')
+          .update({ channel_message_id: messageId })
+          .ilike('display_code', displayCode)
+          .select('id');
+        if (pRows && pRows.length > 0) targetFound = true;
+
+        const { data: rmRows } = await supabaseAdmin
+          .from('roommate_profiles')
+          .update({ channel_message_id: messageId })
+          .ilike('display_code', displayCode)
+          .select('id');
+        if (rmRows && rmRows.length > 0) targetFound = true;
+      } catch (linkErr) {
+        console.error('[webhook] Error linking channel_message_id:', linkErr);
+      }
+
+      // If forwarded from the bot and buttons missing, attach the 3 standard buttons
+      if (isForwardedFromBot && !hasConnectBtn) {
+        const buttonTitle = `⚡ Contact with Roommate #${displayCode} ↗️`;
         const connectPayload = `req_${displayCode}`;
 
-        // Link channel_message_id in DB if displayCode matches existing profile or roommate_profile
-        let targetFound = false;
-        try {
-          const { data: pRows } = await supabaseAdmin
-            .from('profiles')
-            .update({ channel_message_id: messageId })
-            .ilike('display_code', displayCode)
-            .select('id');
-          if (pRows && pRows.length > 0) targetFound = true;
-
-          const { data: rmRows } = await supabaseAdmin
-            .from('roommate_profiles')
-            .update({ channel_message_id: messageId })
-            .ilike('display_code', displayCode)
-            .select('id');
-          if (rmRows && rmRows.length > 0) targetFound = true;
-        } catch (linkErr) {
-          console.error('[webhook] Error linking channel_message_id:', linkErr);
-        }
-
-        // If this post was posted directly by channel admin and has no profile yet,
-        // create an active profile entry so clicks on the button connect directly!
         if (!targetFound) {
           try {
             const adminIds = await getAdminIds();
@@ -2660,10 +2725,10 @@ Transfer <code>${unlockFee} ETB</code> to either account:
           });
         } catch {}
 
-        // 3. Broadcast to channel with dual buttons
+        // 3. Broadcast to channel with the 3 mandatory buttons
         const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
         const postCardText = `
-✨ <b>SpaceMatch</b> · <b>Roommate Seeker #${displayCode}</b>
+<b>Roommate Available</b> #${displayCode}
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
 
 • <b>Gender:</b> ${genderStr}
@@ -5253,7 +5318,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
         const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
 
-        const paymentInstructions = `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>50 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
+        const paymentInstructions = `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>50 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>After both parties have paid, contact information will be revealed to both of you. If one party refuses to pay, your payment will be fully refunded.</i>\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
 
         await sendOrEditCard(chatId, `✅ <b>Fayda Verified Successfully!</b>\n\nYou have accepted the connection request.\n\n${paymentInstructions}`, [], activeMsgId);
 
@@ -5772,12 +5837,12 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
           return NextResponse.json({ ok: true });
         }
 
-        // 1. Check if reference already used
+        // 1. Check if reference already used (case-insensitive)
         const { data: existingPayment } = await supabaseAdmin
           .from('payments')
           .select('id')
-          .eq('reference', reference)
-          .single();
+          .ilike('reference', reference.trim())
+          .maybeSingle();
 
         if (existingPayment) {
           await tgSend(
@@ -5787,12 +5852,24 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
           return NextResponse.json({ ok: true });
         }
 
-        // 2. Find the paying user's profile
-        const { data: payerProfile } = await supabaseAdmin
+        // 2. Find the paying user's profile in profiles or roommate_profiles
+        let payerProfile: any = null;
+        const { data: pProfile } = await supabaseAdmin
           .from('profiles')
           .select('id, status')
           .eq('telegram_id', chatId)
-          .single();
+          .maybeSingle();
+
+        if (pProfile) {
+          payerProfile = pProfile;
+        } else {
+          const { data: rmProfile } = await supabaseAdmin
+            .from('roommate_profiles')
+            .select('id, status')
+            .eq('user_telegram_id', chatId)
+            .maybeSingle();
+          if (rmProfile) payerProfile = rmProfile;
+        }
 
         if (!payerProfile) {
           await tgSend(chatId, `⚠️ Profile not found. Please complete your onboarding first.`);
@@ -5800,14 +5877,35 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
         }
 
         // 3. Find the active pending_payment match for this user
-        const { data: activeMatch } = await supabaseAdmin
+        let activeMatch: any = null;
+        const { data: matchRow } = await supabaseAdmin
           .from('matches')
           .select('*, requester:requester_id(id, telegram_id, display_code, full_name, phone_number, telegram_username), target:target_id(id, telegram_id, display_code, full_name, phone_number, telegram_username, channel_message_id)')
           .or(`requester_id.eq.${payerProfile.id},target_id.eq.${payerProfile.id}`)
           .eq('status', 'pending_payment')
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
+
+        if (matchRow) {
+          activeMatch = matchRow;
+        } else {
+          // Fallback: check matches where requester or target has this telegram_id
+          const { data: allPending } = await supabaseAdmin
+            .from('matches')
+            .select('*, requester:requester_id(id, telegram_id, display_code, full_name, phone_number, telegram_username), target:target_id(id, telegram_id, display_code, full_name, phone_number, telegram_username, channel_message_id)')
+            .eq('status', 'pending_payment')
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+          if (allPending) {
+            activeMatch = allPending.find(
+              (m: any) =>
+                Number(m.requester?.telegram_id) === chatId ||
+                Number(m.target?.telegram_id) === chatId
+            );
+          }
+        }
 
         if (!activeMatch) {
           await tgSend(
@@ -5841,15 +5939,21 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
         });
 
         // 7. Determine which side paid and update the match
-        const isRequester = (activeMatch.requester as any)?.id === payerProfile.id;
+        const isRequester =
+          (activeMatch.requester as any)?.id === payerProfile.id ||
+          Number((activeMatch.requester as any)?.telegram_id) === chatId;
         const updateField = isRequester ? 'requester_paid' : 'target_paid';
+        const paidAtField = isRequester ? 'requester_paid_at' : 'target_paid_at';
 
         const { data: updatedMatch } = await supabaseAdmin
           .from('matches')
-          .update({ [updateField]: true })
+          .update({
+            [updateField]: true,
+            [paidAtField]: new Date().toISOString(),
+          })
           .eq('id', activeMatch.id)
           .select('requester_paid, target_paid')
-          .single();
+          .maybeSingle();
 
         const bothPaid = updatedMatch?.requester_paid && updatedMatch?.target_paid;
 
@@ -5884,6 +5988,8 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
               payment_status: 'both_paid',
               status: 'completed',
               completed_at: new Date().toISOString(),
+              contacts_unlocked_at: new Date().toISOString(),
+              checkin_24h_sent: false,
             })
             .eq('id', activeMatch.id);
 

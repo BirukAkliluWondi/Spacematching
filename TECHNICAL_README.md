@@ -96,16 +96,21 @@ Every post posted via the bot to the channel attaches:
    - If target agrees, enters the identical mutual 50 ETB payment protocol.
 
 ### 2.6 24-Hour Post-Match Check-in & Post Closure (`_____________CLOSED________`)
-1. Upon mutual contact unlock, the timestamp is recorded in `matches.contacts_unlocked_at`.
-2. 24 hours later, the bot checks in via DM with the listing owner:
+1. Upon mutual contact unlock, the timestamp is recorded atomically in `matches.contacts_unlocked_at` and scheduled in `bot_sessions`.
+2. **Dual-Redundancy Follow-Up Daemon (`checkPending24hCheckins`)**:
+   - Evaluates on webhook lifecycle triggers across both active sessions and persistent `matches` records where `contacts_unlocked_at <= now() - 24 hours` and `checkin_24h_sent = false`.
+   - Guaranteed against session clearing (`clearSession()` explicitly preserves active check-in timers).
+3. 24 hours later, the bot checks in via DM with the listing owner:
    > *"Do you want to keep your profile posted on the channel?"*
-   - `[ ❌ No, close it (Roommate match was successful!) ]`
-   - `[ ✅ Keep it (I want more roommate matches) ]`
-3. If the owner selects "No, close it":
+   - `[ ❌ No, close it (Roommate match was successful!) ]` (`owner_close_listing:<CODE>`)
+   - `[ ✅ Keep it (I want more roommate matches) ]` (`owner_keep_listing:<CODE>`)
+4. If the owner selects "No, close it":
    - The bot calls Telegram API `editMessageText` / `editMessageCaption` on the channel post ID.
    - Prepends `🔴 ━━━━━ _____CLOSED_____ ━━━━━ 🔴` at the very top.
-   - Swaps inline buttons to inactive status buttons.
-   - Updates database status to `closed`.
+   - Preserves original listing details (space offering or seeker criteria).
+   - Enforces a 1024-character caption boundary for photo posts to prevent Telegram API errors.
+   - Swaps action buttons to closed status links (`🔒 Listing Closed · Search Roommates ↗️` and `📢 Post My Profile ↗️`).
+   - Updates listing status to `closed` in both `profiles` and `roommate_profiles` database tables.
 
 ---
 

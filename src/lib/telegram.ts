@@ -384,17 +384,51 @@ export async function updateChannelPostAsMatched(
   // If no existing content provided, attempt to retrieve listing from DB
   if (!baseContent) {
     try {
-      const { data: p } = await supabaseAdmin
+      let p: any = null;
+      const { data: pFromProfiles } = await supabaseAdmin
         .from('profiles')
         .select('*')
         .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`)
         .maybeSingle();
 
+      if (pFromProfiles) {
+        p = pFromProfiles;
+      } else {
+        const { data: pFromRoommates } = await supabaseAdmin
+          .from('roommate_profiles')
+          .select('*')
+          .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`)
+          .maybeSingle();
+        if (pFromRoommates) {
+          p = {
+            display_code: pFromRoommates.display_code,
+            gender: pFromRoommates.my_gender,
+            locations: pFromRoommates.preferred_subcity,
+            budget_max: pFromRoommates.budget_max,
+            roommate_traits: pFromRoommates.lifestyle_bio,
+            listing_category: pFromRoommates.listing_category,
+            space_type: pFromRoommates.space_type,
+            space_rent: pFromRoommates.space_rent,
+            space_share: pFromRoommates.space_share,
+            space_amenities: pFromRoommates.space_amenities,
+          };
+        }
+      }
+
       if (p) {
         const locations = Array.isArray(p.locations) && p.locations.length > 0 ? p.locations.join(', ') : 'Addis Ababa';
-        const budgetStr = p.budget_max ? `Up to ${Number(p.budget_max).toLocaleString()} ETB / month` : 'Flexible';
         const traits = p.roommate_traits || 'Seeking compatible roommate in Addis Ababa.';
-        baseContent = `✨ <b>SpaceMatch</b> · <b>Roommate Seeker #${escapeHtml(p.display_code || displayCode)}</b>\n📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified</b>\n\n• <b>Gender:</b> ${escapeHtml(p.gender || 'Member')}\n• <b>Budget Cap:</b> <code>${budgetStr}</code>\n\n<blockquote>"${escapeHtml(traits)}"</blockquote>`;
+        const hasSpace = p.listing_category === 'space_available' || (p.space_rent && Number(p.space_rent) > 0);
+
+        if (hasSpace) {
+          const rentStr = p.space_rent ? `${Number(p.space_rent).toLocaleString()} ETB / month` : 'Negotiable';
+          const shareStr = p.space_share ? `${Number(p.space_share).toLocaleString()} ETB / month` : 'Split';
+          const amenities = Array.isArray(p.space_amenities) && p.space_amenities.length > 0 ? p.space_amenities.join(', ') : 'WiFi, Kitchen, Water supply';
+          baseContent = `<b>Roommate available with a Room</b> #${escapeHtml(p.display_code || displayCode)}\n📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified ✅</b>\n\n• <b>Space Type:</b> ${escapeHtml(p.space_type || 'Private Bedroom in Shared Flat')}\n• <b>Total Monthly Rent:</b> <code>${rentStr}</code>\n• <b>Your Share / Split:</b> <code>${shareStr}</code>\n• <b>Amenities:</b> ${escapeHtml(amenities)}\n\n<blockquote>"${escapeHtml(traits)}"</blockquote>`;
+        } else {
+          const budgetStr = p.budget_max ? `Up to ${Number(p.budget_max).toLocaleString()} ETB / month` : 'Flexible';
+          baseContent = `<b>Roommate Available</b> #${escapeHtml(p.display_code || displayCode)}\n📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified ✅</b>\n\n• <b>Gender:</b> ${escapeHtml(p.gender || 'Member')}\n• <b>Budget Cap:</b> <code>${budgetStr}</code>\n\n<blockquote>"${escapeHtml(traits)}"</blockquote>`;
+        }
       }
     } catch (err) {
       console.error('Error fetching profile for closed post formatting:', err);
@@ -407,18 +441,20 @@ export async function updateChannelPostAsMatched(
     ? `${closedHeader}\n\n${baseContent}\n\n🔒 <i>Listing closed. Browse active verified roommates below:</i>`
     : `${closedHeader}\n\n✨ <b>Roommate #${escapeHtml(displayCode)} has found a match! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted.</blockquote>`;
 
+  const safeCaption = closedText.length > 1024 ? closedText.slice(0, 1020) + '…' : closedText;
+
   const closedMarkup: InlineKeyboard = {
     inline_keyboard: [
       [
         {
-          text: '🔒 Listing Closed · View Active Matches ↗️',
-          url: `https://t.me/${botUsername}?start=match`,
+          text: '🔒 Listing Closed · Search Roommates ↗️',
+          url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
       [
         {
-          text: '📢 Post Your Profile to Channel ↗️',
-          url: `https://t.me/${botUsername}?start=post_to_channel`,
+          text: '📢 Post My Profile ↗️',
+          url: `https://t.me/${botUsername}?start=post_profile`,
         },
       ],
     ],
@@ -438,7 +474,7 @@ export async function updateChannelPostAsMatched(
       await callTelegram('editMessageCaption', {
         chat_id: channelId,
         message_id: channelMessageId,
-        caption: closedText,
+        caption: safeCaption,
         parse_mode: 'HTML',
         reply_markup: closedMarkup,
       });
@@ -448,11 +484,11 @@ export async function updateChannelPostAsMatched(
     try {
       await supabaseAdmin
         .from('profiles')
-        .update({ status: 'matched', updated_at: new Date().toISOString() })
+        .update({ status: 'closed', updated_at: new Date().toISOString() })
         .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`);
       await supabaseAdmin
         .from('roommate_profiles')
-        .update({ status: 'matched', updated_at: new Date().toISOString() })
+        .update({ status: 'closed', updated_at: new Date().toISOString() })
         .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`);
     } catch {}
 
