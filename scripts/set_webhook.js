@@ -14,7 +14,18 @@ if (!webhookUrl) {
 
 async function main() {
   console.log('Setting Telegram webhook to:', webhookUrl);
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook?url=${encodeURIComponent(webhookUrl)}`);
+  const allowedUpdates = JSON.stringify([
+    'message',
+    'edited_message',
+    'channel_post',
+    'edited_channel_post',
+    'callback_query',
+    'my_chat_member',
+    'chat_member',
+  ]);
+  const res = await fetch(
+    `https://api.telegram.org/bot${botToken}/setWebhook?url=${encodeURIComponent(webhookUrl)}&allowed_updates=${encodeURIComponent(allowedUpdates)}`
+  );
   const json = await res.json();
   console.log('Set Webhook Result:', json);
 

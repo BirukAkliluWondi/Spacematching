@@ -30,7 +30,7 @@ export async function broadcastRoommateProfileToChannel(
     } catch {}
   }
   if (!targetChannel) {
-    targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+    targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
   }
 
   if (!botToken) {
@@ -449,7 +449,7 @@ export async function broadcastListingToChannel(
   const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
   const botUsername = rawBotUsername.replace('@', '');
   const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
-  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
 
   if (!botToken) {
     return {
@@ -605,7 +605,7 @@ export async function postCustomToChannel(
   const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
   const botUsername = rawBotUsername.replace('@', '');
   const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
-  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
 
   if (!botToken) {
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
@@ -684,7 +684,7 @@ export async function deleteChannelPost(
   channelId?: string
 ): Promise<{ success: boolean; message: string }> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
 
   if (!botToken) {
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
@@ -731,7 +731,7 @@ export async function closeChannelPost(
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
   const botUsername = rawBotUsername.replace('@', '');
-  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
 
   if (!botToken) {
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };

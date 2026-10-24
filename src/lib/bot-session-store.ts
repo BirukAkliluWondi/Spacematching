@@ -400,7 +400,7 @@ export async function getManagedChannels(): Promise<ManagedChannel[]> {
   }
 
   // Fallback default from environment if available
-  const defaultChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+  const defaultChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
   const defaults: ManagedChannel[] = [
     {
       channel_id: defaultChannel,
@@ -430,7 +430,7 @@ export async function saveManagedChannel(channel: ManagedChannel): Promise<void>
       updated = [...current];
       updated[existingIndex] = { ...updated[existingIndex], ...channel, updated_at: new Date().toISOString() };
     } else {
-      updated = [...current.filter(c => c.channel_id !== '@roommatch_addis' || c.added_by), channel];
+      updated = [...current.filter(c => c.channel_id !== '@roommate_addis' || c.added_by), channel];
     }
 
     cachedManagedChannels = updated;

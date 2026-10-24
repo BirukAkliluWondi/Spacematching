@@ -174,7 +174,7 @@ export async function POST(request: Request) {
       } catch (err) {
         console.error('getPrimaryChannel error:', err);
       }
-      return process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+      return process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
     };
 
     const getAllActiveChannels = async (): Promise<(string | number)[]> => {
@@ -187,7 +187,7 @@ export async function POST(request: Request) {
       } catch (err) {
         console.error('getAllActiveChannels error:', err);
       }
-      return [process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis'];
+      return [process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis'];
     };
 
     // Helper to close a channel listing manually or automatically
@@ -1132,7 +1132,7 @@ ${photos.length > 0 ? `✅ <b>${photos.length} photo(s) uploaded!</b>\n\n` : ''}
 
       const text = `
 📢 <b>SpaceMatch Admin · Publish Listing to Channel</b>
-<i>Select the category of the post to broadcast to @roommatch_addis:</i>
+<i>Select the category of the post to broadcast to @roommate_addis:</i>
       `.trim();
 
       const inlineKeyboard = [
@@ -1310,7 +1310,7 @@ Please reply with the description, perks, or notes for this channel post.
 
       const previewText = `
 📋 <b>SpaceMatch Admin · Review Channel Post</b>
-<i>This listing will be saved to Supabase first, then published to @roommatch_addis with tracking buttons:</i>
+<i>This listing will be saved to Supabase first, then published to @roommate_addis with tracking buttons:</i>
 
 ━━━━━━━━━━━━━━━━━━━━━
 ✨ <b>SpaceMatch · ${catTitle} #RM...</b>
@@ -2511,6 +2511,20 @@ Transfer <code>${unlockFee} ETB</code> to either account:
       const messageId = channelPost.message_id;
       const postText = (channelPost.text || channelPost.caption || '').trim();
 
+      // Automatically register/update active channel from channel post
+      try {
+        await saveManagedChannel({
+          channel_id: channelId,
+          channel_title: channelPost.chat.title || 'Connected Channel',
+          channel_username: channelPost.chat.username ? `@${channelPost.chat.username}` : null,
+          is_active: true,
+          added_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      } catch (chErr) {
+        console.warn('[webhook] channelPost auto-registration warning:', chErr);
+      }
+
       // Skip if post is already marked as matched or closed
       if (postText.includes('MATCHED') || postText.includes('CLOSED')) {
         return NextResponse.json({ ok: true });
@@ -3457,11 +3471,18 @@ A user has requested to post their profile to the channel <code>${targetChannel}
 
         const res = await broadcastRoommateProfileToChannel(targetCode);
         if (!res.success) {
+          const isChatNotFound = (res.message || '').includes('chat not found');
+          const targetChannel = await getPrimaryChannel();
+          const channelGuidance = isChatNotFound
+            ? `\n\n💡 <b>Why this happened:</b> Telegram could not deliver to <code>${targetChannel}</code>.\n\n<b>How to link your channel in seconds:</b>\n1. Add @${botUsername} as an <b>Admin</b> to your channel.\n2. Forward <b>any post</b> from your channel directly to this bot, or send:\n<code>/setchannel @your_channel_username</code>`
+            : '';
+
           await sendOrEditCard(
             chatId,
-            `⚠️ <b>Broadcast Error for #${targetCode}:</b>\n${res.message}`,
+            `⚠️ <b>Broadcast Error for #${targetCode}:</b>\n${res.message}${channelGuidance}`,
             [
               [{ text: '🔄 Retry Approval', callback_data: `admin_approve_profile:${targetCode}` }],
+              [{ text: '📢 Manage Channels / Setup ⚙️', callback_data: 'admin_channels_setup' }],
               [{ text: '🏠 Admin Menu', callback_data: 'admin_menu' }],
             ],
             msgId
@@ -4559,7 +4580,7 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
       }
 
       // Admin: View Connected Channels & Management
-      if (callbackData === 'admin_list_channels') {
+      if (callbackData === 'admin_list_channels' || callbackData === 'admin_channels_setup') {
         const adminIds = await getAdminIds();
         if (!adminIds.includes(chatId)) {
           await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
@@ -4569,7 +4590,7 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
         const channels = await getManagedChannels();
         let text = `📢 <b>Connected Channels & Broadcasting (${channels.length})</b>\n\n`;
         if (channels.length === 0) {
-          text += `<i>No channels currently registered. The bot uses the default channel (@roommatch_addis).\n\nTo link a channel, add this bot as an administrator to that channel, or send:</i>\n<code>/setchannel @your_channel</code>`;
+          text += `<i>No channels currently registered. The bot uses the default channel (@roommate_addis).\n\nTo link a channel, add this bot as an administrator to that channel, or send:</i>\n<code>/setchannel @your_channel</code>`;
         } else {
           for (let i = 0; i < channels.length; i++) {
             const ch = channels[i];
@@ -4803,12 +4824,29 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
       await preloadSession(chatId);
       const session = getSession(chatId);
 
-      // Forward detection: Admin forwards a channel post to close/mark as matched
+      // Forward detection: Admin forwards a channel post to link or close/mark as matched
       const forwardChat = (message as any).forward_from_chat || (message as any).forward_origin?.chat;
       const forwardMsgId = (message as any).forward_from_message_id || (message as any).forward_origin?.message_id;
       if (forwardMsgId || forwardChat) {
         const adminIds = await getAdminIds();
         if (adminIds.includes(chatId)) {
+          // If forwarded from a channel, automatically register the channel
+          if (forwardChat && (forwardChat.type === 'channel' || forwardChat.id)) {
+            try {
+              await saveManagedChannel({
+                channel_id: forwardChat.id,
+                channel_title: forwardChat.title || 'Connected Channel',
+                channel_username: forwardChat.username ? `@${forwardChat.username}` : null,
+                added_by: chatId,
+                is_active: true,
+                added_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              });
+            } catch (fwdChErr) {
+              console.warn('[webhook] forwardChat auto-registration warning:', fwdChErr);
+            }
+          }
+
           let foundCode: string | null = null;
           if (text) {
             const matchCode = text.match(/#(RM\d+|SP\d+)/i);
@@ -6399,7 +6437,7 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
         }
 
         msg += `📢 <b>Channel Administrators:</b>\n`;
-        msg += `• Automatically synced from <code>@roommatch_addis</code> channel administrators.\n\n`;
+        msg += `• Automatically synced from <code>@roommate_addis</code> channel administrators.\n\n`;
         msg += `⚙️ <b>Commands:</b>\n`;
         msg += `• <code>/add_admin &lt;telegram_id_or_username&gt;</code>\n`;
         msg += `• <code>/remove_admin &lt;telegram_id_or_username&gt;</code>\n`;
@@ -6618,7 +6656,7 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
         const channels = await getManagedChannels();
         let channelsMsg = `📢 <b>Connected Channels (${channels.length})</b>\n\n`;
         if (channels.length === 0) {
-          channelsMsg += `<i>No external channels connected yet. The bot uses the default channel (@roommatch_addis).\n\nTo connect any channel, add this bot as an administrator to the channel, or run:</i>\n<code>/setchannel @your_channel</code>`;
+          channelsMsg += `<i>No external channels connected yet. The bot uses the default channel (@roommate_addis).\n\nTo connect any channel, add this bot as an administrator to the channel, or run:</i>\n<code>/setchannel @your_channel</code>`;
         } else {
           for (let i = 0; i < channels.length; i++) {
             const ch = channels[i];
