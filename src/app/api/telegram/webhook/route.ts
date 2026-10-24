@@ -53,6 +53,12 @@ const ALL_SUBCITIES = [
   'Lideta',
 ];
 
+// Module-level cache for admin IDs
+let cachedAdminIds: { ids: number[]; expiresAt: number } | null = null;
+export function invalidateAdminCache() {
+  cachedAdminIds = null;
+}
+
 export async function POST(request: Request) {
   try {
     const update = await request.json();
@@ -80,17 +86,230 @@ export async function POST(request: Request) {
       }
     };
 
-    // Helper to get Admin Telegram IDs
+    // Helper to get Admin Telegram IDs (Super-Admins + DB Admins + Channel Admins)
     const getAdminIds = async (): Promise<number[]> => {
+      const now = Date.now();
+      if (cachedAdminIds && cachedAdminIds.expiresAt > now) {
+        return cachedAdminIds.ids;
+      }
+
       const defaultAdminIds = [800701176, 148318506]; // @birukadiyee & @WWEHID
+      const envAdmins = (process.env.ADMIN_TELEGRAM_IDS || '')
+        .split(',')
+        .map((s) => Number(s.trim()))
+        .filter((n) => !isNaN(n) && n > 0);
+
+      const adminSet = new Set<number>([...defaultAdminIds, ...envAdmins]);
+
+      // 1. Fetch from Supabase users where role = 'admin'
       try {
         const { data } = await supabaseAdmin.from('users').select('telegram_id').eq('role', 'admin');
         if (data && data.length > 0) {
-          const ids = data.map((u: any) => Number(u.telegram_id)).filter((id: number) => id);
-          return Array.from(new Set([...ids, ...defaultAdminIds]));
+          for (const u of data) {
+            const id = Number(u.telegram_id);
+            if (id) adminSet.add(id);
+          }
         }
-      } catch {}
-      return defaultAdminIds;
+      } catch (err) {
+        console.error('Error fetching DB admins:', err);
+      }
+
+      // 2. Fetch from Telegram Channel Administrators (@roommatch_addis)
+      const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+      if (botToken) {
+        try {
+          const res = await fetch(`https://api.telegram.org/bot${botToken}/getChatAdministrators`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: targetChannel }),
+          });
+          const json = await res.json();
+          if (json.ok && Array.isArray(json.result)) {
+            for (const member of json.result) {
+              if (member.user && !member.user.is_bot && member.user.id) {
+                adminSet.add(Number(member.user.id));
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error fetching channel administrators:', err);
+        }
+      }
+
+      const result = Array.from(adminSet);
+      cachedAdminIds = { ids: result, expiresAt: now + 5 * 60 * 1000 };
+      return result;
+    };
+
+    // Helper to close a channel listing manually or automatically
+    const executeChannelPostClose = async (
+      targetIdentifier: string,
+      closedByChatId: number
+    ): Promise<{ success: boolean; message: string; displayCode?: string; messageId?: number }> => {
+      let rawClean = targetIdentifier.trim().replace(/^#/, '');
+      // Extract from URL if full link was provided (e.g. https://t.me/roommatch_addis/1542)
+      const linkMatch = rawClean.match(/(?:t\.me\/[^\/]+\/|message_id=)(\d+)/);
+      if (linkMatch) {
+        rawClean = linkMatch[1];
+      }
+
+      // 1. Find profile in DB
+      let targetProfile: any = null;
+      let channelMsgId: number | null = null;
+      let displayCode: string = rawClean.toUpperCase();
+
+      const { data: pCode } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .ilike('display_code', rawClean)
+        .maybeSingle();
+
+      if (pCode) {
+        targetProfile = pCode;
+        channelMsgId = pCode.channel_message_id;
+        displayCode = pCode.display_code;
+      } else {
+        const { data: rmCode } = await supabaseAdmin
+          .from('roommate_profiles')
+          .select('*')
+          .ilike('display_code', rawClean)
+          .maybeSingle();
+
+        if (rmCode) {
+          targetProfile = rmCode;
+          channelMsgId = rmCode.channel_message_id;
+          displayCode = rmCode.display_code || rawClean.toUpperCase();
+        }
+      }
+
+      // If not found by display_code, check if rawClean is a channel_message_id
+      const parsedNum = parseInt(rawClean.replace(/^post_|^RM/i, ''), 10);
+      if (!channelMsgId && !isNaN(parsedNum) && parsedNum > 0) {
+        channelMsgId = parsedNum;
+        if (!targetProfile) {
+          const { data: pMsg } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('channel_message_id', parsedNum)
+            .maybeSingle();
+          if (pMsg) {
+            targetProfile = pMsg;
+            displayCode = pMsg.display_code;
+          }
+        }
+      }
+
+      if (!channelMsgId) {
+        return {
+          success: false,
+          message: `Could not find a channel post corresponding to <b>${rawClean}</b>. Please provide a valid #RM code, message ID, or channel link.`,
+        };
+      }
+
+      // 2. Call updateChannelPostAsMatched
+      const closedSuccess = await updateChannelPostAsMatched(channelMsgId, displayCode);
+
+      // 3. Mark DB as closed / matched
+      try {
+        await supabaseAdmin
+          .from('profiles')
+          .update({
+            status: 'closed',
+            updated_at: new Date().toISOString(),
+          })
+          .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMsgId}`);
+
+        await supabaseAdmin
+          .from('roommate_profiles')
+          .update({
+            status: 'closed',
+            updated_at: new Date().toISOString(),
+          })
+          .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMsgId}`);
+      } catch (dbErr) {
+        console.error('Error updating profile status to closed in DB:', dbErr);
+      }
+
+      if (closedSuccess) {
+        return {
+          success: true,
+          message: `Post <b>#${displayCode}</b> (Channel Message ID: <code>${channelMsgId}</code>) is now marked as <b>_____CLOSED_____</b> in the channel!`,
+          displayCode,
+          messageId: channelMsgId,
+        };
+      } else {
+        return {
+          success: false,
+          message: `Database marked as closed, but Telegram message <code>${channelMsgId}</code> could not be updated in the channel. Please verify the bot's channel edit permissions.`,
+          displayCode,
+          messageId: channelMsgId,
+        };
+      }
+    };
+
+    // Helper: 24-Hour Automated Follow-Up Check-in Protocol
+    const checkPending24hCheckins = async () => {
+      try {
+        const { data: pendingSessions } = await supabaseAdmin
+          .from('bot_sessions')
+          .select('*')
+          .filter('draft_data->>checkin_scheduled', 'eq', 'true')
+          .limit(20);
+
+        if (!pendingSessions || pendingSessions.length === 0) return;
+
+        const now = Date.now();
+        for (const s of pendingSessions) {
+          const due = Number(s.draft_data?.checkin_due || 0);
+          if (due > 0 && due <= now) {
+            const displayCode = s.draft_data?.target_display_code || 'ROOMMATE';
+            const checkinText = `
+👋 <b>SpaceMatch · 24-Hour Roommate Follow-Up</b>
+
+It has been 24 hours since your roommate contact was unlocked!
+
+<b>Do you want to keep your profile posted on the channel?</b>
+
+• <b>Listing Code:</b> <b>#${displayCode}</b>
+            `.trim();
+
+            const checkinKeyboard = [
+              [
+                {
+                  text: '❌ No, close it (Roommate match was successful!)',
+                  callback_data: `owner_close_listing:${displayCode}`,
+                },
+              ],
+              [
+                {
+                  text: '✅ Keep it (I want other roommate matches)',
+                  callback_data: `owner_keep_listing:${displayCode}`,
+                },
+              ],
+            ];
+
+            await sendTelegram('sendMessage', {
+              chat_id: s.telegram_id,
+              text: checkinText,
+              parse_mode: 'HTML',
+              reply_markup: { inline_keyboard: checkinKeyboard },
+            });
+
+            await saveSession({
+              telegram_id: s.telegram_id,
+              step: s.step || 'idle',
+              draft_data: {
+                ...s.draft_data,
+                checkin_scheduled: false,
+                checkin_sent_at: new Date().toISOString(),
+              },
+              updated_at: new Date().toISOString(),
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error checking 24h follow-ups:', err);
+      }
     };
 
     // Helper to send or edit in-place cards seamlessly
@@ -224,7 +443,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🎂 <b>Step 1 of 5: What is y
 
       const inlineKeyboard = [
         ...(draft.target_code
-          ? [[{ text: '📢 Post My Profile to Channel Instead ↗️', callback_data: 'post_to_channel_start' }]]
+          ? [[{ text: '📢 Post My Profile to Channel Instead ↗️', callback_data: 'post_profile_start' }]]
           : []),
         [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
       ];
@@ -441,18 +660,19 @@ SpaceMatch Addis is a 100% verified housing community.
 
 <blockquote>"${profileData.roommate_traits || 'Seeking compatible roommate in Addis Ababa.'}"</blockquote>
 
-<i>Tapping publish will post your anonymous profile to the channel!</i>
+<i>Tapping submit will send your anonymous profile to our channel admins for review and approval!</i>
       `.trim();
 
+      const targetIdentifier = profileData.display_code || profileData.id;
       const inlineKeyboard = [
         [
           {
-            text: '📢 Publish to Channel Now 🚀',
-            callback_data: `dyn_publish_channel:${profileData.id || profileData.display_code}`,
+            text: '📢 Submit for Admin Approval 🚀',
+            callback_data: `dyn_submit_channel:${targetIdentifier}`,
           },
         ],
         [
-          { text: '✏️ Edit Profile Details', callback_data: 'post_to_channel_start' },
+          { text: '✏️ Edit Profile Details', callback_data: 'post_profile_start' },
           { text: '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
@@ -460,10 +680,576 @@ SpaceMatch Addis is a 100% verified housing community.
       await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
     };
 
+    // ── Helper: 2-Branch Selection: "I have a space" vs "We look for space together" ──
+    const sendPostProfileBranchPrompt = async (chatId: number, messageIdToEdit?: number) => {
+      await saveSession({
+        telegram_id: chatId,
+        step: 'post_profile_branch_select',
+        draft_data: { card_msg_id: messageIdToEdit },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+📢 <b>SpaceMatch · Post Your Profile on the Channel</b>
+
+Please select which type of roommate profile you want to post:
+
+• <b>Option 1:</b> 🏠 <b>I have a space and I want a roommate</b>
+<i>(You already have a room/flat and want to find a roommate to share it with)</i>
+
+• <b>Option 2:</b> 👥 <b>I want a roommate and we look for space together</b>
+<i>(You are looking for a compatible roommate so you can search for a place together)</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [
+          {
+            text: '🏠 I have a space and I want a roommate',
+            callback_data: 'post_branch_space',
+          },
+        ],
+        [
+          {
+            text: '👥 I want a roommate and we look for space together',
+            callback_data: 'post_branch_seeker',
+          },
+        ],
+        [
+          {
+            text: '🏠 Main Menu',
+            callback_data: 'nav_start',
+          },
+        ],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+    };
+
+    // ── Branch A: Space Owner Questionnaire Helpers ─────────────────────────
+    const sendSpaceStep1Type = async (chatId: number, draft: Record<string, any> = {}, messageIdToEdit?: number) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      await saveSession({
+        telegram_id: chatId,
+        step: 'space_type_select',
+        draft_data: { ...draft, listing_category: 'space_available', card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+🏠 <b>SpaceMatch · Space Owner (Step 1 of 6)</b>
+
+<b>What type of space are you offering?</b>
+<i>Select your space layout below:</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [{ text: '🛏️ Private Room in Shared Flat', callback_data: 'space_type:Private Room in Shared Flat' }],
+        [{ text: '👑 Master Bedroom with Bath', callback_data: 'space_type:Master Bedroom with Bath' }],
+        [{ text: '🏢 Studio / 1-Bedroom Flat', callback_data: 'space_type:Studio / 1-Bedroom Flat' }],
+        [{ text: '👥 Shared Room / Bedspace', callback_data: 'space_type:Shared Room / Bedspace' }],
+        [{ text: '⬅️ Back to Options', callback_data: 'post_profile_start' }],
+        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const sendSpaceStep2Rent = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number,
+      errorMsg?: string
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      await saveSession({
+        telegram_id: chatId,
+        step: 'space_input_rent',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+🏠 <b>SpaceMatch · Space Owner (Step 2 of 6)</b>
+${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>What is the total monthly rent for the entire space?</b>
+<i>Tap a quick preset below or reply with the exact number in ETB (e.g. <code>12000</code>):</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [
+          { text: '6,000 ETB', callback_data: 'space_rent:6000' },
+          { text: '8,000 ETB', callback_data: 'space_rent:8000' },
+        ],
+        [
+          { text: '10,000 ETB', callback_data: 'space_rent:10000' },
+          { text: '12,000 ETB', callback_data: 'space_rent:12000' },
+        ],
+        [
+          { text: '15,000 ETB', callback_data: 'space_rent:15000' },
+          { text: '20,000 ETB', callback_data: 'space_rent:20000' },
+        ],
+        [
+          { text: '⬅️ Back to Space Type', callback_data: 'post_branch_space' },
+          { text: '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const sendSpaceStep3Share = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number,
+      errorMsg?: string
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      await saveSession({
+        telegram_id: chatId,
+        step: 'space_input_share',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const rentNum = draft.space_rent || 10000;
+      const halfRent = Math.round(rentNum / 2);
+
+      const text = `
+🏠 <b>SpaceMatch · Space Owner (Step 3 of 6)</b>
+• <b>Total Rent:</b> <code>${Number(rentNum).toLocaleString()} ETB / month</code>
+
+${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🤝 <b>What is the share / split the other person has to pay?</b>
+<i>Tap 50% split below or reply with the exact ETB amount:</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [
+          { text: `⚖️ 50% Split (${halfRent.toLocaleString()} ETB)`, callback_data: `space_share:${halfRent}` },
+        ],
+        [
+          { text: '4,000 ETB', callback_data: 'space_share:4000' },
+          { text: '5,000 ETB', callback_data: 'space_share:5000' },
+          { text: '6,000 ETB', callback_data: 'space_share:6000' },
+        ],
+        [
+          { text: '⬅️ Back to Total Rent', callback_data: 'space_back_to_rent' },
+          { text: '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const SPACE_AMENITIES_LIST = [
+      '📶 WiFi',
+      '🍳 Kitchen',
+      '💧 Water Tanker',
+      '🧺 Washing Machine',
+      '🚿 Hot Shower',
+      '🚗 Parking',
+      '🛋️ Furnished',
+      '🔒 24/7 Security',
+    ];
+
+    const sendSpaceStep4Amenities = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const selected: string[] = draft.space_amenities || ['📶 WiFi', '🍳 Kitchen'];
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'space_amenities_select',
+        draft_data: { ...draft, space_amenities: selected, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const gridRows: any[] = [];
+      for (let i = 0; i < SPACE_AMENITIES_LIST.length; i += 2) {
+        const row = [];
+        const item1 = SPACE_AMENITIES_LIST[i];
+        const isSel1 = selected.includes(item1);
+        row.push({
+          text: `${isSel1 ? '🟢' : '⚪'} ${item1}`,
+          callback_data: `space_amenity_toggle:${encodeURIComponent(item1)}`,
+        });
+
+        if (i + 1 < SPACE_AMENITIES_LIST.length) {
+          const item2 = SPACE_AMENITIES_LIST[i + 1];
+          const isSel2 = selected.includes(item2);
+          row.push({
+            text: `${isSel2 ? '🟢' : '⚪'} ${item2}`,
+            callback_data: `space_amenity_toggle:${encodeURIComponent(item2)}`,
+          });
+        }
+        gridRows.push(row);
+      }
+
+      gridRows.push([
+        { text: '✅ Proceed to Sub-City Location ➡️', callback_data: 'space_amenities_proceed' },
+      ]);
+      gridRows.push([
+        { text: '⬅️ Back to Share', callback_data: 'space_back_to_share' },
+        { text: '🏠 Cancel', callback_data: 'nav_start' },
+      ]);
+
+      const text = `
+🏠 <b>SpaceMatch · Space Owner (Step 4 of 6)</b>
+✨ <b>What I have / Amenities:</b>
+<i>(Tap amenities to toggle on/off, then tap Proceed)</i>
+
+<b>Selected:</b> <code>${selected.join(', ') || 'None selected'}</code>
+      `.trim();
+
+      return await sendOrEditCard(chatId, text, gridRows, activeMsgId);
+    };
+
+    const sendSpaceStep5Subcity = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      await saveSession({
+        telegram_id: chatId,
+        step: 'space_subcity_select',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const gridRows: any[] = [];
+      for (let i = 0; i < ALL_SUBCITIES.length; i += 2) {
+        const row = [];
+        const item1 = ALL_SUBCITIES[i];
+        row.push({ text: item1, callback_data: `space_subcity:${item1}` });
+        if (i + 1 < ALL_SUBCITIES.length) {
+          const item2 = ALL_SUBCITIES[i + 1];
+          row.push({ text: item2, callback_data: `space_subcity:${item2}` });
+        }
+        gridRows.push(row);
+      }
+
+      gridRows.push([
+        { text: '⬅️ Back to Amenities', callback_data: 'space_back_to_amenities' },
+        { text: '🏠 Cancel', callback_data: 'nav_start' },
+      ]);
+
+      const text = `
+🏠 <b>SpaceMatch · Space Owner (Step 5 of 6)</b>
+📍 <b>Which sub-city is your space located in?</b>
+<i>Select the sub-city where your flat/room is:</i>
+      `.trim();
+
+      return await sendOrEditCard(chatId, text, gridRows, activeMsgId);
+    };
+
+    const sendSpaceStep6Photos = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const photos: string[] = draft.space_photos || [];
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'space_input_photos',
+        draft_data: { ...draft, space_photos: photos, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+🏠 <b>SpaceMatch · Space Owner (Step 6 of 6)</b>
+📸 <b>Upload Photos of the Space</b>
+
+Please send 1 or more photos of your room/flat now! Prospected roommates will see these photos directly on the channel post.
+
+<i>(Photos are shared directly in the post and are not stored in database tables)</i>
+
+${photos.length > 0 ? `✅ <b>${photos.length} photo(s) uploaded!</b>\n\n` : ''}<i>Send photos as photos (not files). When finished, tap Proceed below:</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        ...(photos.length > 0
+          ? [[{ text: `➡️ Proceed with ${photos.length} Photo(s) 🚀`, callback_data: 'space_photos_done' }]]
+          : []),
+        [{ text: '⏭️ Skip Photos (Text-Only Post)', callback_data: 'space_photos_skip' }],
+        [{ text: '⬅️ Back to Subcity', callback_data: 'space_back_to_subcity' }],
+        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const sendSpacePreviewCard = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const subcity = draft.preferred_subcity?.[0] || draft.location || 'Addis Ababa';
+      const rentStr = Number(draft.space_rent || 0).toLocaleString();
+      const shareStr = Number(draft.space_share || 0).toLocaleString();
+      const amenitiesStr = Array.isArray(draft.space_amenities) && draft.space_amenities.length > 0
+        ? draft.space_amenities.join(', ')
+        : 'WiFi, Kitchen, Water supply';
+      const photosCount = draft.space_photos?.length || 0;
+      const displayCode = draft.display_code || `RM${chatId.toString().slice(-4)}`;
+
+      const text = `
+🏠 <b>SpaceMatch · Preview: Roommate available with a Room</b>
+📍 <code>${subcity}</code> · 🛡️ <b>Fayda Verified ✅</b>
+
+• <b>Space Type:</b> ${draft.space_type || 'Private Bedroom in Shared Flat'}
+• <b>Total Rent:</b> <code>${rentStr} ETB / month</code>
+• <b>Roommate's Share:</b> <code>${shareStr} ETB / month</code>
+• <b>Amenities:</b> ${amenitiesStr}
+• <b>Space Photos:</b> ${photosCount} photo(s) attached
+• <b>Resident:</b> ${draft.gender || 'Member'}, Age ${draft.age || 24}
+
+<blockquote>"${draft.roommate_traits || 'Roommate available with a room in Addis Ababa.'}"</blockquote>
+
+<i>Tapping submit will send your space listing to the channel administrators for review and approval!</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [
+          {
+            text: '📢 Submit for Admin Approval 🚀',
+            callback_data: `space_submit_admin:${displayCode}`,
+          },
+        ],
+        [
+          { text: '✏️ Edit Space Details', callback_data: 'post_branch_space' },
+          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+        ],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+    };
+
+    // ── Helper: Admin Channel Post Wizard Card Helpers ─────────────────────────
+    const sendAdminPostCategoryStep = async (chatId: number, messageIdToEdit?: number) => {
+      await saveSession({
+        telegram_id: chatId,
+        step: 'admin_post_cat',
+        draft_data: { card_msg_id: messageIdToEdit },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+📢 <b>SpaceMatch Admin · Publish Listing to Channel</b>
+<i>Select the category of the post to broadcast to @roommatch_addis:</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [{ text: '👥 Roommate Seeker (#RM...)', callback_data: 'admin_post_cat:roommate' }],
+        [{ text: '🏠 Room Available in Shared Flat (#RM...)', callback_data: 'admin_post_cat:room_avail' }],
+        [{ text: '🏢 Entire House / Property (#SP...)', callback_data: 'admin_post_cat:entire' }],
+        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+    };
+
+    const sendAdminPostSubcitiesStep = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const selectedList: string[] = draft.locations || ['Bole'];
+      const isAllSelected = ALL_SUBCITIES.every((s) => selectedList.includes(s));
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'admin_post_subs',
+        draft_data: { ...draft, locations: selectedList, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const gridRows: any[] = [];
+      gridRows.push([
+        {
+          text: isAllSelected ? '✅ All Selected' : '🌐 Select ALL Sub-Cities',
+          callback_data: 'admin_post_sub_all',
+        },
+      ]);
+
+      for (let i = 0; i < ALL_SUBCITIES.length; i += 2) {
+        const row = [];
+        const item1 = ALL_SUBCITIES[i];
+        const isSel1 = selectedList.includes(item1);
+        row.push({
+          text: `${isSel1 ? '🟢' : '⚪'} ${item1}`,
+          callback_data: `admin_post_sub_toggle:${item1}`,
+        });
+
+        if (i + 1 < ALL_SUBCITIES.length) {
+          const item2 = ALL_SUBCITIES[i + 1];
+          const isSel2 = selectedList.includes(item2);
+          row.push({
+            text: `${isSel2 ? '🟢' : '⚪'} ${item2}`,
+            callback_data: `admin_post_sub_toggle:${item2}`,
+          });
+        }
+        gridRows.push(row);
+      }
+
+      gridRows.push([
+        { text: 'Proceed to Price / Rent ➡️', callback_data: 'admin_post_proceed_budget' },
+      ]);
+      gridRows.push([
+        { text: '⬅️ Back to Category', callback_data: 'admin_post_start' },
+        { text: '🏠 Cancel', callback_data: 'nav_start' },
+      ]);
+
+      const text = `
+📢 <b>SpaceMatch Admin · Step 2: Select Sub-Cities</b>
+<i>(Tap areas to toggle checkmarks, then tap Proceed)</i>
+
+<b>Selected:</b> <code>${selectedList.join(', ')}</code>
+      `.trim();
+
+      await sendOrEditCard(chatId, text, gridRows, activeMsgId);
+    };
+
+    const sendAdminPostBudgetStep = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number,
+      errorMsg?: string
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      await saveSession({
+        telegram_id: chatId,
+        step: 'admin_post_budget',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+📢 <b>SpaceMatch Admin · Step 3: Rent / Budget Cap</b>
+${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Please reply with the monthly rent or budget cap in ETB:</b>
+<i>(Example: <code>10000</code> or <code>15000</code>)</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [{ text: '⬅️ Back to Sub-Cities', callback_data: 'admin_post_back_to_subs' }],
+        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+      ];
+
+      await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const sendAdminPostGenderStep = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      await saveSession({
+        telegram_id: chatId,
+        step: 'admin_post_gender',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+📢 <b>SpaceMatch Admin · Step 4: Gender Preference</b>
+<i>Select gender preference for this listing:</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [
+          { text: '👨 Male', callback_data: 'admin_post_gender:Male' },
+          { text: '👩 Female', callback_data: 'admin_post_gender:Female' },
+          { text: '🤝 Any / No Pref', callback_data: 'admin_post_gender:Any' },
+        ],
+        [{ text: '⬅️ Back to Price', callback_data: 'admin_post_back_to_budget' }],
+        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+      ];
+
+      await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const sendAdminPostBioStep = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      await saveSession({
+        telegram_id: chatId,
+        step: 'admin_post_bio',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+📢 <b>SpaceMatch Admin · Step 5: Listing Description</b>
+
+Please reply with the description, perks, or notes for this channel post.
+<i>(Or reply with <code>default</code> to use standard description)</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [{ text: '⚡ Use Standard Description', callback_data: 'admin_post_use_default_bio' }],
+        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+      ];
+
+      await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const sendAdminPostPreviewCard = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const subcitiesStr = Array.isArray(draft.locations) && draft.locations.length > 0
+        ? draft.locations.join(', ')
+        : 'Addis Ababa';
+      const budgetNum = draft.budget || 10000;
+      const genderStr = draft.gender || 'Any';
+      const bioStr = draft.details || 'Seeking compatible roommate in Addis Ababa.';
+      const catTitle = draft.category === 'entire' ? 'Property Listing' : 'Roommate Listing';
+
+      const previewText = `
+📋 <b>SpaceMatch Admin · Review Channel Post</b>
+<i>This listing will be saved to Supabase first, then published to @roommatch_addis with tracking buttons:</i>
+
+━━━━━━━━━━━━━━━━━━━━━
+✨ <b>SpaceMatch · ${catTitle} #RM...</b>
+📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
+
+• <b>Gender:</b> ${genderStr}
+• <b>Budget Cap / Rent:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
+
+<blockquote>"${bioStr}"</blockquote>
+
+🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
+━━━━━━━━━━━━━━━━━━━━━
+      `.trim();
+
+      const inlineKeyboard = [
+        [{ text: '📢 Publish to Channel Live 🚀', callback_data: 'admin_post_confirm' }],
+        [
+          { text: '✏️ Restart / Edit Details', callback_data: 'admin_post_start' },
+          { text: '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      await sendOrEditCard(chatId, previewText, inlineKeyboard, activeMsgId);
+    };
+
     // Helper: Send Primary Start / Main Menu Screen
     const sendPrimaryWelcomeMenu = async (chatId: number, messageIdToEdit?: number) => {
       // Ensure the menu button in Telegram is reset to commands menu so mobile keyboards are unobstructed
       setChatMenuButton({ type: 'commands' }, chatId).catch(() => {});
+
+      const adminIds = await getAdminIds();
+      const isAdmin = adminIds.includes(chatId);
 
       const welcomeText = `
 ✨ <b>SpaceMatch Addis</b>
@@ -479,50 +1265,26 @@ SpaceMatch Addis is a 100% verified housing community.
       const inlineKeyboard = [
         [
           {
-            text: '⚡ Find a Roommate · Matchmaker 🔍',
-            callback_data: 'matchmaker_start',
+            text: '🔍 Search Roommate for Me Based on My Preferences',
+            callback_data: 'search_roommate_start',
           },
         ],
         [
           {
-            text: '📢 Post Profile to Channel ↗️',
-            callback_data: 'post_to_channel_start',
-          },
-          {
-            text: '🏠 List Space for Rent',
-            callback_data: 'property_type',
+            text: '📢 Post My Profile on the Channel',
+            callback_data: 'post_profile_start',
           },
         ],
-        [
-          {
-            text: '🛡️ Verify Fayda ID',
-            callback_data: 'verify_fayda',
-          },
-          {
-            text: '📂 My Saved Contacts',
-            callback_data: 'my_unlocked_contacts',
-          },
-        ],
-        [
-          {
-            text: '📋 My Active Listings & Close',
-            callback_data: 'my_listings',
-          },
-          {
-            text: '❓ Platform Guide',
-            callback_data: 'nav_help',
-          },
-        ],
-        [
-          {
-            text: '📱 Open SpaceMatch Mini App ↗️',
-            web_app: { url: appUrl },
-          },
-          {
-            text: '💬 Live Admin Support',
-            url: 'https://t.me/birukadiyee',
-          },
-        ],
+        ...(isAdmin
+          ? [
+              [
+                {
+                  text: '👑 Admin Control Panel 🛠️',
+                  callback_data: 'admin_menu',
+                },
+              ],
+            ]
+          : []),
       ];
 
       const activeId = await sendOrEditCard(chatId, welcomeText, inlineKeyboard, messageIdToEdit);
@@ -1375,11 +2137,11 @@ We could not find an exact match for your selected filters in those specific sub
 
       const inlineKeyboardRows: any[] = [];
 
-      // Primary Action: Unlock Contact (Only revealed after payment!)
+      // Primary Action: Unlock Contact Information
       inlineKeyboardRows.push([
         {
-          text: `🔒 Unlock Verified Contact · ${match.unlock_fee || 50} ETB ⚡`,
-          callback_data: `start_unlock_seeker:${match.id}`,
+          text: '🔓 Unlock Contact Information',
+          callback_data: `search_unlock_contact:${match.id}`,
         },
       ]);
 
@@ -1712,7 +2474,8 @@ Transfer <code>${unlockFee} ETB</code> to either account:
 
         const newButtons = [
           [{ text: buttonTitle, url: `https://t.me/${botUsername}?start=${connectPayload}` }],
-          [{ text: '📢 Post Your Profile to Channel ↗️', url: `https://t.me/${botUsername}?start=post_to_channel` }],
+          [{ text: '📢 Post My Profile ↗️', url: `https://t.me/${botUsername}?start=post_profile` }],
+          [{ text: '🔍 Search Roommate for Me ↗️', url: `https://t.me/${botUsername}?start=search_roommate` }],
         ];
 
         const updatedInlineKeyboard = existingKb && existingKb.length > 0
@@ -1733,12 +2496,15 @@ Transfer <code>${unlockFee} ETB</code> to either account:
       return NextResponse.json({ ok: true });
     }
 
+    // Check and trigger any pending 24-hour follow-up check-ins asynchronously
+    checkPending24hCheckins().catch((err) => console.error('checkPending24hCheckins error:', err));
+
     // -------------------------------------------------------------------------
     // 1. HANDLE INLINE CALLBACK QUERIES
     // -------------------------------------------------------------------------
     if (update.callback_query) {
       const callback = update.callback_query;
-      const callbackData: string = callback.data || '';
+      let callbackData: string = callback.data || '';
       const chatId: number = callback.message?.chat?.id || callback.from.id;
       const msgId: number | undefined = callback.message?.message_id;
       const fromUsername: string | undefined = callback.from?.username;
@@ -1763,11 +2529,565 @@ Transfer <code>${unlockFee} ETB</code> to either account:
         return NextResponse.json({ ok: true });
       }
 
-      // ── Dynamic Card Wizard Callbacks ──────────────────────────────────────
-      if (callbackData === 'post_to_channel_start') {
+      // ── Admin Channel Post Wizard Callbacks ────────────────────────────────
+      if (callbackData === 'admin_post_start') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b> Only SpaceMatch administrators can post to the channel.`);
+          return NextResponse.json({ ok: true });
+        }
+        await sendAdminPostCategoryStep(chatId, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('admin_post_cat:')) {
+        const cat = callbackData.split(':')[1];
         const session = getSession(chatId);
-        const draft = session.draft_data?.target_code ? session.draft_data : { mode: 'post_to_channel' };
-        await sendDynamicCardStep1Age(chatId, draft, msgId);
+        const updatedDraft = { ...session.draft_data, category: cat, locations: ['Bole'] };
+        await sendAdminPostSubcitiesStep(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('admin_post_sub_toggle:')) {
+        const sub = callbackData.split(':')[1];
+        const session = getSession(chatId);
+        const currentList: string[] = session.draft_data.locations || ['Bole'];
+        const newList = currentList.includes(sub)
+          ? currentList.filter((s) => s !== sub)
+          : [...currentList, sub];
+        const updatedDraft = {
+          ...session.draft_data,
+          locations: newList.length > 0 ? newList : [sub],
+        };
+        await sendAdminPostSubcitiesStep(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'admin_post_sub_all') {
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, locations: [...ALL_SUBCITIES] };
+        await sendAdminPostBudgetStep(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'admin_post_proceed_budget') {
+        const session = getSession(chatId);
+        await sendAdminPostBudgetStep(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'admin_post_back_to_subs') {
+        const session = getSession(chatId);
+        await sendAdminPostSubcitiesStep(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('admin_post_gender:')) {
+        const gender = callbackData.split(':')[1];
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, gender };
+        await sendAdminPostBioStep(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'admin_post_back_to_budget') {
+        const session = getSession(chatId);
+        await sendAdminPostBudgetStep(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'admin_post_use_default_bio') {
+        const session = getSession(chatId);
+        const updatedDraft = {
+          ...session.draft_data,
+          details: 'Seeking compatible roommate in Addis Ababa.',
+        };
+        await sendAdminPostPreviewCard(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'admin_post_confirm') {
+        const session = getSession(chatId);
+        const draft = session.draft_data || {};
+
+        let displayCode = `RM${Date.now().toString().slice(-4)}`;
+        try {
+          const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
+          if (codeRow) displayCode = codeRow;
+        } catch {}
+
+        const subcities = draft.locations || ['Bole'];
+        const subcitiesStr = subcities.join(', ');
+        const budgetNum = draft.budget || 10000;
+        const genderStr = draft.gender || 'Any';
+        const bioStr = draft.details || 'Seeking compatible roommate in Addis Ababa.';
+
+        // 1. Save to Supabase profiles first
+        const { data: savedProfile, error: saveErr } = await supabaseAdmin
+          .from('profiles')
+          .insert({
+            telegram_id: chatId,
+            display_code: displayCode,
+            gender: genderStr,
+            locations: subcities,
+            budget_min: 0,
+            budget_max: budgetNum,
+            roommate_traits: bioStr,
+            kyc_status: 'verified',
+            status: 'active',
+            onboarding_step: 'completed',
+          })
+          .select('*')
+          .single();
+
+        if (saveErr) {
+          console.error('Error saving admin post to profiles:', saveErr);
+        }
+
+        // 2. Also save to roommate_profiles
+        try {
+          await supabaseAdmin.from('roommate_profiles').insert({
+            user_telegram_id: chatId,
+            display_code: displayCode,
+            my_gender: genderStr,
+            preferred_gender: 'Any',
+            preferred_subcity: subcities,
+            budget_min: 0,
+            budget_max: budgetNum,
+            lifestyle_bio: bioStr,
+            unlock_fee: 50,
+            status: 'approved',
+          });
+        } catch {}
+
+        // 3. Broadcast to channel with dual buttons
+        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+        const postCardText = `
+✨ <b>SpaceMatch</b> · <b>Roommate Seeker #${displayCode}</b>
+📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
+
+• <b>Gender:</b> ${genderStr}
+• <b>Budget Cap:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
+
+<blockquote>"${bioStr}"</blockquote>
+
+🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
+        `.trim();
+
+        const channelButtons = {
+          inline_keyboard: [
+            [{ text: `⚡ Contact with Roommate #${displayCode} ↗️`, url: `https://t.me/${botUsername}?start=req_${displayCode}` }],
+            [{ text: '📢 Post My Profile ↗️', url: `https://t.me/${botUsername}?start=post_profile` }],
+            [{ text: '🔍 Search Roommate for Me ↗️', url: `https://t.me/${botUsername}?start=search_roommate` }],
+          ],
+        };
+
+        const postRes = await sendTelegram('sendMessage', {
+          chat_id: targetChannel,
+          text: postCardText,
+          parse_mode: 'HTML',
+          reply_markup: channelButtons,
+        });
+
+        const channelMsgId = postRes?.result?.message_id;
+
+        // 4. Update channel_message_id in DB
+        if (channelMsgId) {
+          await supabaseAdmin
+            .from('profiles')
+            .update({ channel_message_id: channelMsgId })
+            .ilike('display_code', displayCode);
+          await supabaseAdmin
+            .from('roommate_profiles')
+            .update({ channel_message_id: channelMsgId })
+            .ilike('display_code', displayCode);
+        }
+
+        await clearSession(chatId);
+
+        // 5. Render Admin Management Card
+        const channelHandle = targetChannel.replace('@', '');
+        const postLink = channelMsgId ? `https://t.me/${channelHandle}/${channelMsgId}` : '';
+
+        const successText = `
+✅ <b>Post #${displayCode} Published Successfully!</b>
+
+• <b>Display Code:</b> <b>#${displayCode}</b>
+• <b>Channel:</b> <code>${targetChannel}</code>
+• <b>Message ID:</b> <code>${channelMsgId || 'N/A'}</code>
+• <b>Database Status:</b> Active & Saved ✅
+
+When a user clicks to connect, the bot will track #${displayCode} and notify you directly.
+        `.trim();
+
+        const adminMgmtKeyboard = [
+          [{ text: `🔴 Mark #${displayCode} as CLOSED in Channel`, callback_data: `admin_close:${displayCode}` }],
+          ...(postLink ? [[{ text: '📢 View Post in Channel ↗️', url: postLink }]] : []),
+          [{ text: '➕ Post Another Listing', callback_data: 'admin_post_start' }],
+          [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+        ];
+
+        await sendOrEditCard(chatId, successText, adminMgmtKeyboard, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── Admin Manual Close Callback ────────────────────────────────────────
+      if (callbackData.startsWith('admin_close:')) {
+        const targetIdentifier = callbackData.split(':')[1];
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b> Only SpaceMatch administrators can mark channel listings as closed.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        const res = await executeChannelPostClose(targetIdentifier, chatId);
+
+        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+        const channelHandle = targetChannel.replace('@', '');
+        const postLink = res.messageId ? `https://t.me/${channelHandle}/${res.messageId}` : '';
+
+        const resultCard = `
+${res.success ? '🔴' : '⚠️'} <b>Listing #${res.displayCode || targetIdentifier}</b>
+
+${res.message}
+        `.trim();
+
+        const resultKeyboard = [
+          ...(postLink ? [[{ text: '📢 View Channel Post ↗️', url: postLink }]] : []),
+          [{ text: '➕ Post Another Listing', callback_data: 'admin_post_start' }],
+          [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+        ];
+
+        await sendOrEditCard(chatId, resultCard, resultKeyboard, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── Flow 2 & 3: Post Profile Branches & Search Roommate Callbacks ──────
+      if (callbackData === 'post_profile_start') {
+        await sendPostProfileBranchPrompt(chatId, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'post_branch_space') {
+        await sendSpaceStep1Type(chatId, {}, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'post_branch_seeker') {
+        const isVerified = await isUserFaydaVerified(chatId);
+        if (isVerified) {
+          const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
+          if (p) {
+            await sendChannelPublishPreviewCard(chatId, p, msgId);
+            return NextResponse.json({ ok: true });
+          }
+        }
+        await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel', listing_category: 'seeker' }, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Space Owner Wizard Callbacks
+      if (callbackData.startsWith('space_type:')) {
+        const spaceType = callbackData.replace('space_type:', '');
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, space_type: spaceType };
+        await sendSpaceStep2Rent(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('space_rent:')) {
+        const rentVal = parseInt(callbackData.split(':')[1], 10);
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, space_rent: rentVal };
+        await sendSpaceStep3Share(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'space_back_to_rent') {
+        const session = getSession(chatId);
+        await sendSpaceStep2Rent(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('space_share:')) {
+        const shareVal = parseInt(callbackData.split(':')[1], 10);
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, space_share: shareVal };
+        await sendSpaceStep4Amenities(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'space_back_to_share') {
+        const session = getSession(chatId);
+        await sendSpaceStep3Share(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('space_amenity_toggle:')) {
+        const amenity = decodeURIComponent(callbackData.replace('space_amenity_toggle:', ''));
+        const session = getSession(chatId);
+        const currentList: string[] = session.draft_data.space_amenities || ['📶 WiFi', '🍳 Kitchen'];
+        const newList = currentList.includes(amenity)
+          ? currentList.filter((a) => a !== amenity)
+          : [...currentList, amenity];
+        const updatedDraft = { ...session.draft_data, space_amenities: newList };
+        await sendSpaceStep4Amenities(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'space_amenities_proceed') {
+        const session = getSession(chatId);
+        await sendSpaceStep5Subcity(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'space_back_to_amenities') {
+        const session = getSession(chatId);
+        await sendSpaceStep4Amenities(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('space_subcity:')) {
+        const subcity = callbackData.replace('space_subcity:', '');
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, preferred_subcity: [subcity], location: subcity };
+        await sendSpaceStep6Photos(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'space_back_to_subcity') {
+        const session = getSession(chatId);
+        await sendSpaceStep5Subcity(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'space_photos_done' || callbackData === 'space_photos_skip') {
+        const session = getSession(chatId);
+        const isVerified = await isUserFaydaVerified(chatId);
+        if (isVerified) {
+          const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
+          const mergedDraft = {
+            ...session.draft_data,
+            age: p?.age || session.draft_data.age || 24,
+            gender: p?.gender || session.draft_data.gender || 'Member',
+            roommate_traits: p?.roommate_traits || session.draft_data.roommate_traits || 'Roommate available with a room in Addis Ababa.',
+          };
+          await sendSpacePreviewCard(chatId, mergedDraft, msgId);
+          return NextResponse.json({ ok: true });
+        }
+        await sendDynamicCardStep1Age(chatId, { ...session.draft_data, mode: 'post_space' }, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('space_submit_admin:')) {
+        const cleanCode = callbackData.split(':')[1] || `RM${chatId.toString().slice(-4)}`;
+        const session = getSession(chatId);
+        const draft = session.draft_data || {};
+        const subcity = draft.preferred_subcity?.[0] || draft.location || 'Addis Ababa';
+        const rentNum = Number(draft.space_rent || 0);
+        const shareNum = Number(draft.space_share || 0);
+        const amenities = draft.space_amenities || [];
+        const photos = draft.space_photos || [];
+
+        // Upsert into profiles
+        await supabaseAdmin.from('profiles').upsert({
+          telegram_id: chatId,
+          display_code: cleanCode,
+          gender: draft.gender || 'Member',
+          age: draft.age || 24,
+          locations: [subcity],
+          budget_min: shareNum,
+          budget_max: rentNum,
+          roommate_traits: draft.roommate_traits || 'Roommate available with a room in Addis Ababa.',
+          kyc_status: 'verified',
+          status: 'pending_approval',
+        }, { onConflict: 'telegram_id' });
+
+        // Save into draft store so photos and space metadata are preserved
+        await saveRoommateDraft({
+          id: cleanCode,
+          user_telegram_id: chatId,
+          display_code: cleanCode,
+          user_name: 'Verified Space Owner',
+          username: callback.from?.username || null,
+          age: draft.age || 24,
+          my_gender: draft.gender || 'Member',
+          preferred_gender: 'Any',
+          preferred_subcity: [subcity],
+          budget_min: shareNum,
+          budget_max: rentNum,
+          lifestyle_bio: draft.roommate_traits || 'Roommate available with a room in Addis Ababa.',
+          listing_category: 'space_available',
+          space_type: draft.space_type || 'Private Bedroom in Shared Flat',
+          space_rent: rentNum,
+          space_share: shareNum,
+          space_amenities: amenities,
+          space_photos: photos,
+          status: 'pending_approval',
+          unlock_fee: 50,
+          fayda_status: 'verified',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+
+        // Notify user
+        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+        const userConfirmText = `
+⏳ <b>SpaceMatch · Space Listing Submitted for Review!</b>
+
+Your room listing (<code>#${cleanCode}</code>) has been submitted to channel administrators.
+
+• <b>Listing Code:</b> <b>#${cleanCode}</b>
+• <b>Space Type:</b> ${draft.space_type || 'Private Bedroom in Shared Flat'}
+• <b>Total Rent:</b> <code>${rentNum.toLocaleString()} ETB / mo</code>
+• <b>Roommate Share:</b> <code>${shareNum.toLocaleString()} ETB / mo</code>
+• <b>Photos Attached:</b> ${photos.length} photo(s)
+• <b>Status:</b> ⏳ <b>Pending Admin Review</b>
+• <b>Target Channel:</b> <code>${targetChannel}</code>
+
+<blockquote>🔒 Once approved, your listing will be published directly to the channel with the header <b>"Roommate available with a Room"</b>!</blockquote>
+        `.trim();
+
+        await sendOrEditCard(chatId, userConfirmText, [
+          [{ text: '⚡ Search Active Roommates 🔍', callback_data: 'search_roommate_start' }],
+          [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+        ], msgId);
+
+        // Notify admins
+        try {
+          const adminIds = await getAdminIds();
+          const cleanUser = (callback.from?.username || '').replace('@', '');
+          const userIdentifier = cleanUser ? `@${cleanUser}` : `ID ${chatId}`;
+
+          const adminNotificationText = `
+🛡️ <b>SpaceMatch Admin · Space Listing Pending Review!</b>
+
+A user has submitted a space offering for channel <code>${targetChannel}</code>:
+
+• <b>Listing:</b> <b>#${cleanCode}</b> (Roommate with Room)
+• <b>Space Type:</b> ${draft.space_type || 'Private Bedroom in Shared Flat'}
+• <b>Total Rent:</b> <code>${rentNum.toLocaleString()} ETB / mo</code>
+• <b>Roommate Share:</b> <code>${shareNum.toLocaleString()} ETB / mo</code>
+• <b>Location:</b> <code>${subcity}</code>
+• <b>Photos:</b> ${photos.length} photo(s) attached
+• <b>Resident:</b> ${draft.gender || 'Member'}, Age ${draft.age || 24} (🛡️ Fayda Verified)
+
+<i>Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)</i>
+          `.trim();
+
+          const adminButtons = {
+            inline_keyboard: [
+              [{ text: `✅ Approve & Broadcast #${cleanCode} 🚀`, callback_data: `admin_approve_profile:${cleanCode}` }],
+              [{ text: `❌ Reject Listing #${cleanCode}`, callback_data: `admin_reject_profile:${cleanCode}` }],
+            ],
+          };
+
+          for (const adminId of adminIds) {
+            if (photos.length > 0) {
+              sendTelegram('sendPhoto', {
+                chat_id: adminId,
+                photo: photos[0],
+                caption: adminNotificationText,
+                parse_mode: 'HTML',
+                reply_markup: adminButtons,
+              }).catch(() => {});
+            } else {
+              sendTelegram('sendMessage', {
+                chat_id: adminId,
+                text: adminNotificationText,
+                parse_mode: 'HTML',
+                reply_markup: adminButtons,
+              }).catch(() => {});
+            }
+          }
+        } catch (err) {
+          console.error('Error notifying admins of space listing:', err);
+        }
+
+        return NextResponse.json({ ok: true });
+      }
+
+      // Flow 3: Search Roommate Callbacks
+      if (
+        callbackData === 'search_roommate_start' ||
+        callbackData === 'matchmaker_start' ||
+        callbackData === 'execute_matchmaking'
+      ) {
+        const session = getSession(chatId);
+        await sendMatchmakerSubcityStep(chatId, { ...session.draft_data, mode: 'search_roommate' }, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('search_unlock_contact:')) {
+        const targetProfileId = callbackData.split(':')[1];
+
+        // 1. Check if requester is Fayda verified and has profile
+        const isVerified = await isUserFaydaVerified(chatId);
+        const { data: myProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
+
+        if (!isVerified || !myProfile) {
+          await sendDynamicCardStep1Age(chatId, { target_id: targetProfileId }, msgId);
+          return NextResponse.json({ ok: true });
+        }
+
+        // 2. Verified user -> send anonymous connection request directly
+        // Reuse confirm_match flow
+        const syntheticCallback = `confirm_match:${targetProfileId}`;
+        callbackData = syntheticCallback;
+      }
+
+      // 24-Hour Follow-Up: Owner closes listing after match
+      if (
+        callbackData.startsWith('owner_close_listing:') ||
+        callbackData.startsWith('close_channel_post:')
+      ) {
+        const targetCode = callbackData.split(':')[1];
+        await executeChannelPostClose(targetCode, chatId);
+        const closeMsg = `
+🔴 <b>Listing Marked as CLOSED!</b>
+
+Congratulations on finding a roommate! Post <b>#${targetCode}</b> has been updated on the channel with <b>_____CLOSED_____</b>.
+        `.trim();
+
+        await sendOrEditCard(chatId, closeMsg, [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]], msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // 24-Hour Follow-Up: Owner keeps listing open
+      if (
+        callbackData.startsWith('owner_keep_listing:') ||
+        callbackData.startsWith('keep_channel_post:')
+      ) {
+        const targetCode = callbackData.split(':')[1];
+        try {
+          await supabaseAdmin
+            .from('profiles')
+            .update({ status: 'active', updated_at: new Date().toISOString() })
+            .ilike('display_code', targetCode);
+          await supabaseAdmin
+            .from('roommate_profiles')
+            .update({ status: 'approved', updated_at: new Date().toISOString() })
+            .ilike('display_code', targetCode);
+        } catch {}
+
+        const keepMsg = `
+✅ <b>Listing Kept Open!</b>
+
+Your profile <b>#${targetCode}</b> remains active on the channel. We will keep directing compatible verified roommates your way!
+        `.trim();
+
+        await sendOrEditCard(chatId, keepMsg, [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]], msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── Dynamic Card Wizard Callbacks ──────────────────────────────────────
+      // Legacy alias – redirect to the new 2-branch post profile flow
+      if (callbackData === 'post_to_channel_start') {
+        await sendPostProfileBranchPrompt(chatId, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -1836,56 +3156,264 @@ Transfer <code>${unlockFee} ETB</code> to either account:
         return NextResponse.json({ ok: true });
       }
 
-      if (callbackData.startsWith('dyn_publish_channel:')) {
-        const identifier = callbackData.split(':')[1];
+      // ── Roommate Profile Channel Submission & Admin Approval Workflow ────
+      if (callbackData.startsWith('dyn_publish_channel:') || callbackData.startsWith('dyn_submit_channel:')) {
+        const identifier = callbackData.split(':')[1] || '';
+        const cleanCode = identifier.trim().replace(/^#/, '');
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanCode);
+
+        // Fetch user's profile from profiles or roommate_profiles
+        let prof: any = null;
+        if (isUuid) {
+          const { data } = await supabaseAdmin.from('profiles').select('*').eq('id', cleanCode).maybeSingle();
+          prof = data;
+        }
+        if (!prof) {
+          const { data } = await supabaseAdmin.from('profiles').select('*').ilike('display_code', cleanCode).maybeSingle();
+          prof = data;
+        }
+        if (!prof) {
+          const { data } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
+          prof = data;
+        }
+
+        const displayCode = prof?.display_code || cleanCode || `RM${chatId.toString().slice(-4)}`;
+        const subcities = Array.isArray(prof?.locations) && prof.locations.length > 0 ? prof.locations : ['Addis Ababa'];
+        const subcitiesStr = subcities.join(', ');
+        const budgetNum = prof?.budget_max || 10000;
+        const genderStr = prof?.gender || 'Member';
+        const ageStr = prof?.age ? `${prof.age} yrs` : '24 yrs';
+        const bioStr = prof?.roommate_traits || 'Seeking compatible roommate in Addis Ababa.';
+
+        // 1. Mark status as pending_approval in Supabase
+        await supabaseAdmin
+          .from('profiles')
+          .update({ status: 'pending_approval' })
+          .ilike('display_code', displayCode);
+
         try {
-          const res = await broadcastRoommateProfileToChannel(identifier);
-          if (res.success) {
-            await supabaseAdmin
-              .from('profiles')
-              .update({ status: 'active' })
-              .or(`id.eq.${identifier},display_code.eq.${identifier},telegram_id.eq.${chatId}`);
+          await supabaseAdmin
+            .from('roommate_profiles')
+            .update({ status: 'pending_approval' })
+            .ilike('display_code', displayCode);
+        } catch {}
 
-            await supabaseAdmin
-              .from('roommate_profiles')
-              .update({ status: 'active', channel_message_id: res.telegramMessageId })
-              .or(`id.eq.${identifier},display_code.eq.${identifier},user_telegram_id.eq.${chatId}`);
+        // 2. Show confirmation waiting card to the user
+        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+        const userConfirmText = `
+⏳ <b>SpaceMatch · Submitted for Admin Approval!</b>
 
-            const rawChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
-            const channelUsername = rawChannel.replace('@', '');
-            const postUrl = res.telegramMessageId
-              ? `https://t.me/${channelUsername}/${res.telegramMessageId}`
-              : `https://t.me/${channelUsername}`;
+Your anonymous roommate listing (<code>#${displayCode}</code>) has been submitted to the channel administrators.
 
-            await sendOrEditCard(
-              chatId,
-              `🎉 <b>Your Profile is LIVE on SpaceMatch Addis!</b>\n\nYour anonymous listing has been broadcasted to the official channel.\n\n<blockquote>When interested roommates tap to connect with you, you will receive an instant notification here to review and accept!</blockquote>`,
+• <b>Listing Code:</b> <b>#${displayCode}</b>
+• <b>Target Areas:</b> <code>${subcitiesStr}</code>
+• <b>Budget Cap:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
+• <b>Status:</b> ⏳ <b>Pending Admin Review</b>
+• <b>Target Channel:</b> <code>${targetChannel}</code>
+
+<blockquote>🔒 <b>Privacy Shield Active:</b> Your real name, phone number, and Telegram handle remain 100% private. Once an administrator approves your profile, it will be broadcasted to the official channel and you will be notified immediately!</blockquote>
+        `.trim();
+
+        await sendOrEditCard(
+          chatId,
+          userConfirmText,
+          [
+            [{ text: '⚡ Find Roommates Now · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+          ],
+          msgId
+        );
+
+        // 3. Send approval request card to all channel administrators
+        try {
+          const adminIds = await getAdminIds();
+          const cleanUser = (callback.from?.username || '').replace('@', '');
+          const userIdentifier = cleanUser ? `@${cleanUser}` : `ID ${chatId}`;
+
+          const adminApprovalCard = `
+🛡️ <b>SpaceMatch Admin · New Profile Pending Approval!</b>
+
+A user has requested to post their profile to the channel <code>${targetChannel}</code>:
+
+• <b>Seeker Code:</b> <b>#${displayCode}</b>
+• <b>Gender & Age:</b> ${genderStr}, Age ${ageStr}
+• <b>Budget Cap:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
+• <b>Target Areas:</b> <code>${subcitiesStr}</code>
+• <b>Fayda Status:</b> 🛡️ Verified Resident ✅
+
+<blockquote>"${bioStr}"</blockquote>
+
+<i>Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)</i>
+          `.trim();
+
+          const adminButtons = {
+            inline_keyboard: [
               [
-                [{ text: '📢 View Your Post on Channel ↗️', url: postUrl }],
-                [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+                { text: `✅ Approve & Broadcast #${displayCode} 🚀`, callback_data: `admin_approve_profile:${displayCode}` },
               ],
-              msgId
-            );
-          } else {
-            await sendOrEditCard(
-              chatId,
-              `⚠️ <b>Broadcast Error:</b> ${res.message}\n\nPlease try again or contact support.`,
               [
-                [{ text: '🔄 Try Again', callback_data: `dyn_publish_channel:${identifier}` }],
-                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+                { text: `❌ Reject Listing #${displayCode}`, callback_data: `admin_reject_profile:${displayCode}` },
               ],
-              msgId
-            );
+            ],
+          };
+
+          for (const adminId of adminIds) {
+            sendTelegram('sendMessage', {
+              chat_id: adminId,
+              text: adminApprovalCard,
+              parse_mode: 'HTML',
+              reply_markup: adminButtons,
+            }).catch(() => {});
           }
-        } catch (err: any) {
-          console.error('Error in dyn_publish_channel:', err);
+        } catch (adminErr) {
+          console.error('Error notifying admins for approval:', adminErr);
+        }
+
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin Action: Approve and Broadcast Roommate Profile to Channel
+      if (callbackData.startsWith('admin_approve_profile:')) {
+        const targetCode = callbackData.split(':')[1];
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b> Only SpaceMatch administrators can approve listings.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        const res = await broadcastRoommateProfileToChannel(targetCode);
+        if (!res.success) {
           await sendOrEditCard(
             chatId,
-            `⚠️ Failed to publish to channel. Please try again.`,
-            [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            `⚠️ <b>Broadcast Error for #${targetCode}:</b>\n${res.message}`,
+            [
+              [{ text: '🔄 Retry Approval', callback_data: `admin_approve_profile:${targetCode}` }],
+              [{ text: '🏠 Admin Menu', callback_data: 'admin_menu' }],
+            ],
             msgId
           );
+          return NextResponse.json({ ok: true });
         }
+
+        const channelMsgId = res.telegramMessageId;
+        await supabaseAdmin
+          .from('profiles')
+          .update({ status: 'active', channel_message_id: channelMsgId })
+          .ilike('display_code', targetCode);
+
+        try {
+          await supabaseAdmin
+            .from('roommate_profiles')
+            .update({ status: 'approved', channel_message_id: channelMsgId })
+            .ilike('display_code', targetCode);
+        } catch {}
+
+        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+        const channelHandle = targetChannel.replace('@', '');
+        const postLink = channelMsgId ? `https://t.me/${channelHandle}/${channelMsgId}` : '';
+
+        const adminSuccessText = `
+✅ <b>Profile #${targetCode} Approved & Published!</b>
+
+• <b>Channel:</b> <code>${targetChannel}</code>
+• <b>Channel Post ID:</b> <code>${channelMsgId || 'N/A'}</code>
+• <b>Status:</b> Active & Live in Channel 🚀
+        `.trim();
+
+        await sendOrEditCard(
+          chatId,
+          adminSuccessText,
+          [
+            ...(postLink ? [[{ text: '📢 View Post in Channel ↗️', url: postLink }]] : []),
+            [{ text: `🔴 Mark #${targetCode} as CLOSED in Channel`, callback_data: `admin_close:${targetCode}` }],
+            [{ text: '🏠 Admin Menu', callback_data: 'admin_menu' }],
+          ],
+          msgId
+        );
+
+        // Fetch user telegram_id from profiles to notify them
+        let userTgId: number | null = null;
+        try {
+          const { data: p } = await supabaseAdmin
+            .from('profiles')
+            .select('telegram_id')
+            .ilike('display_code', targetCode)
+            .maybeSingle();
+          if (p?.telegram_id) userTgId = Number(p.telegram_id);
+        } catch {}
+
+        if (userTgId) {
+          const userCelebrationMsg = `
+🎉 <b>Congratulations! Your Profile is LIVE on SpaceMatch Addis!</b>
+
+Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and approved by the admin team, and is now broadcasted to the official channel!
+
+<blockquote>When interested roommates tap to connect with you, you will receive an instant notification here to review and accept!</blockquote>
+          `.trim();
+
+          await tgSend(userTgId, userCelebrationMsg, {
+            inline_keyboard: [
+              ...(postLink ? [[{ text: '📢 View Your Post on Channel ↗️', url: postLink }]] : []),
+              [{ text: '⚡ Find Other Roommates · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+              [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+            ],
+          });
+        }
+
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin Action: Reject Roommate Profile
+      if (callbackData.startsWith('admin_reject_profile:')) {
+        const targetCode = callbackData.split(':')[1];
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b> Only SpaceMatch administrators can reject listings.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        await supabaseAdmin
+          .from('profiles')
+          .update({ status: 'rejected' })
+          .ilike('display_code', targetCode);
+
+        try {
+          await supabaseAdmin
+            .from('roommate_profiles')
+            .update({ status: 'rejected' })
+            .ilike('display_code', targetCode);
+        } catch {}
+
+        await sendOrEditCard(
+          chatId,
+          `❌ <b>Profile #${targetCode} Rejected.</b>\n\nThis listing was rejected and was not published to the channel.`,
+          [[{ text: '🏠 Admin Menu', callback_data: 'admin_menu' }]],
+          msgId
+        );
+
+        let userTgId: number | null = null;
+        try {
+          const { data: p } = await supabaseAdmin
+            .from('profiles')
+            .select('telegram_id')
+            .ilike('display_code', targetCode)
+            .maybeSingle();
+          if (p?.telegram_id) userTgId = Number(p.telegram_id);
+        } catch {}
+
+        if (userTgId) {
+          await tgSend(
+            userTgId,
+            `ℹ️ <b>SpaceMatch · Profile Review Update</b>\n\nYour listing (<code>#${targetCode}</code>) was reviewed by our admin team and could not be approved for channel broadcast at this time.\n\n<blockquote>You can edit your details and submit again anytime.</blockquote>`,
+            {
+              inline_keyboard: [
+                [{ text: '✏️ Edit Profile', callback_data: 'post_to_channel_start' }],
+                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+              ],
+            }
+          );
+        }
+
         return NextResponse.json({ ok: true });
       }
 
@@ -2112,7 +3640,7 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
         const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
         const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
 
-        const paymentInstructions = `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>50 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
+        const paymentInstructions = `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>50 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>After both parties have paid, contact information will be revealed to both of you. If one party refuses to pay, your payment will be fully refunded.</i>\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
 
         // Send to both users
         const requesterTgId = (match.requester as any)?.telegram_id;
@@ -2767,30 +4295,91 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
 
       // Admin Dashboard Menu
       if (callbackData === 'admin_menu') {
+        let pendingCount = 0;
+        try {
+          const { count } = await supabaseAdmin
+            .from('profiles')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending_approval');
+          pendingCount = count || 0;
+        } catch {}
+
         const adminKeyboard = {
           inline_keyboard: [
-            [{ text: '📢 Active Channel Posts & Close / Match', callback_data: 'admin_list_active_posts' }],
+            [{ text: `⏳ Pending Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
+            [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
+            [{ text: '🔴 Active Channel Posts & Close / Match', callback_data: 'admin_list_active_posts' }],
             [{ text: '📢 Post Custom Announcement', callback_data: 'admin_custom_prompt' }],
             [{ text: '❌ Exit Admin Menu', callback_data: 'admin_cancel' }],
           ],
         };
 
+        const menuText = `<b>👑 SpaceMatch Admin Panel</b>\nManage pending reviews, active listings, and channel posts:`;
         if (msgId) {
           await sendTelegram('editMessageText', {
             chat_id: chatId,
             message_id: msgId,
-            text: `<b>👑 SpaceMatch Admin Panel</b>\nManage active listings and channel posts:`,
+            text: menuText,
             parse_mode: 'HTML',
             reply_markup: adminKeyboard,
           });
         } else {
           await sendTelegram('sendMessage', {
             chat_id: chatId,
-            text: `<b>👑 SpaceMatch Admin Panel</b>\nManage active listings and channel posts:`,
+            text: menuText,
             parse_mode: 'HTML',
             reply_markup: adminKeyboard,
           });
         }
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin: List Pending Roommate Profiles for Approval
+      if (callbackData === 'admin_list_pending') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          return NextResponse.json({ ok: true });
+        }
+
+        let pendingList: any[] = [];
+        try {
+          const { data } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('status', 'pending_approval')
+            .order('created_at', { ascending: false })
+            .limit(10);
+          if (data) pendingList = data;
+        } catch {}
+
+        if (pendingList.length === 0) {
+          await sendOrEditCard(
+            chatId,
+            `⏳ <b>SpaceMatch Admin · Pending Approvals</b>\n\n<blockquote>No profiles are currently waiting for admin approval. All caught up! 🎉</blockquote>`,
+            [[{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }]],
+            msgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        const buttons: any[] = [];
+        for (const p of pendingList) {
+          const code = p.display_code || p.id;
+          const loc = Array.isArray(p.locations) ? p.locations[0] || 'Addis' : 'Addis';
+          buttons.push([
+            { text: `✅ Approve #${code} (${p.gender || 'Any'} · ${loc})`, callback_data: `admin_approve_profile:${code}` },
+            { text: `❌ Reject`, callback_data: `admin_reject_profile:${code}` },
+          ]);
+        }
+        buttons.push([{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }]);
+
+        await sendOrEditCard(
+          chatId,
+          `⏳ <b>SpaceMatch Admin · Pending Profiles (${pendingList.length})</b>\n\nReview the listings waiting for approval below:`,
+          buttons,
+          msgId
+        );
         return NextResponse.json({ ok: true });
       }
 
@@ -3006,6 +4595,67 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
       await preloadSession(chatId);
       const session = getSession(chatId);
 
+      // Forward detection: Admin forwards a channel post to close/mark as matched
+      const forwardChat = (message as any).forward_from_chat || (message as any).forward_origin?.chat;
+      const forwardMsgId = (message as any).forward_from_message_id || (message as any).forward_origin?.message_id;
+      if (forwardMsgId || forwardChat) {
+        const adminIds = await getAdminIds();
+        if (adminIds.includes(chatId)) {
+          let foundCode: string | null = null;
+          if (text) {
+            const matchCode = text.match(/#(RM\d+|SP\d+)/i);
+            if (matchCode) foundCode = matchCode[1].toUpperCase();
+          }
+          if (!foundCode && forwardMsgId) {
+            const { data: p } = await supabaseAdmin
+              .from('profiles')
+              .select('display_code')
+              .eq('channel_message_id', forwardMsgId)
+              .maybeSingle();
+            if (p?.display_code) {
+              foundCode = p.display_code;
+            } else {
+              const { data: rm } = await supabaseAdmin
+                .from('roommate_profiles')
+                .select('display_code')
+                .eq('channel_message_id', forwardMsgId)
+                .maybeSingle();
+              if (rm?.display_code) {
+                foundCode = rm.display_code;
+              } else {
+                foundCode = `RM${forwardMsgId}`;
+              }
+            }
+          }
+
+          const targetIdentifier = foundCode || (forwardMsgId ? String(forwardMsgId) : 'POST');
+          const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+          const channelHandle = targetChannel.replace('@', '');
+          const postLink = forwardMsgId ? `https://t.me/${channelHandle}/${forwardMsgId}` : '';
+
+          const forwardPromptText = `
+📢 <b>SpaceMatch Admin · Channel Post Forward Detected</b>
+
+Detected Channel Post <b>#${targetIdentifier}</b> (Message ID: <code>${forwardMsgId || 'N/A'}</code>).
+
+Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
+          `.trim();
+
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: forwardPromptText,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `🔴 Mark #${targetIdentifier} as CLOSED in Channel`, callback_data: `admin_close:${targetIdentifier}` }],
+                ...(postLink ? [[{ text: '📢 View Channel Post ↗️', url: postLink }]] : []),
+                [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+              ],
+            },
+          });
+          return NextResponse.json({ ok: true });
+        }
+      }
 
       // Reply Keyboard Button Handler
       if (text === '🔍 Find Roommate (Matchmaker)' || text === '🔍 Find Roommate') {
@@ -3062,6 +4712,79 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
           return NextResponse.json({ ok: true });
         }
         await sendFaydaGateCard(chatId, 'access all SpaceMatch verified features');
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── Space Owner Questionnaire: Message Handlers ───────────────────────
+      // Space Photos Upload (handled via Telegram file_id, not stored in DB)
+      if (session.step === 'space_input_photos') {
+        const photos = session.draft_data?.space_photos || [];
+        if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
+          const largestPhoto = message.photo[message.photo.length - 1];
+          const fileId = largestPhoto.file_id;
+          const updatedPhotos = [...photos, fileId];
+
+          await saveSession({
+            telegram_id: chatId,
+            step: 'space_input_photos',
+            draft_data: { ...session.draft_data, space_photos: updatedPhotos },
+            updated_at: new Date().toISOString(),
+          });
+
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `✅ <b>Photo received!</b> (Total uploaded: <b>${updatedPhotos.length}</b>)\n\nYou can send another photo, or tap below to proceed:`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `➡️ Proceed with ${updatedPhotos.length} Photo(s) 🚀`, callback_data: 'space_photos_done' }],
+                [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+              ],
+            },
+          });
+          return NextResponse.json({ ok: true });
+        }
+      }
+
+      // Space Rent Text Input
+      if (session.step === 'space_input_rent') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const parsedRent = parseNumericInput(text);
+        if (!parsedRent || parsedRent < 500 || parsedRent > 500000) {
+          await sendSpaceStep2Rent(
+            chatId,
+            session.draft_data,
+            activeMsgId,
+            'Please enter a valid monthly rent amount between 500 and 500,000 ETB:'
+          );
+          return NextResponse.json({ ok: true });
+        }
+        const updatedDraft = { ...session.draft_data, space_rent: parsedRent };
+        await sendSpaceStep3Share(chatId, updatedDraft, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Space Roommate Share Text Input
+      if (session.step === 'space_input_share') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const parsedShare = parseNumericInput(text);
+        if (!parsedShare || parsedShare < 200 || parsedShare > 500000) {
+          await sendSpaceStep3Share(
+            chatId,
+            session.draft_data,
+            activeMsgId,
+            'Please enter a valid roommate share amount between 200 and 500,000 ETB:'
+          );
+          return NextResponse.json({ ok: true });
+        }
+        const updatedDraft = { ...session.draft_data, space_share: parsedShare };
+        await sendSpaceStep4Amenities(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3140,6 +4863,43 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
           ],
           activeMsgId
         );
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── ADMIN POST WIZARD TEXT INPUT HANDLERS ─────────────────────────────
+      // Admin Post Wizard: Budget/Rent Text Input
+      if (session.step === 'admin_post_budget') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const budgetVal = parseNumericInput(text);
+        if (!budgetVal || budgetVal < 500 || budgetVal > 1000000) {
+          await sendAdminPostBudgetStep(
+            chatId,
+            session.draft_data,
+            activeMsgId,
+            'Please enter a valid monthly rent/budget in ETB (e.g. 12000):'
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        const updatedDraft = { ...session.draft_data, budget: budgetVal };
+        await sendAdminPostGenderStep(chatId, updatedDraft, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin Post Wizard: Bio / Description Text Input
+      if (session.step === 'admin_post_bio') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const bioText = text.toLowerCase() === 'default' || text.toLowerCase() === 'skip'
+          ? 'Seeking compatible roommate in Addis Ababa.'
+          : text;
+        const updatedDraft = { ...session.draft_data, details: bioText };
+        await sendAdminPostPreviewCard(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3820,7 +5580,7 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
                 { text: `🚀 Send Request to #${targetProfile.display_code || lookupCode}`, callback_data: `confirm_match:${targetProfile.id}` },
               ],
               [
-                { text: '✏️ Edit My Profile', callback_data: 'post_to_channel_start' },
+                { text: '✏️ Edit My Profile', callback_data: 'post_profile_start' },
                 { text: '🏠 Main Menu', callback_data: 'nav_start' },
               ],
             ]
@@ -3829,17 +5589,25 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
         }
         // ── END deep-link handler ─────────────────────────────────────────────
 
-        // Channel Button: Post profile to channel
-        if (text === '/start post_to_channel' || text.startsWith('/start post_to_channel')) {
-          const isVerified = await isUserFaydaVerified(chatId);
-          if (isVerified) {
-            const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
-            if (p) {
-              await sendChannelPublishPreviewCard(chatId, p);
-              return NextResponse.json({ ok: true });
-            }
-          }
-          await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' });
+        // Channel Button 2: Post profile to channel
+        if (
+          text === '/start post_profile' ||
+          text.startsWith('/start post_profile') ||
+          text === '/start post_to_channel' ||
+          text.startsWith('/start post_to_channel')
+        ) {
+          await sendPostProfileBranchPrompt(chatId);
+          return NextResponse.json({ ok: true });
+        }
+
+        // Channel Button 3: Search Roommate for me
+        if (
+          text === '/start search_roommate' ||
+          text.startsWith('/start search_roommate') ||
+          text === '/start match' ||
+          text === '/start find'
+        ) {
+          await sendMatchmakerSubcityStep(chatId, { mode: 'search_roommate' });
           return NextResponse.json({ ok: true });
         }
 
@@ -3863,18 +5631,13 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
           return NextResponse.json({ ok: true });
         }
 
-        if (text === '/start match' || text === '/start find') {
-          await sendMatchmakerSubcityStep(chatId);
-          return NextResponse.json({ ok: true });
-        }
-
         if (text === '/start seeker_flow' || text === '/start seeker') {
-          await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' });
+          await sendPostProfileBranchPrompt(chatId);
           return NextResponse.json({ ok: true });
         }
 
         if (text === '/start property_type') {
-          await sendPropertyTypePrompt(chatId);
+          await sendSpaceStep1Type(chatId, {});
           return NextResponse.json({ ok: true });
         }
 
@@ -3924,28 +5687,34 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
           }
         }
 
+        // Direct start without deep-link parameters:
+        // Clear any old reply keyboards from Telegram clients to maintain clean UI
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: '✨ <b>Welcome to SpaceMatch Addis!</b>',
+          parse_mode: 'HTML',
+          reply_markup: { remove_keyboard: true },
+        }).then((res) => {
+          if (res?.result?.message_id) {
+            sendTelegram('deleteMessage', { chat_id: chatId, message_id: res.result.message_id }).catch(() => {});
+          }
+        }).catch(() => {});
+
         await sendPrimaryWelcomeMenu(chatId);
         return NextResponse.json({ ok: true });
       }
 
-      // Matchmaker Commands
-      if (text === '/match' || text === '/find' || text === '/roommate') {
+      // Search Roommate Commands
+      if (text === '/search_roommate' || text === '/match' || text === '/find' || text === '/roommate') {
         await clearSession(chatId);
-        await sendMatchmakerSubcityStep(chatId);
+        await sendMatchmakerSubcityStep(chatId, { mode: 'search_roommate' });
         return NextResponse.json({ ok: true });
       }
 
-      if (text === '/seeker' || text === '/seeker_flow' || text === '/post_profile' || text === '/post_to_channel') {
+      // Post Profile Commands
+      if (text === '/post_profile' || text === '/seeker' || text === '/post_to_channel') {
         await clearSession(chatId);
-        const isVerified = await isUserFaydaVerified(chatId);
-        if (isVerified) {
-          const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
-          if (p) {
-            await sendChannelPublishPreviewCard(chatId, p);
-            return NextResponse.json({ ok: true });
-          }
-        }
-        await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' });
+        await sendPostProfileBranchPrompt(chatId);
         return NextResponse.json({ ok: true });
       }
 
@@ -4104,7 +5873,7 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
           if (otherTgId) {
             await tgSend(
               otherTgId,
-              `🔔 <b>Your potential roommate has paid!</b>\n\nPay your 50 ETB fee to unlock contact details.\n\n<code>/verify telebirr YOUR_REFERENCE</code> or <code>/verify cbe YOUR_REFERENCE</code>`
+              `🔔 <b>Your roommate has completed their payment!</b>\n\nContact information will be revealed to both of you as soon as you complete your payment.\n\n<code>/verify telebirr YOUR_REFERENCE</code> or <code>/verify cbe YOUR_REFERENCE</code>`
             );
           }
         } else {
@@ -4122,21 +5891,12 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
           const requesterProfileId = (activeMatch.requester as any)?.id;
           const targetProfileId    = (activeMatch.target as any)?.id;
 
-          await supabaseAdmin
-            .from('profiles')
-            .update({ status: 'matched' })
-            .in('id', [requesterProfileId, targetProfileId].filter(Boolean));
-
-          // Update channel post to MATCHED & CLOSED
+          // Preserve channel message ID & display code for 24-hour follow-up check-in
           const channelMsgId = (activeMatch.target as any)?.channel_message_id;
           const targetDisplayCode = (activeMatch.target as any)?.display_code;
-          if (channelMsgId && targetDisplayCode) {
-            try {
-              await updateChannelPostAsMatched(channelMsgId, targetDisplayCode);
-            } catch (err) {
-              console.error('[webhook] Failed to update channel post:', err);
-            }
-          }
+
+          // Pre-reveal disclaimer: SpaceMatch connects roommates and assumes no liability after match
+          const disclaimerText = `⚠️ <b>Disclaimer:</b> Our job is to connect verified roommates. SpaceMatch Addis does not take responsibility for anything that happens after roommates are matched up.`;
 
           // Build contact reveal messages
           const buildRevealMsg = (other: any) => {
@@ -4159,10 +5919,27 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
           const targetTgId    = targetData?.telegram_id;
 
           if (requesterTgId) {
+            await tgSend(requesterTgId, disclaimerText);
             await tgSend(requesterTgId, buildRevealMsg(targetData), requesterRevealMarkup);
           }
           if (targetTgId) {
+            await tgSend(targetTgId, disclaimerText);
             await tgSend(targetTgId, buildRevealMsg(requesterData), targetRevealMarkup);
+
+            // Schedule 24-hour follow-up check-in for listing owner
+            const existingSession = getSession(targetTgId);
+            await saveSession({
+              telegram_id: targetTgId,
+              step: existingSession?.step || 'idle',
+              draft_data: {
+                ...(existingSession?.draft_data || {}),
+                checkin_scheduled: true,
+                checkin_due: Date.now() + 24 * 60 * 60 * 1000,
+                target_display_code: targetDisplayCode || 'RM',
+                target_channel_message_id: channelMsgId,
+              },
+              updated_at: new Date().toISOString(),
+            });
           }
         }
 
@@ -4179,16 +5956,347 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
         return NextResponse.json({ ok: true });
       }
 
+      // ── SpaceMatch Admin Commands ──────────────────────────────────────────
       if (text === '/admin') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⛔ <b>Access Denied.</b> You are not authorized to view admin controls.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        let pendingCount = 0;
+        try {
+          const { count } = await supabaseAdmin
+            .from('profiles')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending_approval');
+          pendingCount = count || 0;
+        } catch {}
+
         await sendTelegram('sendMessage', {
           chat_id: chatId,
-          text: `<b>👑 SpaceMatch Admin Controls</b>`,
+          text: `👑 <b>SpaceMatch Admin Controls</b>\n\nSelect an action below or use admin commands:\n• <code>/post</code> - Launch channel posting wizard\n• <code>/close &lt;code&gt;</code> - Close matched listing\n• <code>/admins</code> - View and manage administrator team`,
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '📢 Admin Dashboard', callback_data: 'admin_menu' }],
+              [{ text: `⏳ Pending Channel Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
+              [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
+              [{ text: '🔴 Active Channel Posts & Close / Match', callback_data: 'admin_list_active_posts' }],
+              [{ text: '❌ Exit Admin Menu', callback_data: 'admin_cancel' }],
             ],
           },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/post' || text === '/admin_post') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⛔ <b>Access Denied.</b> Only SpaceMatch administrators can post directly to the channel.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+        await clearSession(chatId);
+        await sendAdminPostCategoryStep(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/close' || text.startsWith('/close ')) {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⛔ <b>Access Denied.</b> Only SpaceMatch administrators can mark channel posts as closed.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const query = text.replace('/close', '').trim();
+        if (!query) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `
+📢 <b>SpaceMatch Admin · Close Channel Post</b>
+
+<b>Usage:</b> <code>/close &lt;code_or_message_id_or_link&gt;</code>
+
+<b>Examples:</b>
+• <code>/close RM205</code>
+• <code>/close 1542</code>
+• <code>/close https://t.me/roommatch_addis/1542</code>
+
+<i>💡 Or simply forward any channel post directly to this bot to close it!</i>
+            `.trim(),
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const res = await executeChannelPostClose(query, chatId);
+        const targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommatch_addis';
+        const channelHandle = targetChannel.replace('@', '');
+        const postLink = res.messageId ? `https://t.me/${channelHandle}/${res.messageId}` : '';
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: `${res.success ? '🔴' : '⚠️'} <b>Listing #${res.displayCode || query}</b>\n\n${res.message}`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              ...(postLink ? [[{ text: '📢 View Channel Post ↗️', url: postLink }]] : []),
+              [{ text: '➕ Post Another Listing', callback_data: 'admin_post_start' }],
+              [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+            ],
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/admins') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⛔ <b>Access Denied.</b> Admin list is restricted to SpaceMatch administrators.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        // Fetch DB admins with their usernames/names
+        let dbAdminList: any[] = [];
+        try {
+          const { data } = await supabaseAdmin
+            .from('users')
+            .select('telegram_id, first_name, last_name, username')
+            .eq('role', 'admin');
+          if (data) dbAdminList = data;
+        } catch {}
+
+        let msg = `👑 <b>SpaceMatch Administrators (${adminIds.length} Total)</b>\n\n`;
+        msg += `🛡️ <b>Super Administrators:</b>\n`;
+        msg += `• Biruk (@birukadiyee · <code>800701176</code>)\n`;
+        msg += `• Wahid (@WWEHID · <code>148318506</code>)\n\n`;
+
+        if (dbAdminList.length > 0) {
+          msg += `👥 <b>Database Administrators:</b>\n`;
+          for (const a of dbAdminList) {
+            const name = [a.first_name, a.last_name].filter(Boolean).join(' ') || 'Admin';
+            const handle = a.username ? `@${a.username}` : `<code>${a.telegram_id}</code>`;
+            msg += `• ${name} (${handle})\n`;
+          }
+          msg += '\n';
+        }
+
+        msg += `📢 <b>Channel Administrators:</b>\n`;
+        msg += `• Automatically synced from <code>@roommatch_addis</code> channel administrators.\n\n`;
+        msg += `⚙️ <b>Commands:</b>\n`;
+        msg += `• <code>/add_admin &lt;telegram_id_or_username&gt;</code>\n`;
+        msg += `• <code>/remove_admin &lt;telegram_id_or_username&gt;</code>\n`;
+        msg += `• <code>/post</code> - Launch channel posting wizard\n`;
+        msg += `• <code>/close &lt;code&gt;</code> - Mark channel post as closed\n`;
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: msg.trim(),
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
+              [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+            ],
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/add_admin' || text.startsWith('/add_admin ')) {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⛔ <b>Access Denied.</b> Only SpaceMatch administrators can promote other admins.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const query = text.replace('/add_admin', '').trim();
+        if (!query) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `
+👑 <b>SpaceMatch Admin · Add Administrator</b>
+
+<b>Usage:</b> <code>/add_admin &lt;telegram_id_or_username&gt;</code>
+
+<b>Examples:</b>
+• <code>/add_admin 987654321</code>
+• <code>/add_admin @username</code>
+            `.trim(),
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const cleanQuery = query.replace('@', '').trim();
+        const isNumeric = /^\d+$/.test(cleanQuery);
+
+        let userRecord: any = null;
+        if (isNumeric) {
+          const { data } = await supabaseAdmin.from('users').select('*').eq('telegram_id', Number(cleanQuery)).maybeSingle();
+          userRecord = data;
+        } else {
+          const { data } = await supabaseAdmin.from('users').select('*').ilike('username', cleanQuery).maybeSingle();
+          userRecord = data;
+        }
+
+        if (!userRecord) {
+          if (isNumeric) {
+            const { data: newUser } = await supabaseAdmin
+              .from('users')
+              .upsert({
+                telegram_id: Number(cleanQuery),
+                role: 'admin',
+                updated_at: new Date().toISOString(),
+              }, { onConflict: 'telegram_id' })
+              .select('*')
+              .single();
+            userRecord = newUser;
+          } else {
+            await sendTelegram('sendMessage', {
+              chat_id: chatId,
+              text: `⚠️ User <b>@${cleanQuery}</b> was not found in SpaceMatch database. They need to start the bot at least once first, or you can add them by numeric Telegram ID: <code>/add_admin &lt;id&gt;</code>.`,
+              parse_mode: 'HTML',
+            });
+            return NextResponse.json({ ok: true });
+          }
+        } else {
+          await supabaseAdmin
+            .from('users')
+            .update({ role: 'admin', updated_at: new Date().toISOString() })
+            .eq('id', userRecord.id);
+        }
+
+        // Invalidate admin cache
+        invalidateAdminCache();
+
+        const displayName = [userRecord.first_name, userRecord.last_name].filter(Boolean).join(' ') || (userRecord.username ? `@${userRecord.username}` : `ID ${userRecord.telegram_id}`);
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: `✅ <b>${displayName}</b> has been successfully promoted to SpaceMatch Administrator! 🎉\n\nThey now have access to <code>/post</code> and <code>/close</code>.`,
+          parse_mode: 'HTML',
+        });
+
+        if (userRecord.telegram_id && Number(userRecord.telegram_id) !== chatId) {
+          await sendTelegram('sendMessage', {
+            chat_id: Number(userRecord.telegram_id),
+            text: `🎉 <b>You have been appointed as a SpaceMatch Administrator!</b>\n\nYou now have administrative privileges to post listings directly to the channel and manage/close listings:\n\n• <code>/post</code> - Launch channel posting wizard\n• <code>/close &lt;code&gt;</code> - Close matched listings\n• <code>/admins</code> - View administrator team`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
+                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+              ],
+            },
+          });
+        }
+
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/remove_admin' || text.startsWith('/remove_admin ')) {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⛔ <b>Access Denied.</b> Only SpaceMatch administrators can manage admins.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const query = text.replace('/remove_admin', '').trim();
+        if (!query) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `
+👑 <b>SpaceMatch Admin · Remove Administrator</b>
+
+<b>Usage:</b> <code>/remove_admin &lt;telegram_id_or_username&gt;</code>
+
+<b>Examples:</b>
+• <code>/remove_admin 987654321</code>
+• <code>/remove_admin @username</code>
+            `.trim(),
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const cleanQuery = query.replace('@', '').trim();
+        const isNumeric = /^\d+$/.test(cleanQuery);
+        const superAdminIds = [800701176, 148318506];
+
+        if (isNumeric && superAdminIds.includes(Number(cleanQuery))) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⚠️ <b>Action Blocked:</b> Super administrators cannot be removed.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        let userRecord: any = null;
+        if (isNumeric) {
+          const { data } = await supabaseAdmin.from('users').select('*').eq('telegram_id', Number(cleanQuery)).maybeSingle();
+          userRecord = data;
+        } else {
+          const { data } = await supabaseAdmin.from('users').select('*').ilike('username', cleanQuery).maybeSingle();
+          userRecord = data;
+        }
+
+        if (!userRecord) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⚠️ User <b>${query}</b> was not found in the database.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        if (superAdminIds.includes(Number(userRecord.telegram_id))) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⚠️ <b>Action Blocked:</b> Super administrators cannot be removed.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        await supabaseAdmin
+          .from('users')
+          .update({ role: 'user', updated_at: new Date().toISOString() })
+          .eq('id', userRecord.id);
+
+        // Invalidate admin cache
+        invalidateAdminCache();
+
+        const displayName = [userRecord.first_name, userRecord.last_name].filter(Boolean).join(' ') || (userRecord.username ? `@${userRecord.username}` : `ID ${userRecord.telegram_id}`);
+
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: `ℹ️ <b>${displayName}</b> has been removed from SpaceMatch Administrators.`,
+          parse_mode: 'HTML',
         });
         return NextResponse.json({ ok: true });
       }

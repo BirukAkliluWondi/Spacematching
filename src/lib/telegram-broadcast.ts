@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase-server';
-import { getRoommateDraft, getDraft } from '@/lib/bot-session-store';
+import { getRoommateDraft, getDraft, getAllRoommateDrafts } from '@/lib/bot-session-store';
 
 export interface BroadcastResult {
   success: boolean;
@@ -29,72 +29,130 @@ export async function broadcastRoommateProfileToChannel(
 
   try {
     let profile: any = null;
-
     let dbProfile: any = null;
-    try {
-      const { data: pById } = await supabaseAdmin
-        .from('roommate_profiles')
-        .select('*, users(*)')
-        .eq('id', profileId)
-        .maybeSingle();
-      dbProfile = pById;
-    } catch {}
 
-    if (!dbProfile) {
+    const cleanCode = (profileId || '').trim().replace(/^#/, '');
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanCode);
+
+    // 1. Try profiles table first (primary profiles table used across bot)
+    let pFromProfiles: any = null;
+    if (isUuid) {
       try {
-        const { data: pByCode } = await supabaseAdmin
-          .from('roommate_profiles')
-          .select('*, users(*)')
-          .eq('display_code', profileId)
-          .maybeSingle();
-        dbProfile = pByCode;
+        const { data } = await supabaseAdmin.from('profiles').select('*').eq('id', cleanCode).maybeSingle();
+        if (data) pFromProfiles = data;
       } catch {}
     }
 
-    if (!dbProfile) {
+    if (!pFromProfiles) {
       try {
-        const { data: pFromProfiles } = await supabaseAdmin
-          .from('profiles')
-          .select('*')
-          .or(`id.eq.${profileId},display_code.eq.${profileId}`)
-          .maybeSingle();
-
-        if (pFromProfiles) {
-          dbProfile = {
-            id: pFromProfiles.id,
-            display_code: pFromProfiles.display_code,
-            my_gender: pFromProfiles.gender || 'Member',
-            preferred_gender: 'Any',
-            preferred_subcity: pFromProfiles.locations || [],
-            budget_max: pFromProfiles.budget_max || 10000,
-            lifestyle_bio: pFromProfiles.roommate_traits || 'Seeking compatible roommate in Addis Ababa.',
-            unlock_fee: 50,
-            users: {
-              first_name: pFromProfiles.full_name || 'Seeker',
-              fayda_status: pFromProfiles.kyc_status || 'verified',
-            },
-          };
-        }
+        const { data } = await supabaseAdmin.from('profiles').select('*').ilike('display_code', cleanCode).maybeSingle();
+        if (data) pFromProfiles = data;
       } catch {}
+    }
+
+    if (!pFromProfiles && /^\d+$/.test(cleanCode)) {
+      try {
+        const { data } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', Number(cleanCode)).maybeSingle();
+        if (data) pFromProfiles = data;
+      } catch {}
+    }
+
+    if (pFromProfiles) {
+      dbProfile = {
+        id: pFromProfiles.id,
+        display_code: pFromProfiles.display_code || cleanCode,
+        user_telegram_id: pFromProfiles.telegram_id,
+        my_gender: pFromProfiles.gender || 'Member',
+        age: pFromProfiles.age,
+        preferred_gender: 'Any',
+        preferred_subcity: Array.isArray(pFromProfiles.locations) ? pFromProfiles.locations : [],
+        budget_max: pFromProfiles.budget_max || 10000,
+        lifestyle_bio: pFromProfiles.roommate_traits || 'Seeking compatible roommate in Addis Ababa.',
+        listing_category: pFromProfiles.listing_category || 'seeker',
+        space_type: pFromProfiles.space_type,
+        space_rent: pFromProfiles.space_rent,
+        space_share: pFromProfiles.space_share,
+        space_amenities: pFromProfiles.space_amenities || [],
+        space_photos: Array.isArray(pFromProfiles.space_photos) ? pFromProfiles.space_photos : [],
+        unlock_fee: 50,
+        users: {
+          first_name: pFromProfiles.full_name || 'Seeker',
+          fayda_status: pFromProfiles.kyc_status || 'verified',
+        },
+      };
+    }
+
+    // 2. Try roommate_profiles table
+    if (!dbProfile) {
+      if (isUuid) {
+        try {
+          const { data: pById } = await supabaseAdmin
+            .from('roommate_profiles')
+            .select('*, users(*)')
+            .eq('id', cleanCode)
+            .maybeSingle();
+          if (pById) dbProfile = pById;
+        } catch {}
+      }
+
+      if (!dbProfile) {
+        try {
+          const { data: pByCode } = await supabaseAdmin
+            .from('roommate_profiles')
+            .select('*, users(*)')
+            .ilike('display_code', cleanCode)
+            .maybeSingle();
+          if (pByCode) dbProfile = pByCode;
+        } catch {}
+      }
+
+      if (!dbProfile && /^\d+$/.test(cleanCode)) {
+        try {
+          const { data: pByTg } = await supabaseAdmin
+            .from('roommate_profiles')
+            .select('*, users(*)')
+            .eq('user_telegram_id', Number(cleanCode))
+            .maybeSingle();
+          if (pByTg) dbProfile = pByTg;
+        } catch {}
+      }
     }
 
     if (dbProfile) {
       profile = {
         id: dbProfile.id,
-        display_code: dbProfile.display_code,
+        display_code: dbProfile.display_code || cleanCode,
+        user_telegram_id: dbProfile.user_telegram_id,
         user_name: dbProfile.users?.first_name || 'Seeker',
         preferred_subcity: dbProfile.preferred_subcity || [],
-        my_gender: dbProfile.my_gender,
-        preferred_gender: dbProfile.preferred_gender,
-        budget_max: dbProfile.budget_max,
-        lifestyle_bio: dbProfile.lifestyle_bio,
+        my_gender: dbProfile.my_gender || 'Member',
+        age: dbProfile.age,
+        preferred_gender: dbProfile.preferred_gender || 'Any',
+        budget_max: dbProfile.budget_max || 10000,
+        lifestyle_bio: dbProfile.lifestyle_bio || 'Seeking compatible roommate in Addis Ababa.',
+        listing_category: dbProfile.listing_category || 'seeker',
+        space_type: dbProfile.space_type,
+        space_rent: dbProfile.space_rent,
+        space_share: dbProfile.space_share,
+        space_amenities: dbProfile.space_amenities || [],
+        space_photos: Array.isArray(dbProfile.space_photos) ? dbProfile.space_photos : [],
         unlock_fee: dbProfile.unlock_fee || 50,
         fayda_status: dbProfile.users?.fayda_status || 'verified',
       };
     } else {
-      const draft = await getRoommateDraft(profileId);
+      // 3. Fallback to session drafts
+      const draft = await getRoommateDraft(cleanCode);
       if (draft) {
         profile = draft;
+      } else {
+        const allDrafts = Object.values(await getAllRoommateDrafts());
+        const matchDraft = allDrafts.find(
+          (d: any) =>
+            d.display_code?.toLowerCase() === cleanCode.toLowerCase() ||
+            String(d.user_telegram_id) === cleanCode ||
+            d.id === cleanCode
+        );
+        if (matchDraft) profile = matchDraft;
       }
     }
 
@@ -113,62 +171,99 @@ export async function broadcastRoommateProfileToChannel(
       ? 'VERIFIED ✅ 🛡️'
       : 'UNVERIFIED ⚠️';
 
-    // Attempt to lookup display_code from profiles table
-    let displayCode = profile.display_code;
-    if (!displayCode) {
-      try {
-        const { data: p } = await supabaseAdmin
-          .from('profiles')
-          .select('display_code')
-          .or(`id.eq.${profileId},telegram_id.eq.${profile.user_telegram_id || 0}`)
-          .single();
-        if (p?.display_code) displayCode = p.display_code;
-      } catch {}
-    }
-
-    const codeTag = displayCode ? `#${displayCode}` : `#RM${profile.id.slice(0, 4).toUpperCase()}`;
+    const displayCode = profile.display_code || cleanCode;
+    const codeTag = `#${displayCode.replace(/^#/, '')}`;
     const bioContent = (profile.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-    const text = `
-✨ <b>SpaceMatch</b> · <b>Roommate Seeker ${codeTag}</b>
+    const hasSpace = profile.listing_category === 'space_available' || (profile.space_rent && profile.space_rent > 0);
+    const hasPhotos = Array.isArray(profile.space_photos) && profile.space_photos.length > 0;
+
+    let text = '';
+    if (hasSpace) {
+      const amenitiesStr = Array.isArray(profile.space_amenities) && profile.space_amenities.length > 0
+        ? profile.space_amenities.join(', ')
+        : 'WiFi, Kitchen, Water supply';
+      const rentStr = profile.space_rent ? `${Number(profile.space_rent).toLocaleString()} ETB / month` : 'Negotiable';
+      const shareStr = profile.space_share ? `${Number(profile.space_share).toLocaleString()} ETB / month` : 'Split equally';
+
+      text = `
+<b>Roommate available with a Room</b> ${codeTag}
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>${faydaBadge}</b>
 
-• <b>Gender:</b> ${profile.my_gender} (Prefers: ${profile.preferred_gender})
-• <b>Budget Cap:</b> <code>Up to ${Number(profile.budget_max).toLocaleString()} ETB / month</code>
+• <b>Space Type:</b> ${profile.space_type || 'Private Bedroom in Shared Flat'}
+• <b>Total Monthly Rent:</b> <code>${rentStr}</code>
+• <b>Your Share / Split:</b> <code>${shareStr}</code>
+• <b>What I Have / Amenities:</b> ${amenitiesStr}
+• <b>Roommate Preference:</b> ${profile.my_gender || 'Member'} (Prefers: ${profile.preferred_gender || 'Any'})
 
 <blockquote>"${bioContent}"</blockquote>
 
 🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
-    `.trim();
+      `.trim();
+    } else {
+      const ageStr = profile.age ? `, ${profile.age} yrs` : '';
+      text = `
+<b>Roommate Available</b> ${codeTag}
+📍 <code>${subcitiesStr}</code> · 🛡️ <b>${faydaBadge}</b>
 
-    const connectPayload = displayCode ? `req_${displayCode}` : `req_${profile.id}`;
+• <b>Gender & Age:</b> ${profile.my_gender || 'Member'}${ageStr} (Prefers: ${profile.preferred_gender || 'Any'})
+• <b>Budget Cap:</b> <code>Up to ${Number(profile.budget_max).toLocaleString()} ETB / month</code>
+• <b>Target Areas:</b> <code>${subcitiesStr}</code>
+
+<blockquote>"${bioContent}"</blockquote>
+
+🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
+      `.trim();
+    }
+
     const inlineKeyboard = {
       inline_keyboard: [
         [
           {
-            text: `⚡ Connect with Roommate ${codeTag} ↗️`,
-            url: `https://t.me/${botUsername}?start=${connectPayload}`,
+            text: `⚡ Contact with Roommate ${codeTag} ↗️`,
+            url: `https://t.me/${botUsername}?start=req_${cleanCode}`,
           },
         ],
         [
           {
-            text: '📢 Post Your Profile to Channel ↗️',
-            url: `https://t.me/${botUsername}?start=post_to_channel`,
+            text: '📢 Post My Profile ↗️',
+            url: `https://t.me/${botUsername}?start=post_profile`,
+          },
+        ],
+        [
+          {
+            text: '🔍 Search Roommate for Me ↗️',
+            url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
       ],
     };
 
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: targetChannel,
-        text,
-        parse_mode: 'HTML',
-        reply_markup: inlineKeyboard,
-      }),
-    });
+    let response: any;
+    if (hasPhotos) {
+      response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: targetChannel,
+          photo: profile.space_photos[0],
+          caption: text,
+          parse_mode: 'HTML',
+          reply_markup: inlineKeyboard,
+        }),
+      });
+    } else {
+      response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: targetChannel,
+          text,
+          parse_mode: 'HTML',
+          reply_markup: inlineKeyboard,
+        }),
+      });
+    }
 
     const data = await response.json();
 
@@ -181,18 +276,43 @@ export async function broadcastRoommateProfileToChannel(
 
     const messageId = data.result?.message_id;
     if (messageId) {
-      try {
-        await supabaseAdmin
-          .from('roommate_profiles')
-          .update({ channel_message_id: messageId })
-          .eq('id', profileId);
-      } catch {}
+      if (displayCode) {
+        try {
+          await supabaseAdmin
+            .from('profiles')
+            .update({ channel_message_id: messageId, status: 'active' })
+            .ilike('display_code', displayCode);
+        } catch {}
+
+        try {
+          await supabaseAdmin
+            .from('roommate_profiles')
+            .update({ channel_message_id: messageId, status: 'approved' })
+            .ilike('display_code', displayCode);
+        } catch {}
+      }
+
+      if (isUuid) {
+        try {
+          await supabaseAdmin
+            .from('profiles')
+            .update({ channel_message_id: messageId, status: 'active' })
+            .eq('id', cleanCode);
+        } catch {}
+
+        try {
+          await supabaseAdmin
+            .from('roommate_profiles')
+            .update({ channel_message_id: messageId, status: 'approved' })
+            .eq('id', cleanCode);
+        } catch {}
+      }
 
       try {
         await supabaseAdmin
           .from('pending_roommate_drafts')
           .update({ channel_message_id: messageId })
-          .eq('id', profileId);
+          .eq('id', cleanCode);
       } catch {}
     }
 
@@ -299,8 +419,8 @@ export async function broadcastListingToChannel(
         ],
         [
           {
-            text: '📢 Post Your Profile to Channel ↗️',
-            url: `https://t.me/${botUsername}?start=post_to_channel`,
+            text: '📢 Post My Profile ↗️',
+            url: `https://t.me/${botUsername}?start=post_profile`,
           },
         ],
         [
@@ -506,7 +626,7 @@ export async function closeChannelPost(
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
   }
 
-  const closedNotice = `🔴 <b>CLOSED · MATCHED</b>\n\n🤝 <b>${itemTitle}</b> has found a match! 🎉\n\n<blockquote>✅ This listing is officially closed. No further contact unlock requests are accepted.</blockquote>`;
+  const closedNotice = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 <i>This listing is officially closed &amp; matched!</i>\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n\n✨ <b>${itemTitle} has found a match! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted.</blockquote>`;
 
   try {
     const endpoint = isPhoto ? 'editMessageCaption' : 'editMessageText';

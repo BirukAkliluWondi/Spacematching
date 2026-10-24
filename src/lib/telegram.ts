@@ -11,6 +11,8 @@
  *   NEXT_PUBLIC_BOT_USERNAME  e.g. Spacematchaddis_bot  (with or without @)
  */
 
+import { supabaseAdmin } from '@/lib/supabase-server';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Profile {
@@ -313,30 +315,36 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
     : 'Open to compatible housemates.';
 
   const cardText = `
-✨ <b>SpaceMatch</b> · <b>Roommate Seeker #${escapeHtml(profile.display_code)}</b>
-📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified</b>
+<b>Roommate Available</b> #${escapeHtml(profile.display_code)}
+📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified ✅</b>
 
 • <b>Gender:</b> ${escapeHtml(profile.gender || 'Not specified')}
-• <b>Budget:</b> <code>${budgetMin} – ${budgetMax} ETB/month</code>
+• <b>Budget Cap:</b> <code>${budgetMin} – ${budgetMax} ETB / month</code>
 • <b>Move-in Date:</b> ${moveIn}
 
 <blockquote>"${traits}"</blockquote>
 
-🔒 <i>Contact details remain sealed until both parties match &amp; verify.</i>
+🔒 <i>Personal identity &amp; direct contact remain sealed until mutual match unlock.</i>
 `.trim();
 
   const replyMarkup: InlineKeyboard = {
     inline_keyboard: [
       [
         {
-          text: `⚡ Connect with Roommate #${profile.display_code} ↗️`,
+          text: `⚡ Contact with Roommate #${profile.display_code} ↗️`,
           url: `https://t.me/${botUsername}?start=req_${profile.display_code}`,
         },
       ],
       [
         {
-          text: '📢 Post Your Profile to Channel ↗️',
-          url: `https://t.me/${botUsername}?start=post_to_channel`,
+          text: '📢 Post My Profile ↗️',
+          url: `https://t.me/${botUsername}?start=post_profile`,
+        },
+      ],
+      [
+        {
+          text: '🔍 Search Roommate for Me ↗️',
+          url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
     ],
@@ -359,22 +367,62 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
 }
 
 /**
- * Edits the existing channel post to show "MATCHED & CLOSED" and removes
- * the inline connect button so no further requests can be made.
+ * Edits the existing channel post to prepend "_____CLOSED_____" at the top,
+ * preserves the listing details underneath, and swaps buttons to match/post links.
  */
 export async function updateChannelPostAsMatched(
   channelMessageId: number,
-  displayCode: string
-): Promise<void> {
+  displayCode: string,
+  existingContent?: string
+): Promise<boolean> {
   const channelId = CHANNEL_ID();
+  const rawBotUsername = BOT_USERNAME();
+  const botUsername = rawBotUsername.replace(/^@/, '');
 
-  const closedText = `
-🔴 <b>CLOSED · MATCHED</b>
+  let baseContent = existingContent?.trim() || '';
 
-🤝 <b>Roommate #${escapeHtml(displayCode)} has found a match! 🎉</b>
+  // If no existing content provided, attempt to retrieve listing from DB
+  if (!baseContent) {
+    try {
+      const { data: p } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`)
+        .maybeSingle();
 
-<blockquote>✅ This listing is officially closed. No further contact unlock requests are accepted.</blockquote>
-`.trim();
+      if (p) {
+        const locations = Array.isArray(p.locations) && p.locations.length > 0 ? p.locations.join(', ') : 'Addis Ababa';
+        const budgetStr = p.budget_max ? `Up to ${Number(p.budget_max).toLocaleString()} ETB / month` : 'Flexible';
+        const traits = p.roommate_traits || 'Seeking compatible roommate in Addis Ababa.';
+        baseContent = `✨ <b>SpaceMatch</b> · <b>Roommate Seeker #${escapeHtml(p.display_code || displayCode)}</b>\n📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified</b>\n\n• <b>Gender:</b> ${escapeHtml(p.gender || 'Member')}\n• <b>Budget Cap:</b> <code>${budgetStr}</code>\n\n<blockquote>"${escapeHtml(traits)}"</blockquote>`;
+      }
+    } catch (err) {
+      console.error('Error fetching profile for closed post formatting:', err);
+    }
+  }
+
+  const closedHeader = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 <i>This listing is officially closed &amp; matched!</i>\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴`;
+
+  const closedText = baseContent
+    ? `${closedHeader}\n\n${baseContent}\n\n🔒 <i>Listing closed. Browse active verified roommates below:</i>`
+    : `${closedHeader}\n\n✨ <b>Roommate #${escapeHtml(displayCode)} has found a match! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted.</blockquote>`;
+
+  const closedMarkup: InlineKeyboard = {
+    inline_keyboard: [
+      [
+        {
+          text: '🔒 Listing Closed · View Active Matches ↗️',
+          url: `https://t.me/${botUsername}?start=match`,
+        },
+      ],
+      [
+        {
+          text: '📢 Post Your Profile to Channel ↗️',
+          url: `https://t.me/${botUsername}?start=post_to_channel`,
+        },
+      ],
+    ],
+  };
 
   try {
     const res = await callTelegram('editMessageText', {
@@ -382,7 +430,7 @@ export async function updateChannelPostAsMatched(
       message_id: channelMessageId,
       text: closedText,
       parse_mode: 'HTML',
-      reply_markup: { inline_keyboard: [] },
+      reply_markup: closedMarkup,
     });
 
     if (!res.ok) {
@@ -392,10 +440,25 @@ export async function updateChannelPostAsMatched(
         message_id: channelMessageId,
         caption: closedText,
         parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: [] },
+        reply_markup: closedMarkup,
       });
     }
+
+    // Also update profiles and roommate_profiles status in DB
+    try {
+      await supabaseAdmin
+        .from('profiles')
+        .update({ status: 'matched', updated_at: new Date().toISOString() })
+        .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`);
+      await supabaseAdmin
+        .from('roommate_profiles')
+        .update({ status: 'matched', updated_at: new Date().toISOString() })
+        .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`);
+    } catch {}
+
+    return true;
   } catch (err) {
     console.error('Failed to update channel post as matched:', err);
+    return false;
   }
 }

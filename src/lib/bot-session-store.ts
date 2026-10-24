@@ -37,6 +37,12 @@ export interface RoommateProfileDraft {
   unlock_fee: number;
   channel_message_id?: number | null;
   status: 'pending_approval' | 'approved' | 'rejected' | 'matched';
+  listing_category?: string;
+  space_type?: string;
+  space_rent?: number;
+  space_share?: number;
+  space_amenities?: string[];
+  space_photos?: string[];
   created_at: string;
   updated_at: string;
 }
