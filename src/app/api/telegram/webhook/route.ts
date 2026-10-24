@@ -97,7 +97,7 @@ export async function POST(request: Request) {
         return cachedAdminIds.ids;
       }
 
-      const defaultAdminIds = [800701176, 148318506]; // @birukadiyee & @WWEHID
+      const defaultAdminIds = [800701176, 980853835]; // @birukadiyee & @WWEHID
       const envAdmins = (process.env.ADMIN_TELEGRAM_IDS || '')
         .split(',')
         .map((s) => Number(s.trim()))
@@ -126,12 +126,12 @@ export async function POST(request: Request) {
           if (process.env.TELEGRAM_CHANNEL_ID) targetChannels.add(process.env.TELEGRAM_CHANNEL_ID);
           for (const ch of channels) {
             if (ch.is_active) {
+              if (ch.added_by && Number(ch.added_by) > 0) {
+                adminSet.add(Number(ch.added_by));
+              }
               if (ch.channel_id) targetChannels.add(ch.channel_id);
               if (ch.channel_username) targetChannels.add(ch.channel_username);
             }
-          }
-          if (targetChannels.size === 0) {
-            targetChannels.add('@roommatch_addis');
           }
 
           for (const ch of targetChannels) {
@@ -836,27 +836,35 @@ Please select which type of roommate profile you want to post:
     };
 
     // ── Branch A: Space Owner Questionnaire Helpers ─────────────────────────
-    const sendSpaceStep1Type = async (chatId: number, draft: Record<string, any> = {}, messageIdToEdit?: number) => {
+    const sendSpaceStep1Type = async (
+      chatId: number,
+      draft: Record<string, any> = {},
+      messageIdToEdit?: number,
+      errorMsg?: string
+    ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
       await saveSession({
         telegram_id: chatId,
-        step: 'space_type_select',
+        step: 'space_input_type',
         draft_data: { ...draft, listing_category: 'space_available', card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
       const text = `
 🏠 <b>SpaceMatch · Space Owner (Step 1 of 6)</b>
+${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🛏️ <b>What type of space are you offering?</b>
 
-<b>What type of space are you offering?</b>
-<i>Select your space layout below:</i>
+<i>Please type your space layout directly in the chat below.</i>
+
+<b>Examples of what to write:</b>
+• <code>Private Bedroom in a 2-bedroom shared apartment</code>
+• <code>Master Bedroom with private bathroom</code>
+• <code>Furnished Studio Flat in Bole</code>
+• <code>Bedspace in a shared furnished room</code>
+• <code>Single room in a quiet compound with shared kitchen</code>
       `.trim();
 
       const inlineKeyboard = [
-        [{ text: '🛏️ Private Room in Shared Flat', callback_data: 'space_type:Private Room in Shared Flat' }],
-        [{ text: '👑 Master Bedroom with Bath', callback_data: 'space_type:Master Bedroom with Bath' }],
-        [{ text: '🏢 Studio / 1-Bedroom Flat', callback_data: 'space_type:Studio / 1-Bedroom Flat' }],
-        [{ text: '👥 Shared Room / Bedspace', callback_data: 'space_type:Shared Room / Bedspace' }],
         [{ text: '⬅️ Back to Options', callback_data: 'post_profile_start' }],
         [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
       ];
@@ -880,23 +888,20 @@ Please select which type of roommate profile you want to post:
 
       const text = `
 🏠 <b>SpaceMatch · Space Owner (Step 2 of 6)</b>
+• <b>Space Type:</b> <code>${draft.space_type || 'Private Bedroom'}</code>
+
 ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>What is the total monthly rent for the entire space?</b>
-<i>Tap a quick preset below or reply with the exact number in ETB (e.g. <code>12000</code>):</i>
+
+<i>Please type the exact total monthly rent in ETB into the chat below.</i>
+
+<b>Examples of what to write:</b>
+• <code>12000</code>
+• <code>8,500 ETB</code>
+• <code>15000</code>
+• <code>20,000</code>
       `.trim();
 
       const inlineKeyboard = [
-        [
-          { text: '6,000 ETB', callback_data: 'space_rent:6000' },
-          { text: '8,000 ETB', callback_data: 'space_rent:8000' },
-        ],
-        [
-          { text: '10,000 ETB', callback_data: 'space_rent:10000' },
-          { text: '12,000 ETB', callback_data: 'space_rent:12000' },
-        ],
-        [
-          { text: '15,000 ETB', callback_data: 'space_rent:15000' },
-          { text: '20,000 ETB', callback_data: 'space_rent:20000' },
-        ],
         [
           { text: '⬅️ Back to Space Type', callback_data: 'post_branch_space' },
           { text: '🏠 Cancel', callback_data: 'nav_start' },
@@ -925,20 +930,23 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>What is the total mont
 
       const text = `
 🏠 <b>SpaceMatch · Space Owner (Step 3 of 6)</b>
+• <b>Space Type:</b> <code>${draft.space_type || 'Private Bedroom'}</code>
 • <b>Total Rent:</b> <code>${Number(rentNum).toLocaleString()} ETB / month</code>
 
 ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🤝 <b>What is the share / split the other person has to pay?</b>
-<i>Tap 50% split below or reply with the exact ETB amount:</i>
+
+<i>Please type the roommate's split amount in ETB into the chat, or tap 50% split below:</i>
+
+<b>Examples of what to write:</b>
+• <code>${halfRent}</code> <i>(equal 50% split)</i>
+• <code>5000</code>
+• <code>6,000 ETB</code>
+• <code>7500</code>
       `.trim();
 
       const inlineKeyboard = [
         [
-          { text: `⚖️ 50% Split (${halfRent.toLocaleString()} ETB)`, callback_data: `space_share:${halfRent}` },
-        ],
-        [
-          { text: '4,000 ETB', callback_data: 'space_share:4000' },
-          { text: '5,000 ETB', callback_data: 'space_share:5000' },
-          { text: '6,000 ETB', callback_data: 'space_share:6000' },
+          { text: `⚖️ Quick 50% Split (${halfRent.toLocaleString()} ETB)`, callback_data: `space_share:${halfRent}` },
         ],
         [
           { text: '⬅️ Back to Total Rent', callback_data: 'space_back_to_rent' },
@@ -949,70 +957,45 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🤝 <b>What is the share / sp
       return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
     };
 
-    const SPACE_AMENITIES_LIST = [
-      '📶 WiFi',
-      '🍳 Kitchen',
-      '💧 Water Tanker',
-      '🧺 Washing Machine',
-      '🚿 Hot Shower',
-      '🚗 Parking',
-      '🛋️ Furnished',
-      '🔒 24/7 Security',
-    ];
-
     const sendSpaceStep4Amenities = async (
       chatId: number,
       draft: Record<string, any>,
-      messageIdToEdit?: number
+      messageIdToEdit?: number,
+      errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
-      const selected: string[] = draft.space_amenities || ['📶 WiFi', '🍳 Kitchen'];
 
       await saveSession({
         telegram_id: chatId,
-        step: 'space_amenities_select',
-        draft_data: { ...draft, space_amenities: selected, card_msg_id: activeMsgId },
+        step: 'space_input_amenities',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
-      const gridRows: any[] = [];
-      for (let i = 0; i < SPACE_AMENITIES_LIST.length; i += 2) {
-        const row = [];
-        const item1 = SPACE_AMENITIES_LIST[i];
-        const isSel1 = selected.includes(item1);
-        row.push({
-          text: `${isSel1 ? '🟢' : '⚪'} ${item1}`,
-          callback_data: `space_amenity_toggle:${encodeURIComponent(item1)}`,
-        });
-
-        if (i + 1 < SPACE_AMENITIES_LIST.length) {
-          const item2 = SPACE_AMENITIES_LIST[i + 1];
-          const isSel2 = selected.includes(item2);
-          row.push({
-            text: `${isSel2 ? '🟢' : '⚪'} ${item2}`,
-            callback_data: `space_amenity_toggle:${encodeURIComponent(item2)}`,
-          });
-        }
-        gridRows.push(row);
-      }
-
-      gridRows.push([
-        { text: '✅ Proceed to Sub-City Location ➡️', callback_data: 'space_amenities_proceed' },
-      ]);
-      gridRows.push([
-        { text: '⬅️ Back to Share', callback_data: 'space_back_to_share' },
-        { text: '🏠 Cancel', callback_data: 'nav_start' },
-      ]);
-
       const text = `
 🏠 <b>SpaceMatch · Space Owner (Step 4 of 6)</b>
-✨ <b>What I have / Amenities:</b>
-<i>(Tap amenities to toggle on/off, then tap Proceed)</i>
+• <b>Space:</b> <code>${draft.space_type || 'Private Bedroom'}</code>
+• <b>Rent / Split:</b> <code>${Number(draft.space_share || 0).toLocaleString()} ETB of ${Number(draft.space_rent || 0).toLocaleString()} ETB</code>
 
-<b>Selected:</b> <code>${selected.join(', ') || 'None selected'}</code>
+${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}✨ <b>What amenities & facilities do you have in the space?</b>
+
+<i>Please type the amenities and features included with the space into the chat.</i>
+
+<b>Examples of what to write:</b>
+• <code>WiFi, Kitchen, Water tanker, Washing machine, Hot shower</code>
+• <code>Furnished bedroom, 24/7 security, WiFi, Parking, Balcony</code>
+• <code>Modern kitchen, Backup water, Refrigerator, Quiet neighborhood</code>
+• <code>Private bathroom, WiFi, Electricity generator, Gated compound</code>
       `.trim();
 
-      return await sendOrEditCard(chatId, text, gridRows, activeMsgId);
+      const inlineKeyboard = [
+        [
+          { text: '⬅️ Back to Roommate Share', callback_data: 'space_back_to_share' },
+          { text: '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
     };
 
     const sendSpaceStep5Subcity = async (
@@ -3145,24 +3128,39 @@ A user has submitted a space offering for channel <code>${targetChannel}</code>:
             ],
           };
 
-          for (const adminId of adminIds) {
+          console.log(`[admin-notify] Notifying ${adminIds.length} administrators of space listing #${cleanCode}:`, adminIds);
+
+          const notifyPromises = adminIds.map(async (adminId) => {
+            let res: any = null;
             if (photos.length > 0) {
-              sendTelegram('sendPhoto', {
+              const photoRes = await sendTelegram('sendPhoto', {
                 chat_id: adminId,
                 photo: photos[0],
-                caption: adminNotificationText,
+                caption: adminNotificationText.slice(0, 1024),
                 parse_mode: 'HTML',
                 reply_markup: adminButtons,
-              }).catch(() => {});
-            } else {
-              sendTelegram('sendMessage', {
+              });
+              if (photoRes?.ok) {
+                res = photoRes;
+              } else {
+                console.warn(`[admin-notify] sendPhoto failed for admin ${adminId}, falling back to sendMessage:`, photoRes?.description);
+              }
+            }
+
+            if (!res) {
+              res = await sendTelegram('sendMessage', {
                 chat_id: adminId,
                 text: adminNotificationText,
                 parse_mode: 'HTML',
                 reply_markup: adminButtons,
-              }).catch(() => {});
+              });
             }
-          }
+
+            console.log(`[admin-notify] Space listing #${cleanCode} notification to admin ${adminId}:`, res?.ok ? 'SUCCESS' : res?.description);
+            return res;
+          });
+
+          await Promise.all(notifyPromises);
         } catch (err) {
           console.error('Error notifying admins of space listing:', err);
         }
@@ -3420,14 +3418,20 @@ A user has requested to post their profile to the channel <code>${targetChannel}
             ],
           };
 
-          for (const adminId of adminIds) {
-            sendTelegram('sendMessage', {
+          console.log(`[admin-notify] Notifying ${adminIds.length} administrators of seeker profile #${displayCode}:`, adminIds);
+
+          const notifyPromises = adminIds.map(async (adminId) => {
+            const res = await sendTelegram('sendMessage', {
               chat_id: adminId,
               text: adminApprovalCard,
               parse_mode: 'HTML',
               reply_markup: adminButtons,
-            }).catch(() => {});
-          }
+            });
+            console.log(`[admin-notify] Seeker profile #${displayCode} notification to admin ${adminId}:`, res?.ok ? 'SUCCESS' : res?.description);
+            return res;
+          });
+
+          await Promise.all(notifyPromises);
         } catch (adminErr) {
           console.error('Error notifying admins for approval:', adminErr);
         }
@@ -4943,6 +4947,27 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         }
       }
 
+      // Space Type Text Input
+      if (session.step === 'space_input_type') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const typeText = text.trim();
+        if (!typeText || typeText.length < 3) {
+          await sendSpaceStep1Type(
+            chatId,
+            session.draft_data,
+            activeMsgId,
+            'Please enter a description of the space layout (at least 3 characters):'
+          );
+          return NextResponse.json({ ok: true });
+        }
+        const updatedDraft = { ...session.draft_data, space_type: typeText };
+        await sendSpaceStep2Rent(chatId, updatedDraft, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
       // Space Rent Text Input
       if (session.step === 'space_input_rent') {
         if (update.message?.message_id) {
@@ -4982,6 +5007,38 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         }
         const updatedDraft = { ...session.draft_data, space_share: parsedShare };
         await sendSpaceStep4Amenities(chatId, updatedDraft, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Space Amenities Text Input
+      if (session.step === 'space_input_amenities') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const rawAmenities = text.trim();
+        if (!rawAmenities || rawAmenities.length < 2) {
+          await sendSpaceStep4Amenities(
+            chatId,
+            session.draft_data,
+            activeMsgId,
+            'Please type at least one amenity or feature included with the space:'
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        const parsedAmenities = rawAmenities
+          .split(/[,;\n]+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        const updatedDraft = {
+          ...session.draft_data,
+          space_amenities: parsedAmenities.length > 0 ? parsedAmenities : [rawAmenities],
+          space_amenities_raw: rawAmenities,
+        };
+
+        await sendSpaceStep5Subcity(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
 
