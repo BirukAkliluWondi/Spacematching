@@ -59,6 +59,7 @@ const ALL_SUBCITIES = [
 
 // Module-level cache for admin IDs
 let cachedAdminIds: { ids: number[]; expiresAt: number } | null = null;
+let lastCheckinRun = 0;
 export function invalidateAdminCache() {
   cachedAdminIds = null;
 }
@@ -105,7 +106,7 @@ export async function POST(request: Request) {
 
       const adminSet = new Set<number>([...defaultAdminIds, ...envAdmins]);
 
-      // 1. Fetch from Supabase users where role = 'admin'
+      // 1. Fetch from Supabase users where role = 'admin' (fast DB query)
       try {
         const { data } = await supabaseAdmin.from('users').select('telegram_id').eq('role', 'admin');
         if (data && data.length > 0) {
@@ -118,48 +119,20 @@ export async function POST(request: Request) {
         console.error('Error fetching DB admins:', err);
       }
 
-      // 2. Fetch from all active Telegram channels dynamically via getChatAdministrators
-      if (botToken) {
-        try {
-          const channels = await getManagedChannels();
-          const targetChannels = new Set<string | number>();
-          if (process.env.TELEGRAM_CHANNEL_ID) targetChannels.add(process.env.TELEGRAM_CHANNEL_ID);
-          for (const ch of channels) {
-            if (ch.is_active) {
-              if (ch.added_by && Number(ch.added_by) > 0) {
-                adminSet.add(Number(ch.added_by));
-              }
-              if (ch.channel_id) targetChannels.add(ch.channel_id);
-              if (ch.channel_username) targetChannels.add(ch.channel_username);
-            }
+      // 2. Fetch channel added_by admins from managed channels table (fast DB query, no external HTTP calls)
+      try {
+        const channels = await getManagedChannels();
+        for (const ch of channels) {
+          if (ch.is_active && ch.added_by && Number(ch.added_by) > 0) {
+            adminSet.add(Number(ch.added_by));
           }
-
-          for (const ch of targetChannels) {
-            try {
-              const res = await fetch(`https://api.telegram.org/bot${botToken}/getChatAdministrators`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: ch }),
-              });
-              const json = await res.json();
-              if (json.ok && Array.isArray(json.result)) {
-                for (const member of json.result) {
-                  if (member.user && !member.user.is_bot && member.user.id) {
-                    adminSet.add(Number(member.user.id));
-                  }
-                }
-              }
-            } catch (chErr) {
-              console.error('Error fetching admins for channel:', ch, chErr);
-            }
-          }
-        } catch (err) {
-          console.error('Error fetching channel administrators:', err);
         }
+      } catch (err) {
+        console.error('Error fetching channel added_by:', err);
       }
 
       const result = Array.from(adminSet);
-      cachedAdminIds = { ids: result, expiresAt: now + 5 * 60 * 1000 };
+      cachedAdminIds = { ids: result, expiresAt: now + 15 * 60 * 1000 };
       return result;
     };
 
@@ -299,8 +272,12 @@ export async function POST(request: Request) {
 
     // Helper: 24-Hour Automated Follow-Up Check-in Protocol
     const checkPending24hCheckins = async () => {
+      const now = Date.now();
+      if (now - lastCheckinRun < 15 * 60 * 1000) {
+        return;
+      }
+      lastCheckinRun = now;
       try {
-        const now = Date.now();
 
         // 1. Check sessions scheduled in bot_sessions
         const { data: pendingSessions } = await supabaseAdmin
@@ -488,27 +465,18 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
-      const gateText = `
-🛡️ <b>SpaceMatch · Fayda ID Verification Required</b>
-
-Before you can <b>${targetAction}</b>, your Fayda National ID must be verified.
-
-• <b>Option A:</b> Reply here with your <b>12-digit or 16-digit FAN number</b>:
-<i>Example: <code>1234 5678 9012</code></i>
-
-• <b>Option B:</b> Tap below to open your camera and scan your Fayda QR code:
-      `.trim();
+      const gateText = `🛡️ <b>Enter your Fayda FAN number or scan QR:</b>`;
 
       const inlineKeyboard = [
         [
           {
-            text: '📷 Open Camera to Scan Fayda QR ↗️',
+            text: '📷 Scan Fayda QR ↗️',
             web_app: { url: `${appUrl}?startapp=verify_fayda` },
           },
         ],
         [
           {
-            text: '🏠 Back to Main Menu',
+            text: '🏠 Main Menu',
             callback_data: 'nav_start',
           },
         ],
@@ -520,12 +488,9 @@ Before you can <b>${targetAction}</b>, your Fayda National ID must be verified.
     // Helper to format dynamic context header
     const getDynamicContextHeader = (draft: Record<string, any>) => {
       if (draft.target_code) {
-        const loc = draft.target_locations ? `📍 <code>${draft.target_locations}</code>` : '';
-        const bud = draft.target_budget ? ` · 💰 <code>${draft.target_budget}</code>` : '';
-        const subline = (loc || bud) ? `${loc}${bud}\n` : '';
-        return `🤝 <b>SpaceMatch · Connecting with Roommate #${draft.target_code}</b>\n${subline}<i>Before sending your request, please tell #${draft.target_code} about yourself:</i>\n`;
+        return `🤝 <b>Connect with #${draft.target_code}</b>\n\n`;
       }
-      return `📢 <b>SpaceMatch · Post Roommate Profile to Channel</b>\n<i>Create your verified anonymous profile for the Addis channel:</i>\n`;
+      return '';
     };
 
     // Step 1: Age (Open Numeric Input)
@@ -538,35 +503,22 @@ Before you can <b>${targetAction}</b>, your Fayda National ID must be verified.
       const header = getDynamicContextHeader(draft);
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
 
-      await saveSession({
-        telegram_id: chatId,
-        step: 'dyn_card_age',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
-        updated_at: new Date().toISOString(),
-      });
-
-      const text = `
-${header}
-${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🎂 <b>Step 1 of 5: What is your age?</b>
-<i>(Please reply with your age as a number, e.g. <code>24</code>)</i>
-      `.trim();
+      const text = `${header}${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🎂 <b>What is your age?</b>`.trim();
 
       const inlineKeyboard = [
         ...(draft.target_code
-          ? [[{ text: '📢 Post My Profile to Channel Instead ↗️', callback_data: 'post_profile_start' }]]
+          ? [[{ text: '📢 Post to Channel Instead', callback_data: 'post_profile_start' }]]
           : []),
         [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
       ];
 
       const newMsgId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
-      if (newMsgId && !activeMsgId) {
-        await saveSession({
-          telegram_id: chatId,
-          step: 'dyn_card_age',
-          draft_data: { ...draft, card_msg_id: newMsgId },
-          updated_at: new Date().toISOString(),
-        });
-      }
+      await saveSession({
+        telegram_id: chatId,
+        step: 'dyn_card_age',
+        draft_data: { ...draft, card_msg_id: newMsgId || activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
     };
 
     // Step 2: Gender
@@ -575,7 +527,6 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🎂 <b>Step 1 of 5: What is y
       draft: Record<string, any>,
       messageIdToEdit?: number
     ) => {
-      const header = getDynamicContextHeader(draft);
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
 
       await saveSession({
@@ -585,10 +536,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🎂 <b>Step 1 of 5: What is y
         updated_at: new Date().toISOString(),
       });
 
-      const text = `
-${header}
-👤 <b>Step 2 of 5: Select your gender:</b>
-      `.trim();
+      const text = `👤 <b>Select your gender:</b>`;
 
       const inlineKeyboard = [
         [
@@ -596,7 +544,7 @@ ${header}
           { text: '👩 Female', callback_data: 'dyn_gender:Female' },
         ],
         [
-          { text: '⬅️ Back to Age', callback_data: 'dyn_back_to_age' },
+          { text: '⬅️ Back', callback_data: 'dyn_back_to_age' },
           { text: '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
@@ -611,7 +559,6 @@ ${header}
       messageIdToEdit?: number,
       errorMsg?: string
     ) => {
-      const header = getDynamicContextHeader(draft);
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
 
       await saveSession({
@@ -621,15 +568,11 @@ ${header}
         updated_at: new Date().toISOString(),
       });
 
-      const text = `
-${header}
-${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Step 3 of 5: What is your monthly budget in ETB?</b>
-<i>(Please reply with your budget as a number, e.g. <code>12000</code>)</i>
-      `.trim();
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>What is your monthly budget (ETB)?</b>`.trim();
 
       const inlineKeyboard = [
         [
-          { text: '⬅️ Back to Gender', callback_data: 'dyn_back_to_gender' },
+          { text: '⬅️ Back', callback_data: 'dyn_back_to_gender' },
           { text: '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
@@ -643,7 +586,6 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Step 3 of 5: What is y
       draft: Record<string, any>,
       messageIdToEdit?: number
     ) => {
-      const header = getDynamicContextHeader(draft);
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
       const selectedList: string[] = draft.preferred_subcity || ['Bole'];
       const isAllSelected = ALL_SUBCITIES.every((s) => selectedList.includes(s));
@@ -660,7 +602,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Step 3 of 5: What is y
         {
           text: isAllSelected
             ? '✅ All Selected (Proceed ➡️)'
-            : '🌐 Select ALL Sub-Cities & Proceed ➡️',
+            : '🌐 Select All & Proceed ➡️',
           callback_data: 'dyn_sub_all',
         },
       ]);
@@ -686,20 +628,14 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Step 3 of 5: What is y
       }
 
       gridRows.push([
-        { text: '✅ Proceed to Fayda Verification ➡️', callback_data: 'dyn_sub_proceed' },
+        { text: '✅ Proceed ➡️', callback_data: 'dyn_sub_proceed' },
       ]);
       gridRows.push([
-        { text: '⬅️ Back to Budget', callback_data: 'dyn_back_to_budget' },
+        { text: '⬅️ Back', callback_data: 'dyn_back_to_budget' },
         { text: '🏠 Cancel', callback_data: 'nav_start' },
       ]);
 
-      const text = `
-${header}
-📍 <b>Step 4 of 5: Select your preferred sub-cities:</b>
-<i>(Tap areas to toggle checkmarks, then tap Proceed)</i>
-
-<b>Selected:</b> <code>${selectedList.join(', ')}</code>
-      `.trim();
+      const text = `📍 <b>Select preferred areas:</b>\n<code>${selectedList.join(', ')}</code>`;
 
       await sendOrEditCard(chatId, text, gridRows, activeMsgId);
     };
@@ -711,7 +647,6 @@ ${header}
       messageIdToEdit?: number,
       errorMsg?: string
     ) => {
-      const header = getDynamicContextHeader(draft);
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
 
       await saveSession({
@@ -721,27 +656,17 @@ ${header}
         updated_at: new Date().toISOString(),
       });
 
-      const text = `
-${header}
-${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🛡️ <b>Step 5 of 5: Fayda ID Verification</b>
-
-SpaceMatch Addis is a 100% verified housing community.
-
-• <b>Option A:</b> Reply here with your <b>12-digit or 16-digit FAN number</b>:
-<i>Example: <code>1234 5678 9012</code></i>
-
-• <b>Option B:</b> Tap below to scan the QR code on your card with your camera:
-      `.trim();
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🛡️ <b>Enter your Fayda FAN number or scan QR:</b>`.trim();
 
       const inlineKeyboard = [
         [
           {
-            text: '📷 Open Camera to Scan Fayda QR ↗️',
+            text: '📷 Scan Fayda QR ↗️',
             web_app: { url: `${appUrl}?startapp=verify_fayda` },
           },
         ],
         [
-          { text: '⬅️ Back to Sub-Cities', callback_data: 'dyn_back_to_subs' },
+          { text: '⬅️ Back', callback_data: 'dyn_back_to_subs' },
           { text: '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
@@ -760,17 +685,12 @@ SpaceMatch Addis is a 100% verified housing community.
         : 'Addis Ababa';
 
       const text = `
-📋 <b>SpaceMatch · Review Your Channel Post</b>
+📋 <b>Review Your Channel Post</b>
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified</b>
 
 • <b>Profile:</b> Roommate #${profileData.display_code} (${profileData.gender || 'Member'}, Age ${profileData.age || 24})
 • <b>Budget Cap:</b> <code>Up to ${Number(profileData.budget_max || 10000).toLocaleString()} ETB / month</code>
 • <b>Target Areas:</b> <code>${subcitiesStr}</code>
-• <b>Status:</b> Ready for Channel Broadcast
-
-<blockquote>"${profileData.roommate_traits || 'Seeking compatible roommate in Addis Ababa.'}"</blockquote>
-
-<i>Tapping submit will send your anonymous profile to our channel admins for review and approval!</i>
       `.trim();
 
       const targetIdentifier = profileData.display_code || profileData.id;
@@ -799,28 +719,18 @@ SpaceMatch Addis is a 100% verified housing community.
         updated_at: new Date().toISOString(),
       });
 
-      const text = `
-📢 <b>SpaceMatch · Post Your Profile on the Channel</b>
-
-Please select which type of roommate profile you want to post:
-
-• <b>Option 1:</b> 🏠 <b>I have a space and I want a roommate</b>
-<i>(You already have a room/flat and want to find a roommate to share it with)</i>
-
-• <b>Option 2:</b> 👥 <b>I want a roommate and we look for space together</b>
-<i>(You are looking for a compatible roommate so you can search for a place together)</i>
-      `.trim();
+      const text = `📢 <b>Select listing type:</b>`;
 
       const inlineKeyboard = [
         [
           {
-            text: '🏠 I have a space and I want a roommate',
+            text: '🏠 I have a space',
             callback_data: 'post_branch_space',
           },
         ],
         [
           {
-            text: '👥 I want a roommate and we look for space together',
+            text: '👥 Look for space together',
             callback_data: 'post_branch_seeker',
           },
         ],
@@ -850,19 +760,7 @@ Please select which type of roommate profile you want to post:
         updated_at: new Date().toISOString(),
       });
 
-      const text = `
-🏠 <b>SpaceMatch · Space Owner (Step 1 of 6)</b>
-${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🛏️ <b>What type of space are you offering?</b>
-
-<i>Please type your space layout directly in the chat below.</i>
-
-<b>Examples of what to write:</b>
-• <code>Private Bedroom in a 2-bedroom shared apartment</code>
-• <code>Master Bedroom with private bathroom</code>
-• <code>Furnished Studio Flat in Bole</code>
-• <code>Bedspace in a shared furnished room</code>
-• <code>Single room in a quiet compound with shared kitchen</code>
-      `.trim();
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🛏️ <b>What type of space are you offering?</b>`.trim();
 
       const inlineKeyboard = [
         [{ text: '⬅️ Back to Options', callback_data: 'post_profile_start' }],
@@ -886,20 +784,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🛏️ <b>What type of space 
         updated_at: new Date().toISOString(),
       });
 
-      const text = `
-🏠 <b>SpaceMatch · Space Owner (Step 2 of 6)</b>
-• <b>Space Type:</b> <code>${draft.space_type || 'Private Bedroom'}</code>
-
-${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>What is the total monthly rent for the entire space?</b>
-
-<i>Please type the exact total monthly rent in ETB into the chat below.</i>
-
-<b>Examples of what to write:</b>
-• <code>12000</code>
-• <code>8,500 ETB</code>
-• <code>15000</code>
-• <code>20,000</code>
-      `.trim();
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Total monthly rent (ETB):</b>`.trim();
 
       const inlineKeyboard = [
         [
@@ -928,21 +813,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>What is the total mont
       const rentNum = draft.space_rent || 10000;
       const halfRent = Math.round(rentNum / 2);
 
-      const text = `
-🏠 <b>SpaceMatch · Space Owner (Step 3 of 6)</b>
-• <b>Space Type:</b> <code>${draft.space_type || 'Private Bedroom'}</code>
-• <b>Total Rent:</b> <code>${Number(rentNum).toLocaleString()} ETB / month</code>
-
-${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🤝 <b>What is the share / split the other person has to pay?</b>
-
-<i>Please type the roommate's split amount in ETB into the chat, or tap 50% split below:</i>
-
-<b>Examples of what to write:</b>
-• <code>${halfRent}</code> <i>(equal 50% split)</i>
-• <code>5000</code>
-• <code>6,000 ETB</code>
-• <code>7500</code>
-      `.trim();
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🤝 <b>Roommate's share / split (ETB):</b>`.trim();
 
       const inlineKeyboard = [
         [
@@ -972,21 +843,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🤝 <b>What is the share / sp
         updated_at: new Date().toISOString(),
       });
 
-      const text = `
-🏠 <b>SpaceMatch · Space Owner (Step 4 of 6)</b>
-• <b>Space:</b> <code>${draft.space_type || 'Private Bedroom'}</code>
-• <b>Rent / Split:</b> <code>${Number(draft.space_share || 0).toLocaleString()} ETB of ${Number(draft.space_rent || 0).toLocaleString()} ETB</code>
-
-${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}✨ <b>What amenities & facilities do you have in the space?</b>
-
-<i>Please type the amenities and features included with the space into the chat.</i>
-
-<b>Examples of what to write:</b>
-• <code>WiFi, Kitchen, Water tanker, Washing machine, Hot shower</code>
-• <code>Furnished bedroom, 24/7 security, WiFi, Parking, Balcony</code>
-• <code>Modern kitchen, Backup water, Refrigerator, Quiet neighborhood</code>
-• <code>Private bathroom, WiFi, Electricity generator, Gated compound</code>
-      `.trim();
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}✨ <b>Amenities included with the space:</b>`.trim();
 
       const inlineKeyboard = [
         [
@@ -1028,11 +885,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}✨ <b>What amenities & facili
         { text: '🏠 Cancel', callback_data: 'nav_start' },
       ]);
 
-      const text = `
-🏠 <b>SpaceMatch · Space Owner (Step 5 of 6)</b>
-📍 <b>Which sub-city is your space located in?</b>
-<i>Select the sub-city where your flat/room is:</i>
-      `.trim();
+      const text = `📍 <b>Select sub-city where the space is located:</b>`;
 
       return await sendOrEditCard(chatId, text, gridRows, activeMsgId);
     };
@@ -1052,16 +905,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}✨ <b>What amenities & facili
         updated_at: new Date().toISOString(),
       });
 
-      const text = `
-🏠 <b>SpaceMatch · Space Owner (Step 6 of 6)</b>
-📸 <b>Upload Photos of the Space</b>
-
-Please send 1 or more photos of your room/flat now! Prospected roommates will see these photos directly on the channel post.
-
-<i>(Photos are shared directly in the post and are not stored in database tables)</i>
-
-${photos.length > 0 ? `✅ <b>${photos.length} photo(s) uploaded!</b>\n\n` : ''}<i>Send photos as photos (not files). When finished, tap Proceed below:</i>
-      `.trim();
+      const text = `${photos.length > 0 ? `✅ <b>${photos.length} photo(s) uploaded!</b>\n\n` : ''}📸 <b>Upload photos of the space:</b>`.trim();
 
       const inlineKeyboard = [
         ...(photos.length > 0
@@ -1090,19 +934,14 @@ ${photos.length > 0 ? `✅ <b>${photos.length} photo(s) uploaded!</b>\n\n` : ''}
       const displayCode = draft.display_code || `RM${chatId.toString().slice(-4)}`;
 
       const text = `
-🏠 <b>SpaceMatch · Preview: Roommate available with a Room</b>
-📍 <code>${subcity}</code> · 🛡️ <b>Fayda Verified ✅</b>
+🏠 <b>Review Space Listing</b>
+📍 <code>${subcity}</code> · 🛡️ <b>Fayda Verified</b>
 
-• <b>Space Type:</b> ${draft.space_type || 'Private Bedroom in Shared Flat'}
-• <b>Total Rent:</b> <code>${rentStr} ETB / month</code>
-• <b>Roommate's Share:</b> <code>${shareStr} ETB / month</code>
+• <b>Space:</b> ${draft.space_type || 'Private Bedroom'}
+• <b>Total Rent:</b> <code>${rentStr} ETB</code>
+• <b>Roommate Share:</b> <code>${shareStr} ETB</code>
 • <b>Amenities:</b> ${amenitiesStr}
-• <b>Space Photos:</b> ${photosCount} photo(s) attached
-• <b>Resident:</b> ${draft.gender || 'Member'}, Age ${draft.age || 24}
-
-<blockquote>"${draft.roommate_traits || 'Roommate available with a room in Addis Ababa.'}"</blockquote>
-
-<i>Tapping submit will send your space listing to the channel administrators for review and approval!</i>
+• <b>Photos:</b> ${photosCount} attached
       `.trim();
 
       const inlineKeyboard = [
@@ -1344,27 +1183,18 @@ Please reply with the description, perks, or notes for this channel post.
       const adminIds = await getAdminIds();
       const isAdmin = adminIds.includes(chatId);
 
-      const welcomeText = `
-✨ <b>SpaceMatch Addis</b>
-<i>Addis Ababa's Premier Verified Housing Community</i>
-
-• 🛡️ <b>Fayda ID Verified</b> · 100% Genuine Renters
-• 🔒 <b>Privacy-First</b> · Contacts Sealed Until Paid Match
-• ⚡ <b>Instant Engine</b> · Intelligent Matchmaking
-
-<blockquote>Select an option below to get started:</blockquote>
-      `.trim();
+      const welcomeText = `🏠 <b>SpaceMatch Addis</b>`;
 
       const inlineKeyboard = [
         [
           {
-            text: '🔍 Search Roommate for Me Based on My Preferences',
+            text: '🔍 Search Roommate',
             callback_data: 'search_roommate_start',
           },
         ],
         [
           {
-            text: '📢 Post My Profile on the Channel',
+            text: '📢 Post Profile to Channel',
             callback_data: 'post_profile_start',
           },
         ],
@@ -1605,7 +1435,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       errorMessage?: string
     ) => {
       const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}🎂 <b>How old are you?</b>\n<i>Type your age in chat (e.g. <code>24</code>):</i>`;
+      const text = `${header}🎂 <b>What is your age?</b>`;
 
       const keyboard = [
         [
@@ -1668,7 +1498,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       errorMessage?: string
     ) => {
       const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}💰 <b>What is your maximum monthly rent budget?</b>\n<i>Type your budget in Birr (e.g. <code>8000</code> or <code>15k</code>), or tap below:</i>`;
+      const text = `${header}💰 <b>Maximum monthly rent budget (ETB):</b>`;
 
       const keyboard = [
         [
@@ -1796,7 +1626,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       errorMessage?: string
     ) => {
       const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}🎂 <b>How old are you?</b>\n<i>Type your age in chat (e.g. <code>24</code>):</i>`;
+      const text = `${header}🎂 <b>What is your age?</b>`;
 
       const keyboard = [
         [
@@ -1855,7 +1685,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       errorMessage?: string
     ) => {
       const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}💰 <b>What is your maximum monthly rent budget in ETB?</b>\n<i>Type your budget in chat (e.g. <code>8000</code> or <code>12000</code>):</i>`;
+      const text = `${header}💰 <b>Monthly budget (ETB):</b>`;
 
       const keyboard = [
         [
@@ -1878,7 +1708,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 
     // Helper: Seeker Step 6 (Lifestyle Bio - Direct Input or Skip)
     const sendSeekerBioStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
-      const text = `📝 <b>Tell us briefly about yourself:</b>\n<i>Type in chat below (e.g. "Quiet accountant, non-smoker") or skip below:</i>`;
+      const text = `📝 <b>Tell us briefly about yourself:</b>`;
 
       const keyboard = [
         [{ text: '⏭️ Skip Bio', callback_data: 'seeker_skip_bio' }],
@@ -1908,7 +1738,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       errorMessage?: string
     ) => {
       const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}📞 <b>What is your contact phone number?</b>\n<i>Type your Ethiopian phone number in chat (e.g. <code>0912345678</code>):</i>`;
+      const text = `${header}📞 <b>What is your contact phone number?</b>`;
 
       const keyboard = [
         [
@@ -1935,16 +1765,12 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       const cleanBio = (currentDraft.lifestyle_bio || 'Seeking compatible roommate').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
       const summaryText = `
-✨ <b>SpaceMatch</b> · <b>Profile Summary &amp; Review</b>
+✨ <b>Profile Review</b>
 📍 <code>${subcitiesStr}</code>
 
 • <b>Profile:</b> ${currentDraft.my_gender || 'Not specified'}${currentDraft.age ? `, <code>${currentDraft.age} yrs</code>` : ''} · Prefers: ${currentDraft.preferred_gender || 'Any'}
 • <b>Monthly Budget:</b> <code>${Number(currentDraft.budget_max || 10000).toLocaleString()} ETB / month</code>
 • <b>Contact Phone:</b> <code>${currentDraft.contact_phone || 'Provided'}</code>
-
-<blockquote>"${cleanBio}"</blockquote>
-
-🔒 <b>Privacy Shield Active:</b> Your real name, phone number, and Telegram username are 100% hidden and will NEVER be shown on public channel posts or public feeds. Contacts unlock only after verified payment.
       `.trim();
 
       const keyboard = [
@@ -6037,17 +5863,12 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           const myAgeStr = myProfile.age ? `, ${myProfile.age} yrs` : '';
 
           const inspectionCard = `
-🤝 <b>SpaceMatch · Connect with Roommate #${targetProfile.display_code || lookupCode}</b>
+🤝 <b>Connect with Roommate #${targetProfile.display_code || lookupCode}</b>
 
-Send your verified profile to #${targetProfile.display_code || lookupCode}?
-
-• <b>Target Roommate:</b> #${targetProfile.display_code || lookupCode} (📍 <code>${targetLocations}</code>)
+• <b>Target:</b> #${targetProfile.display_code || lookupCode} (📍 <code>${targetLocations}</code>)
 • <b>Your Profile:</b> #${myCode} (${myGenderStr}${myAgeStr})
 • <b>Your Budget:</b> <code>${myBudgetStr}</code>
-• <b>Your Target Areas:</b> <code>${myLocations}</code>
-• <b>Status:</b> 🛡️ <b>Fayda Verified</b>
-
-🔒 <i>Personal identity, phone number, and Telegram handle unlock instantly after mutual agreement and payment.</i>
+• <b>Your Areas:</b> <code>${myLocations}</code>
           `.trim();
 
           await sendOrEditCard(
@@ -6166,18 +5987,6 @@ Send your verified profile to #${targetProfile.display_code || lookupCode}?
         }
 
         // Direct start without deep-link parameters:
-        // Clear any old reply keyboards from Telegram clients to maintain clean UI
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: '✨ <b>Welcome to SpaceMatch Addis!</b>',
-          parse_mode: 'HTML',
-          reply_markup: { remove_keyboard: true },
-        }).then((res) => {
-          if (res?.result?.message_id) {
-            sendTelegram('deleteMessage', { chat_id: chatId, message_id: res.result.message_id }).catch(() => {});
-          }
-        }).catch(() => {});
-
         await sendPrimaryWelcomeMenu(chatId);
         return NextResponse.json({ ok: true });
       }

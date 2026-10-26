@@ -96,12 +96,16 @@ const _sessionCache: Record<string, BotSession> = {};
 
 /** Call this at the top of the webhook handler BEFORE calling getSession(). */
 export async function preloadSession(telegramId: number): Promise<BotSession> {
+  const cached = _sessionCache[String(telegramId)];
+  if (cached) {
+    return cached;
+  }
   try {
     const { data } = await supabase
       .from('bot_sessions')
       .select('*')
       .eq('telegram_id', String(telegramId))
-      .single();
+      .maybeSingle();
 
     const session: BotSession = data
       ? {
@@ -181,7 +185,7 @@ export async function getDraft(draftId: string): Promise<SpaceDraft | null> {
       .from('pending_space_drafts')
       .select('*')
       .eq('id', draftId)
-      .single();
+      .maybeSingle();
     return data ?? null;
   } catch {
     return null;
