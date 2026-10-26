@@ -33,7 +33,7 @@ export async function POST(request: Request) {
       const { data: existingUser } = await supabaseAdmin
         .from('users')
         .select('id, telegram_id')
-        .eq('fayda_number', faydaNumber)
+        .eq('fayda_id_number', faydaNumber)
         .neq('telegram_id', telegram_id)
         .limit(1)
         .single();
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
         .from('users')
         .update({
           fayda_status: 'verified',
-          fayda_number: faydaNumber,
+          fayda_id_number: faydaNumber,
           updated_at: new Date().toISOString(),
         })
         .eq('telegram_id', telegram_id);

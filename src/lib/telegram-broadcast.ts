@@ -25,12 +25,12 @@ export async function broadcastRoommateProfileToChannel(
       const channels = await getManagedChannels();
       const active = channels.filter((c) => c.is_active);
       if (active.length > 0) {
-        targetChannel = String(active[0].channel_username || active[0].channel_id);
+        targetChannel = String(active[0].channel_id || active[0].channel_username);
       }
     } catch {}
   }
   if (!targetChannel) {
-    targetChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
+    targetChannel = process.env.TELEGRAM_CHANNEL_ID || '-1002947887634';
   }
 
   if (!botToken) {
@@ -71,12 +71,17 @@ export async function broadcastRoommateProfileToChannel(
     }
 
     if (pFromProfiles) {
+      let extractedAge: number = 24;
+      if (pFromProfiles.roommate_traits) {
+        const m = pFromProfiles.roommate_traits.match(/Age[:\s]+(\d+)/i);
+        if (m) extractedAge = parseInt(m[1], 10);
+      }
       dbProfile = {
         id: pFromProfiles.id,
         display_code: pFromProfiles.display_code || cleanCode,
         user_telegram_id: pFromProfiles.telegram_id,
         my_gender: pFromProfiles.gender || 'Member',
-        age: pFromProfiles.age,
+        age: extractedAge,
         preferred_gender: 'Any',
         preferred_subcity: Array.isArray(pFromProfiles.locations) ? pFromProfiles.locations : [],
         budget_max: pFromProfiles.budget_max || 10000,
@@ -95,27 +100,80 @@ export async function broadcastRoommateProfileToChannel(
       };
     }
 
-    // 2. Try roommate_profiles table
+    // 2. Try pending_roommate_drafts table
+    if (!dbProfile) {
+      try {
+        const { data: dRow } = await supabaseAdmin
+          .from('pending_roommate_drafts')
+          .select('*')
+          .ilike('id', cleanCode)
+          .maybeSingle();
+        if (dRow) {
+          dbProfile = {
+            id: dRow.id,
+            display_code: dRow.id,
+            user_telegram_id: dRow.user_telegram_id,
+            my_gender: dRow.my_gender || 'Member',
+            age: 24,
+            preferred_gender: dRow.preferred_gender || 'Any',
+            preferred_subcity: Array.isArray(dRow.preferred_subcity) ? dRow.preferred_subcity : [],
+            budget_max: dRow.budget_max || 10000,
+            lifestyle_bio: dRow.lifestyle_bio || 'Seeking compatible roommate in Addis Ababa.',
+            listing_category: 'seeker',
+            unlock_fee: dRow.unlock_fee || 50,
+            users: {
+              first_name: dRow.user_name || 'Seeker',
+              fayda_status: dRow.fayda_status || 'verified',
+            },
+          };
+        }
+      } catch {}
+    }
+
+    // 2b. Try pending_space_drafts table
+    if (!dbProfile) {
+      try {
+        const { data: sRow } = await supabaseAdmin
+          .from('pending_space_drafts')
+          .select('*')
+          .ilike('id', cleanCode)
+          .maybeSingle();
+        if (sRow) {
+          dbProfile = {
+            id: sRow.id,
+            display_code: sRow.id,
+            user_telegram_id: sRow.homeowner_telegram_id,
+            my_gender: sRow.owner_gender || 'Member',
+            age: 24,
+            preferred_gender: sRow.preferred_tenant_gender || 'Any',
+            preferred_subcity: [sRow.neighborhood || 'Addis Ababa'],
+            budget_max: sRow.price_per_month || 10000,
+            lifestyle_bio: sRow.description || 'Room available with a room in Addis Ababa.',
+            listing_category: 'space_available',
+            space_type: 'Private Bedroom in Shared Flat',
+            space_rent: sRow.price_per_month,
+            space_amenities: [],
+            space_photos: sRow.photo_url ? [sRow.photo_url] : [],
+            unlock_fee: 50,
+            users: {
+              first_name: sRow.homeowner_name || 'Homeowner',
+              fayda_status: 'verified',
+            },
+          };
+        }
+      } catch {}
+    }
+
+    // 2c. Try roommate_profiles table safely
     if (!dbProfile) {
       if (isUuid) {
         try {
           const { data: pById } = await supabaseAdmin
             .from('roommate_profiles')
-            .select('*, users(*)')
+            .select('*')
             .eq('id', cleanCode)
             .maybeSingle();
           if (pById) dbProfile = pById;
-        } catch {}
-      }
-
-      if (!dbProfile) {
-        try {
-          const { data: pByCode } = await supabaseAdmin
-            .from('roommate_profiles')
-            .select('*, users(*)')
-            .ilike('display_code', cleanCode)
-            .maybeSingle();
-          if (pByCode) dbProfile = pByCode;
         } catch {}
       }
 
@@ -123,7 +181,7 @@ export async function broadcastRoommateProfileToChannel(
         try {
           const { data: pByTg } = await supabaseAdmin
             .from('roommate_profiles')
-            .select('*, users(*)')
+            .select('*')
             .eq('user_telegram_id', Number(cleanCode))
             .maybeSingle();
           if (pByTg) dbProfile = pByTg;

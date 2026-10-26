@@ -169,12 +169,12 @@ export async function POST(request: Request) {
         const channels = await getManagedChannels();
         const active = channels.filter((c) => c.is_active);
         if (active.length > 0) {
-          return active[0].channel_username || active[0].channel_id;
+          return (active[0].channel_id || active[0].channel_username || process.env.TELEGRAM_CHANNEL_ID || "-1002947887634") as string | number;
         }
       } catch (err) {
         console.error('getPrimaryChannel error:', err);
       }
-      return process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
+      return process.env.TELEGRAM_CHANNEL_ID || '-1002947887634';
     };
 
     const getAllActiveChannels = async (): Promise<(string | number)[]> => {
@@ -3344,7 +3344,7 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
         const cleanCode = identifier.trim().replace(/^#/, '');
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanCode);
 
-        // Fetch user's profile from profiles or roommate_profiles
+        // Fetch user's profile from profiles or draft sessions
         let prof: any = null;
         if (isUuid) {
           const { data } = await supabaseAdmin.from('profiles').select('*').eq('id', cleanCode).maybeSingle();
@@ -3359,26 +3359,54 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
           prof = data;
         }
 
-        const displayCode = prof?.display_code || cleanCode || `RM${chatId.toString().slice(-4)}`;
-        const subcities = Array.isArray(prof?.locations) && prof.locations.length > 0 ? prof.locations : ['Addis Ababa'];
+        const session = getSession(chatId);
+        const draft = session.draft_data || {};
+        const displayCode = prof?.display_code || draft.display_code || cleanCode || `RM${chatId.toString().slice(-4)}`;
+        const subcities = Array.isArray(prof?.locations) && prof.locations.length > 0
+          ? prof.locations
+          : (Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity : ['Addis Ababa']);
         const subcitiesStr = subcities.join(', ');
-        const budgetNum = prof?.budget_max || 10000;
-        const genderStr = prof?.gender || 'Member';
-        const ageStr = prof?.age ? `${prof.age} yrs` : '24 yrs';
-        const bioStr = prof?.roommate_traits || 'Seeking compatible roommate in Addis Ababa.';
+        const budgetNum = prof?.budget_max || draft.budget_max || 10000;
+        const genderStr = prof?.gender || draft.gender || 'Member';
+        const userAge = draft.age || 24;
+        const bioStr = prof?.roommate_traits || draft.roommate_traits || draft.lifestyle_bio || `Age ${userAge} · Seeking roommate in ${subcitiesStr}.`;
+        const ageStr = `${userAge} yrs`;
 
-        // 1. Mark status as paused (valid enum for pending approval) in Supabase
+        // 1. Mark status as paused (valid enum for pending approval) and save to profiles
         await supabaseAdmin
           .from('profiles')
-          .update({ status: 'paused' })
-          .ilike('display_code', displayCode);
+          .upsert({
+            telegram_id: chatId,
+            display_code: displayCode,
+            gender: genderStr,
+            locations: subcities,
+            budget_min: 0,
+            budget_max: budgetNum,
+            roommate_traits: bioStr,
+            kyc_status: 'verified',
+            status: 'paused',
+            onboarding_step: 'completed',
+          }, { onConflict: 'telegram_id' });
 
-        try {
-          await supabaseAdmin
-            .from('roommate_profiles')
-            .update({ status: 'pending_approval' })
-            .ilike('display_code', displayCode);
-        } catch {}
+        await saveRoommateDraft({
+          id: displayCode,
+          display_code: displayCode,
+          user_telegram_id: chatId,
+          user_name: [callback.from?.first_name, callback.from?.last_name].filter(Boolean).join(' ') || 'Roommate Seeker',
+          username: callback.from?.username || null,
+          preferred_subcity: subcities,
+          my_gender: genderStr,
+          age: userAge,
+          preferred_gender: 'Any',
+          budget_min: 0,
+          budget_max: budgetNum,
+          lifestyle_bio: bioStr,
+          unlock_fee: 50,
+          fayda_status: 'verified',
+          status: 'pending_approval',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
 
         // 2. Show confirmation waiting card to the user
         const targetChannel = await getPrimaryChannel();
@@ -3496,16 +3524,45 @@ A user has requested to post their profile to the channel <code>${targetChannel}
           .update({ status: 'active', channel_message_id: channelMsgId })
           .ilike('display_code', targetCode);
 
+        // Fetch user telegram_id from profiles to notify them & update drafts
+        let userTgId: number | null = null;
+        try {
+          const { data: p } = await supabaseAdmin
+            .from('profiles')
+            .select('telegram_id')
+            .ilike('display_code', targetCode)
+            .maybeSingle();
+          if (p?.telegram_id) userTgId = Number(p.telegram_id);
+        } catch {}
+
+        if (userTgId) {
+          try {
+            await supabaseAdmin
+              .from('roommate_profiles')
+              .update({ status: 'approved', channel_message_id: channelMsgId })
+              .eq('user_telegram_id', userTgId);
+          } catch {}
+        }
+
         try {
           await supabaseAdmin
-            .from('roommate_profiles')
+            .from('pending_roommate_drafts')
             .update({ status: 'approved', channel_message_id: channelMsgId })
-            .ilike('display_code', targetCode);
+            .ilike('id', targetCode);
         } catch {}
 
         const targetChannel = await getPrimaryChannel();
-        const channelHandle = String(targetChannel).replace('@', '');
-        const postLink = channelMsgId ? `https://t.me/${channelHandle}/${channelMsgId}` : '';
+        let postLink = '';
+        if (channelMsgId) {
+          const channelStr = String(targetChannel);
+          if (channelStr.startsWith('@')) {
+            postLink = `https://t.me/${channelStr.replace('@', '')}/${channelMsgId}`;
+          } else if (channelStr.startsWith('-100')) {
+            postLink = `https://t.me/c/${channelStr.replace('-100', '')}/${channelMsgId}`;
+          } else {
+            postLink = `https://t.me/${channelStr}/${channelMsgId}`;
+          }
+        }
 
         const adminSuccessText = `
 ✅ <b>Profile #${targetCode} Approved & Published!</b>
@@ -3527,16 +3584,6 @@ A user has requested to post their profile to the channel <code>${targetChannel}
         );
 
         // Fetch user telegram_id from profiles to notify them
-        let userTgId: number | null = null;
-        try {
-          const { data: p } = await supabaseAdmin
-            .from('profiles')
-            .select('telegram_id')
-            .ilike('display_code', targetCode)
-            .maybeSingle();
-          if (p?.telegram_id) userTgId = Number(p.telegram_id);
-        } catch {}
-
         if (userTgId) {
           const userCelebrationMsg = `
 🎉 <b>Congratulations! Your Profile is LIVE on SpaceMatch Addis!</b>
@@ -3646,26 +3693,37 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
         }
 
         // Get target profile
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetProfileId);
         let targetProfile: any = null;
-        const { data: pTarget } = await supabaseAdmin
-          .from('profiles')
-          .select('*')
-          .eq('id', targetProfileId)
-          .single();
+        if (isUuid) {
+          const { data: pTarget } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('id', targetProfileId)
+            .maybeSingle();
+          if (pTarget) targetProfile = pTarget;
+        }
 
-        if (pTarget) {
-          targetProfile = pTarget;
-        } else {
+        if (!targetProfile) {
+          const cleanCode = targetProfileId.replace(/^#/, '').trim();
+          const { data: pTarget } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .ilike('display_code', cleanCode)
+            .maybeSingle();
+          if (pTarget) targetProfile = pTarget;
+        }
+
+        if (!targetProfile && isUuid) {
           const { data: rmTarget } = await supabaseAdmin
             .from('roommate_profiles')
             .select('*')
             .eq('id', targetProfileId)
-            .single();
+            .maybeSingle();
           if (rmTarget) {
             targetProfile = {
               id: rmTarget.id,
               telegram_id: rmTarget.user_telegram_id,
-              display_code: rmTarget.display_code || `RM${rmTarget.id.slice(0, 4)}`,
               gender: rmTarget.my_gender,
               locations: rmTarget.preferred_subcity,
               budget_min: rmTarget.budget_min,
@@ -3685,6 +3743,37 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
           return NextResponse.json({ ok: true });
         }
 
+        // Guarantee target profile exists in profiles table for foreign key constraint
+        if (targetProfile && targetProfile.telegram_id) {
+          const { data: pExisting } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('telegram_id', targetProfile.telegram_id)
+            .maybeSingle();
+
+          if (pExisting) {
+            targetProfile = pExisting;
+          } else {
+            const { data: createdTarget } = await supabaseAdmin
+              .from('profiles')
+              .upsert({
+                telegram_id: targetProfile.telegram_id,
+                display_code: targetProfile.display_code || `RM${String(targetProfile.telegram_id).slice(-4)}`,
+                gender: targetProfile.gender || targetProfile.my_gender || 'Member',
+                locations: targetProfile.locations || targetProfile.preferred_subcity || ['Addis Ababa'],
+                budget_min: targetProfile.budget_min || 0,
+                budget_max: targetProfile.budget_max || 10000,
+                roommate_traits: targetProfile.roommate_traits || targetProfile.lifestyle_bio || 'Channel Roommate Listing',
+                kyc_status: 'verified',
+                status: 'active',
+                onboarding_step: 'completed',
+              }, { onConflict: 'telegram_id' })
+              .select('*')
+              .single();
+            if (createdTarget) targetProfile = createdTarget;
+          }
+        }
+
         if (String(targetProfile.telegram_id) === String(chatId)) {
           await sendOrEditCard(
             chatId,
@@ -3700,8 +3789,8 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
           .from('matches')
           .select('id, status')
           .eq('requester_id', requesterProfile.id)
-          .eq('target_id', targetProfileId)
-          .single();
+          .eq('target_id', targetProfile.id)
+          .maybeSingle();
 
         if (existingMatch) {
           await sendOrEditCard(
@@ -3718,7 +3807,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
           .from('matches')
           .insert({
             requester_id: requesterProfile.id,
-            target_id: targetProfileId,
+            target_id: targetProfile.id,
             status: 'pending_acceptance',
             payment_status: 'unpaid',
           })
@@ -3726,7 +3815,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
           .single();
 
         if (matchError || !newMatch) {
-          console.error('[webhook] Failed to create match:', matchError?.message);
+          console.error('[webhook] Failed to create match in confirm_match:', matchError?.message);
           await sendOrEditCard(
             chatId,
             `❌ Could not send match request. Please try again later.`,
@@ -3747,20 +3836,25 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
           msgId
         );
 
-        // Notify target (User B) with requester snapshot
+        // Notify target (User B) with STRICTLY ANONYMOUS details (NO name, NO phone, NO username)
         const requesterLocations = Array.isArray(requesterProfile.locations)
           ? requesterProfile.locations.join(', ')
           : 'Addis Ababa';
 
-        const requesterAgeStr = requesterProfile.age ? `, Age ${requesterProfile.age}` : '';
+        let reqAge = 24;
+        if (requesterProfile.roommate_traits) {
+          const m = requesterProfile.roommate_traits.match(/Age[:\s]+(\d+)/i);
+          if (m) reqAge = parseInt(m[1], 10);
+        }
+
         const requesterBudgetStr = requesterProfile.budget_max
           ? `Up to ${Number(requesterProfile.budget_max).toLocaleString()} ETB / month`
-          : `${Number(requesterProfile.budget_min || 0).toLocaleString()} – ${Number(requesterProfile.budget_max || 0).toLocaleString()} ETB / month`;
+          : 'Negotiable';
 
-        const notifyText = `🤝 <b>SpaceMatch</b> · <b>New Connection Request!</b>\n\nA verified user saw your channel listing and wants to connect!\n\n• <b>Profile:</b> ${requesterProfile.gender || 'Member'}${requesterAgeStr}\n• <b>Budget Cap:</b> <code>${requesterBudgetStr}</code>\n• <b>Target Areas:</b> <code>${requesterLocations}</code>\n\n<blockquote>Would you like to connect with this roommate?</blockquote>`;
+        const notifyText = `🤝 <b>SpaceMatch · New Connection Request!</b>\n\nA verified roommate saw your channel listing and wants to connect!\n\n• <b>Profile:</b> ${requesterProfile.gender || 'Member'}, Age ${reqAge}\n• <b>Budget Cap:</b> <code>${requesterBudgetStr}</code>\n• <b>Target Areas:</b> <code>${requesterLocations}</code>\n• <b>Status:</b> 🛡️ <b>Fayda Verified ✅</b>\n\n🔒 <i>Personal identity (name, phone number, and Telegram handle) is strictly hidden until mutual agreement and match unlock.</i>\n\n<blockquote>Would you like to connect with this roommate?</blockquote>`;
 
         if (targetProfile.telegram_id) {
-          await tgSend(
+          const sendRes = await tgSend(
             targetProfile.telegram_id,
             notifyText,
             {
@@ -3772,6 +3866,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
               ],
             }
           );
+          console.log('[confirm_match] Anonymous notification to target telegram_id', targetProfile.telegram_id, 'result:', sendRes?.ok ? 'DELIVERED' : sendRes?.description);
         }
 
         return NextResponse.json({ ok: true });
@@ -5111,7 +5206,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const { data: existingUser } = await supabaseAdmin
           .from('users')
           .select('id, telegram_id')
-          .eq('fayda_number', fanResult.fanNumber)
+          .eq('fayda_id_number', fanResult.fanNumber)
           .neq('telegram_id', chatId)
           .maybeSingle();
 
@@ -5130,7 +5225,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           .upsert({
             telegram_id: chatId,
             fayda_status: 'verified',
-            fayda_number: fanResult.fanNumber,
+            fayda_id_number: fanResult.fanNumber,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'telegram_id' });
 
@@ -5270,7 +5365,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const { data: existingUser } = await supabaseAdmin
           .from('users')
           .select('id, telegram_id')
-          .eq('fayda_number', fanResult.fanNumber)
+          .eq('fayda_id_number', fanResult.fanNumber)
           .neq('telegram_id', chatId)
           .maybeSingle();
 
@@ -5301,7 +5396,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             last_name: message.from?.last_name || '',
             username: message.from?.username || null,
             fayda_status: 'verified',
-            fayda_number: fanResult.fanNumber,
+            fayda_id_number: fanResult.fanNumber,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'telegram_id' });
 
@@ -5313,56 +5408,100 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const targetId = session.draft_data.target_id;
         const targetCode = session.draft_data.target_code;
 
-        const { data: savedProfile } = await supabaseAdmin
+        const { data: savedProfile, error: profileErr } = await supabaseAdmin
           .from('profiles')
           .upsert({
             telegram_id: chatId,
             display_code: displayCode,
             onboarding_step: 'completed',
             gender: userGender,
-            age: userAge,
             locations: preferredSubs,
             budget_min: 0,
             budget_max: userBudget,
-            roommate_traits: `Seeking roommate in ${preferredSubs.join(', ')}. Age: ${userAge}.`,
+            roommate_traits: `Age ${userAge} · Seeking roommate in ${preferredSubs.join(', ')}.`,
             full_name: userFullName,
             telegram_username: message.from?.username || null,
             kyc_status: 'verified',
             status: 'active',
           }, { onConflict: 'telegram_id' })
-          .select('id, display_code, gender, age, locations, budget_max, roommate_traits')
+          .select('id, display_code, gender, locations, budget_max, roommate_traits')
           .single();
 
-        const { data: savedRm } = await supabaseAdmin
-          .from('roommate_profiles')
-          .upsert({
-            user_telegram_id: chatId,
-            display_code: displayCode,
-            age: userAge,
-            my_gender: userGender,
-            preferred_gender: 'Any',
-            preferred_subcity: preferredSubs,
-            budget_min: 0,
-            budget_max: userBudget,
-            lifestyle_bio: `Seeking roommate in ${preferredSubs.join(', ')}. Age: ${userAge}.`,
-            unlock_fee: 50,
-            status: 'approved',
-          }, { onConflict: 'user_telegram_id' })
-          .select('id')
-          .single();
+        if (profileErr) {
+          console.error('[webhook] profiles upsert error in dyn_card_fayda_fan:', profileErr);
+        }
 
-        await clearSession(chatId);
+        try {
+          await supabaseAdmin
+            .from('roommate_profiles')
+            .upsert({
+              user_telegram_id: chatId,
+              my_gender: userGender,
+              preferred_gender: 'Any',
+              preferred_subcity: preferredSubs,
+              budget_min: 0,
+              budget_max: userBudget,
+              lifestyle_bio: `Age ${userAge} · Seeking roommate in ${preferredSubs.join(', ')}.`,
+              unlock_fee: 50,
+              status: 'approved',
+            }, { onConflict: 'user_telegram_id' });
+        } catch (rmErr) {
+          console.warn('[webhook] roommate_profiles sync warning:', rmErr);
+        }
+
+        await saveRoommateDraft({
+          id: displayCode,
+          display_code: displayCode,
+          user_telegram_id: chatId,
+          user_name: userFullName,
+          username: message.from?.username || null,
+          preferred_subcity: preferredSubs,
+          my_gender: userGender,
+          age: userAge,
+          preferred_gender: 'Any',
+          budget_min: 0,
+          budget_max: userBudget,
+          lifestyle_bio: `Age ${userAge} · Seeking roommate in ${preferredSubs.join(', ')}.`,
+          unlock_fee: 50,
+          fayda_status: 'verified',
+          status: 'pending_approval',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
 
         // Branch 1: User requested connection with a channel post target
         if (targetId || targetCode) {
           let targetProfile: any = null;
           if (targetId) {
-            const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('id', targetId).maybeSingle();
-            targetProfile = p;
+            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
+            if (isUuid) {
+              const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('id', targetId).maybeSingle();
+              targetProfile = p;
+            }
+            if (!targetProfile) {
+              const { data: p } = await supabaseAdmin.from('profiles').select('*').ilike('display_code', targetId.replace(/^#/, '')).maybeSingle();
+              targetProfile = p;
+            }
           }
           if (!targetProfile && targetCode) {
-            const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('display_code', targetCode).maybeSingle();
+            const cleanTargetCode = targetCode.replace(/^#/, '').trim();
+            const { data: p } = await supabaseAdmin.from('profiles').select('*').ilike('display_code', cleanTargetCode).maybeSingle();
             targetProfile = p;
+          }
+          if (!targetProfile && targetId) {
+            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
+            if (isUuid) {
+              const { data: rm } = await supabaseAdmin.from('roommate_profiles').select('*').eq('id', targetId).maybeSingle();
+              if (rm) {
+                targetProfile = {
+                  telegram_id: rm.user_telegram_id,
+                  gender: rm.my_gender,
+                  locations: rm.preferred_subcity,
+                  budget_max: rm.budget_max,
+                  roommate_traits: rm.lifestyle_bio,
+                };
+              }
+            }
           }
 
           if (!targetProfile) {
@@ -5375,7 +5514,39 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
               ],
               activeMsgId
             );
+            await clearSession(chatId);
             return NextResponse.json({ ok: true });
+          }
+
+          // Ensure target is represented in profiles table with valid UUID for foreign key constraint
+          if (targetProfile && targetProfile.telegram_id) {
+            const { data: pExisting } = await supabaseAdmin
+              .from('profiles')
+              .select('*')
+              .eq('telegram_id', targetProfile.telegram_id)
+              .maybeSingle();
+
+            if (pExisting) {
+              targetProfile = pExisting;
+            } else {
+              const { data: createdTarget } = await supabaseAdmin
+                .from('profiles')
+                .upsert({
+                  telegram_id: targetProfile.telegram_id,
+                  display_code: targetProfile.display_code || targetCode || `RM${String(targetProfile.telegram_id).slice(-4)}`,
+                  gender: targetProfile.gender || 'Member',
+                  locations: targetProfile.locations || targetProfile.preferred_subcity || ['Addis Ababa'],
+                  budget_min: targetProfile.budget_min || 0,
+                  budget_max: targetProfile.budget_max || 10000,
+                  roommate_traits: targetProfile.roommate_traits || 'Channel Roommate Listing',
+                  kyc_status: 'verified',
+                  status: 'active',
+                  onboarding_step: 'completed',
+                }, { onConflict: 'telegram_id' })
+                .select('*')
+                .single();
+              if (createdTarget) targetProfile = createdTarget;
+            }
           }
 
           // Check if self-request
@@ -5386,10 +5557,15 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
               [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
               activeMsgId
             );
+            await clearSession(chatId);
             return NextResponse.json({ ok: true });
           }
 
-          const myProfileId = savedProfile?.id || savedRm?.id;
+          let myProfileId = savedProfile?.id;
+          if (!myProfileId) {
+            const { data: myP } = await supabaseAdmin.from('profiles').select('id').eq('telegram_id', chatId).maybeSingle();
+            myProfileId = myP?.id;
+          }
 
           // Check if match already requested
           const { data: existingMatch } = await supabaseAdmin
@@ -5406,6 +5582,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
               [[{ text: '🔍 Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
               activeMsgId
             );
+            await clearSession(chatId);
             return NextResponse.json({ ok: true });
           }
 
@@ -5421,14 +5598,31 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             .single();
 
           if (matchError || !newMatch) {
-            console.error('Match creation error:', matchError);
+            console.error('[webhook] Match creation error in dyn_card_fayda_fan:', matchError);
             await sendOrEditCard(
               chatId,
               `❌ Could not send match request. Please try again.`,
               [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
               activeMsgId
             );
+            await clearSession(chatId);
             return NextResponse.json({ ok: true });
+          }
+
+          // Notify Target User with strictly anonymous compatibility details (NO name, NO phone, NO username)
+          const reqSubcities = preferredSubs.join(', ');
+          const targetNotifyText = `🤝 <b>SpaceMatch · New Connection Request!</b>\n\nA verified roommate saw your listing and wants to connect!\n\n• <b>Profile:</b> ${userGender}, Age ${userAge}\n• <b>Budget Cap:</b> <code>Up to ${Number(userBudget).toLocaleString()} ETB / month</code>\n• <b>Target Areas:</b> <code>${reqSubcities}</code>\n• <b>Status:</b> 🛡️ <b>Fayda Verified ✅</b>\n\n🔒 <i>Personal identity (name, phone number, and Telegram handle) is strictly hidden until mutual agreement and match unlock.</i>\n\n<blockquote>Would you like to connect with this roommate?</blockquote>`;
+
+          if (targetProfile.telegram_id) {
+            const sendRes = await tgSend(targetProfile.telegram_id, targetNotifyText, {
+              inline_keyboard: [
+                [
+                  { text: '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
+                  { text: '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
+                ],
+              ],
+            });
+            console.log('[match-request] Anonymous notification to target telegram_id', targetProfile.telegram_id, 'result:', sendRes?.ok ? 'DELIVERED' : sendRes?.description);
           }
 
           // Notify Requester
@@ -5442,33 +5636,18 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             activeMsgId
           );
 
-          // Notify Target User
-          const reqSubcities = preferredSubs.join(', ');
-          const notifyText = `🤝 <b>SpaceMatch · New Connection Request!</b>\n\nA verified user saw your channel listing and wants to connect!\n\n• <b>Profile:</b> ${userGender}, Age ${userAge}\n• <b>Budget Cap:</b> <code>Up to ${Number(userBudget).toLocaleString()} ETB / month</code>\n• <b>Target Areas:</b> <code>${reqSubcities}</code>\n\n<blockquote>Would you like to connect with this roommate?</blockquote>`;
-
-          if (targetProfile.telegram_id) {
-            await tgSend(targetProfile.telegram_id, notifyText, {
-              inline_keyboard: [
-                [
-                  { text: '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
-                  { text: '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
-                ],
-              ],
-            });
-          }
-
+          await clearSession(chatId);
           return NextResponse.json({ ok: true });
         }
 
         // Branch 2: Post to Channel flow
         const profileForReview = savedProfile || {
-          id: savedRm?.id,
           display_code: displayCode,
           gender: userGender,
           age: userAge,
           locations: preferredSubs,
           budget_max: userBudget,
-          roommate_traits: `Seeking roommate in ${preferredSubs.join(', ')}. Age: ${userAge}.`,
+          roommate_traits: `Age ${userAge} · Seeking roommate in ${preferredSubs.join(', ')}.`,
         };
 
         await sendChannelPublishPreviewCard(chatId, profileForReview, activeMsgId);
@@ -5501,7 +5680,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const { data: existingUser } = await supabaseAdmin
           .from('users')
           .select('id, telegram_id')
-          .eq('fayda_number', fanResult.fanNumber)
+          .eq('fayda_id_number', fanResult.fanNumber)
           .neq('telegram_id', chatId)
           .maybeSingle();
 
@@ -5519,7 +5698,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           .from('users')
           .update({
             fayda_status: 'verified',
-            fayda_number: fanResult.fanNumber,
+            fayda_id_number: fanResult.fanNumber,
             updated_at: new Date().toISOString(),
           })
           .eq('telegram_id', chatId);
