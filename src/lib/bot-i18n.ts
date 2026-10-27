@@ -96,6 +96,15 @@ export const I18N = {
     spaceStepAmenities: '✨ <b>What amenities are included with the space?</b> (e.g. WiFi, Kitchen, Water tanker)',
     errSpaceAmenities: 'Please enter at least one amenity or feature included with the space (e.g. WiFi):',
 
+    spaceStepHostGender: '👤 <b>Select your gender (Space Host):</b>',
+    spaceBtnHostMale: '👨 Male',
+    spaceBtnHostFemale: '👩 Female',
+
+    spaceStepPrefGender: '👥 <b>Who do you prefer to live with? (Preferred Gender)</b>',
+    spaceBtnPrefMale: '👨 Male Only',
+    spaceBtnPrefFemale: '👩 Female Only',
+    spaceBtnPrefAny: '👥 Any Gender',
+
     spaceStepPrefRoommate: '✨ <b>Describe your preferred roommate:</b>\n<i>(Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed)</i>',
     errSpacePrefRoommate: 'Please describe your preferred roommate (e.g. Female, preferably Orthodox, clean, and employed):',
 
@@ -188,6 +197,15 @@ export const I18N = {
 
     spaceStepAmenities: '✨ <b>ቤቱ የሚያካትታቸው ግልጋሎቶች ምንድን ናቸው?</b> (ምሳሌ: ዋይፋይ፣ ወጥ ቤት፣ የውሃ ታንከር)',
     errSpaceAmenities: 'እባክዎ ቤቱ የሚያካትታቸውን ግልጋሎቶች በአጭሩ ይጻፉ (ምሳሌ: ዋይፋይ):',
+
+    spaceStepHostGender: '👤 <b>ጾታዎን ይምረጡ (የክፍል አከራይ):</b>',
+    spaceBtnHostMale: '👨 ወንድ',
+    spaceBtnHostFemale: '👩 ሴት',
+
+    spaceStepPrefGender: '👥 <b>ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ? (የሚፈለግ ጾታ)</b>',
+    spaceBtnPrefMale: '👨 ወንድ ብቻ',
+    spaceBtnPrefFemale: '👩 ሴት ብቻ',
+    spaceBtnPrefAny: '👥 ማናቸውም',
 
     spaceStepPrefRoommate: '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ (Preferred Roommate):</b>\n<i>(ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ)</i>',
     errSpacePrefRoommate: 'እባክዎ የሚፈልጉትን የቤት ጓደኛ ይግለጹ (ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ):',

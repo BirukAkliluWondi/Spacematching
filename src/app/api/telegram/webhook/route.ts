@@ -145,6 +145,103 @@ export async function POST(request: Request) {
       return result;
     };
 
+    // Helper to get persistent registered admin usernames
+    const getPendingAdminUsernames = async (): Promise<string[]> => {
+      try {
+        const { data } = await supabaseAdmin
+          .from('bot_sessions')
+          .select('draft_data')
+          .eq('telegram_id', 1)
+          .maybeSingle();
+        if (data?.draft_data?.admin_usernames && Array.isArray(data.draft_data.admin_usernames)) {
+          return data.draft_data.admin_usernames;
+        }
+      } catch {}
+      return [];
+    };
+
+    // Helper to register an admin username permanently
+    const registerAdminUsername = async (username: string): Promise<void> => {
+      const clean = username.replace('@', '').toLowerCase().trim();
+      if (!clean) return;
+      const current = await getPendingAdminUsernames();
+      if (!current.includes(clean)) {
+        const updated = [...current, clean];
+        await supabaseAdmin
+          .from('bot_sessions')
+          .upsert({
+            telegram_id: 1,
+            step: 'system_admin_usernames',
+            draft_data: { admin_usernames: updated },
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'telegram_id' });
+      }
+    };
+
+    // Helper to check gender preference compatibility between applicant and target listing
+    const checkGenderPreferenceMatch = (
+      targetPreferredGender: string | null | undefined,
+      targetRoommateTraits: string | null | undefined,
+      requesterGender: string | null | undefined
+    ): { allowed: boolean; targetPrefFormattedEn: string; targetPrefFormattedAm: string } => {
+      let pref = (targetPreferredGender || '').trim();
+      if (!pref || pref.toLowerCase() === 'any') {
+        if (targetRoommateTraits) {
+          const pgm = targetRoommateTraits.match(/Prefers?[:\s]+(Male|Female|Any)/i);
+          if (pgm) pref = pgm[1].trim();
+        }
+      }
+
+      const prefLower = pref.toLowerCase();
+      const isPrefFemale = prefLower.includes('female') || prefLower.includes('ሴት');
+      const isPrefMale = !isPrefFemale && (prefLower.includes('male') || prefLower.includes('ወንድ'));
+
+      if (!isPrefFemale && !isPrefMale) {
+        return { allowed: true, targetPrefFormattedEn: 'Any Gender', targetPrefFormattedAm: 'ማንኛውም ጾታ' };
+      }
+
+      const reqLower = (requesterGender || '').trim().toLowerCase();
+      const isReqFemale = reqLower.includes('female') || reqLower.includes('ሴት') || reqLower === 'f';
+      const isReqMale = !isReqFemale && (reqLower.includes('male') || reqLower.includes('ወንድ') || reqLower === 'm');
+
+      if (isPrefFemale && !isReqFemale) {
+        return { allowed: false, targetPrefFormattedEn: 'Female Only', targetPrefFormattedAm: 'ሴት ብቻ' };
+      }
+
+      if (isPrefMale && !isReqMale) {
+        return { allowed: false, targetPrefFormattedEn: 'Male Only', targetPrefFormattedAm: 'ወንድ ብቻ' };
+      }
+
+      return {
+        allowed: true,
+        targetPrefFormattedEn: isPrefFemale ? 'Female Only' : 'Male Only',
+        targetPrefFormattedAm: isPrefFemale ? 'ሴት ብቻ' : 'ወንድ ብቻ',
+      };
+    };
+
+    const getGenderMismatchCard = (
+      isAm: boolean,
+      targetCode: string,
+      targetPrefEn: string,
+      targetPrefAm: string,
+      reqGender: string
+    ) => {
+      const reqGenderEn = /female|ሴት/i.test(reqGender) ? 'Female' : 'Male';
+      const reqGenderAm = /female|ሴት/i.test(reqGender) ? 'ሴት' : 'ወንድ';
+
+      const text = isAm
+        ? `⚠️ <b>ስፔስማች · የተመራጭ ጾታ አለመጣጣም</b>\n\nየክፍል ጓደኛ <b>#${targetCode}</b> የመረጡት <b>${targetPrefAm}</b> የቤት ጓደኛ ነው።\n\nየእርስዎ መገለጫ የተመዘገበው <b>${reqGenderAm}</b> ስለሆነ፣ ይህ ማስታወቂያ የእርስዎን ጥያቄ መቀበል አይችልም።\n\n<blockquote>ከእርስዎ ጋር የሚስማሙ ሌሎች የተረጋገጡ የቤት ጓደኞችን ከታች ማግኘት ይችላሉ:</blockquote>`
+        : `⚠️ <b>SpaceMatch · Gender Preference Mismatch</b>\n\nRoommate <b>#${targetCode}</b> has specified a preference for <b>${targetPrefEn}</b> roommates.\n\nSince your profile is registered as <b>${reqGenderEn}</b>, this listing cannot accept connection requests from your profile.\n\n<blockquote>You can discover other compatible roommates in Addis Ababa below:</blockquote>`;
+
+      const keyboard = [
+        [{ text: isAm ? '🔍 ሌሎች ጓደኞችን ፈልግ' : '🔍 Find Compatible Roommates', callback_data: 'matchmaker_start' }],
+        [{ text: isAm ? '✏️ መገለጫዬን አስተካክል' : '✏️ Edit My Profile', callback_data: 'post_profile_start' }],
+        [{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
+      ];
+
+      return { text, keyboard };
+    };
+
     // Helper to get the primary channel or active channels for broadcasting
     const getPrimaryChannel = async (): Promise<string | number> => {
       try {
@@ -875,8 +972,8 @@ It has been 24 hours since your roommate contact was unlocked!
       const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
       const seekerGenderWordEn = isFemale ? 'female' : isMale ? 'male' : 'verified';
       const seekerGenderWordAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : 'የተረጋገጠ/ች';
-      const seekerGenderEn = isFemale ? 'Female' : isMale ? 'Male' : (profileData.gender || 'Member');
-      const seekerGenderAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : (profileData.gender || 'አባል');
+      const seekerGenderEn = isFemale ? 'Female' : isMale ? 'Male' : 'Verified Roommate';
+      const seekerGenderAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : 'የተረጋገጠ/ች ፈላጊ';
       const genderEmoji = isFemale ? '👱‍♀️' : isMale ? '👨' : '👤';
 
       const rawPref = (profileData.preferred_gender || '').toLowerCase();
@@ -884,6 +981,8 @@ It has been 24 hours since your roommate contact was unlocked!
       const isPrefMale = rawPref.includes('male') || rawPref.includes('ወንድ');
       const prefGenderWordEn = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
       const prefGenderWordAm = isPrefFemale ? 'ሴት' : isPrefMale ? 'ወንድ' : 'ተስማሚ';
+      const prefGenderTextEn = isPrefFemale ? 'Female Only' : isPrefMale ? 'Male Only' : 'Any Gender';
+      const prefGenderTextAm = isPrefFemale ? 'ሴት ብቻ' : isPrefMale ? 'ወንድ ብቻ' : 'ማናቸውም';
 
       // Parse user traits / preferred roommate
       let rawTraits = profileData.preferred_roommate || profileData.roommate_traits || profileData.lifestyle_bio || '';
@@ -913,8 +1012,8 @@ It has been 24 hours since your roommate contact was unlocked!
 
       const text = isAm
         ? `
-SpaceMatch Addis
-${codeTag}
+<b>SpaceMatch Addis</b>
+<b>${codeTag}</b>
 
 🏠 <b>የቤት ጓደኛ ፍለጋ (ROOMMATE SEARCH)</b>
 
@@ -923,13 +1022,14 @@ ${codeTag}
 📍 <b>ተመራጭ አካባቢዎች:</b> ${escapeHtml(subcitiesStr)}
 💰 <b>በጀት:</b> ${escapeHtml(budgetDisplayAm)}
 ${genderEmoji} <b>የቤት ፈላጊ:</b> ${escapeHtml(seekerGenderAm)}
+👥 <b>የሚፈለግ ጾታ:</b> ${escapeHtml(prefGenderTextAm)}
 🤝 <b>የሚፈለግ የቤት ጓደኛ:</b> ${escapeHtml(prefDetails)}
 
 🔑 <i>SpaceMatchAddis — መጀመሪያ የቤት ጓደኛዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!</i>
         `.trim()
         : `
-SpaceMatch Addis
-${codeTag}
+<b>SpaceMatch Addis</b>
+<b>${codeTag}</b>
 
 🏠 <b>ROOMMATE SEARCH</b>
 
@@ -938,6 +1038,7 @@ We have a ${seekerGenderWordEn} Space Seeker looking for a ${prefGenderWordEn} r
 📍 <b>Preferred Locations:</b> ${escapeHtml(subcitiesStr)}
 💰 <b>Budget:</b> ${escapeHtml(budgetDisplayEn)}
 ${genderEmoji} <b>Space Seeker:</b> ${escapeHtml(seekerGenderEn)}
+👥 <b>Preferred Gender:</b> ${escapeHtml(prefGenderTextEn)}
 🤝 <b>Preferred Roommate:</b> ${escapeHtml(prefDetails)}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
@@ -1199,6 +1300,27 @@ ${genderEmoji} <b>Space Seeker:</b> ${escapeHtml(seekerGenderEn)}
         if (!myProfileId) {
           const { data: myP } = await supabaseAdmin.from('profiles').select('id').eq('telegram_id', chatId).maybeSingle();
           myProfileId = myP?.id;
+        }
+
+        // Check gender preference match
+        const genderCheck = checkGenderPreferenceMatch(
+          targetProfile.preferred_gender,
+          targetProfile.roommate_traits,
+          userGender
+        );
+        if (!genderCheck.allowed) {
+          const lang = getLanguage(draft, chatId);
+          const isAm = lang === 'am';
+          const { text: mismatchText, keyboard: mismatchKb } = getGenderMismatchCard(
+            isAm,
+            targetProfile.display_code || targetCode || 'Listing',
+            genderCheck.targetPrefFormattedEn,
+            genderCheck.targetPrefFormattedAm,
+            userGender
+          );
+          await sendOrEditCard(chatId, mismatchText, mismatchKb, activeMsgId);
+          await clearSession(chatId);
+          return;
         }
 
         // Check if match already requested
@@ -1522,7 +1644,78 @@ A verified roommate saw your listing and wants to connect!
       return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
     };
 
-    const sendSpaceStep5PrefRoommate = async (
+    const sendSpaceStep5HostGender = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'space_host_gender_select',
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = isAm
+        ? '👤 <b>ጾታዎን ይምረጡ (የክፍል አከራይ):</b>'
+        : '👤 <b>Select your gender (Space Host):</b>';
+
+      const inlineKeyboard = [
+        [
+          { text: isAm ? '👨 ወንድ' : '👨 Male', callback_data: 'space_host_gender:Male' },
+          { text: isAm ? '👩 ሴት' : '👩 Female', callback_data: 'space_host_gender:Female' },
+        ],
+        [
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_amenities' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const sendSpaceStep6PrefGender = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'space_pref_gender_select',
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = isAm
+        ? '👥 <b>ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ? (የሚፈለግ ጾታ):</b>'
+        : '👥 <b>Who do you prefer to live with? (Preferred Gender):</b>';
+
+      const inlineKeyboard = [
+        [
+          { text: isAm ? '👩 ሴት ብቻ' : '👩 Female Only', callback_data: 'space_pref_gender:Female' },
+          { text: isAm ? '👨 ወንድ ብቻ' : '👨 Male Only', callback_data: 'space_pref_gender:Male' },
+        ],
+        [
+          { text: isAm ? '👥 ማናቸውም' : '👥 Any Gender', callback_data: 'space_pref_gender:Any' },
+        ],
+        [
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_host_gender' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const sendSpaceStep7PrefRoommate = async (
       chatId: number,
       draft: Record<string, any>,
       messageIdToEdit?: number,
@@ -1546,7 +1739,7 @@ A verified roommate saw your listing and wants to connect!
 
       const inlineKeyboard = [
         [
-          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_amenities' },
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_pref_gender' },
           { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
@@ -1554,7 +1747,7 @@ A verified roommate saw your listing and wants to connect!
       return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
     };
 
-    const sendSpaceStep6Subcity = async (
+    const sendSpaceStep8Subcity = async (
       chatId: number,
       draft: Record<string, any>,
       messageIdToEdit?: number
@@ -1594,7 +1787,7 @@ A verified roommate saw your listing and wants to connect!
       return await sendOrEditCard(chatId, text, gridRows, activeMsgId);
     };
 
-    const sendSpaceStep7Photos = async (
+    const sendSpaceStep9Photos = async (
       chatId: number,
       draft: Record<string, any>,
       messageIdToEdit?: number
@@ -1652,24 +1845,31 @@ A verified roommate saw your listing and wants to connect!
       const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
       const hostGenderWordEn = isFemale ? 'female' : isMale ? 'male' : 'verified';
       const hostGenderWordAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : 'የተረጋገጠ/ች';
-      const hostGenderEn = isFemale ? 'Female' : isMale ? 'Male' : (draft.gender || 'Host');
-      const hostGenderAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : (draft.gender || 'አስተናጋጅ');
-      const genderEmoji = isFemale ? '👱‍♀️' : isMale ? '👨' : '👤';
+      const hostGenderEn = isFemale ? 'Female' : isMale ? 'Male' : 'Verified Homeowner';
+      const hostGenderAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : 'የተረጋገጠ አከራይ';
+      const genderEmoji = isFemale ? '👱‍♀️' : isMale ? '👨' : '🏠';
+
+      const rawPref = (draft.preferred_gender || '').toLowerCase();
+      const isPrefFemale = rawPref.includes('female') || rawPref.includes('ሴት');
+      const isPrefMale = rawPref.includes('male') || rawPref.includes('ወንድ');
+      const prefGenderTextEn = isPrefFemale ? 'Female Only' : isPrefMale ? 'Male Only' : 'Any Gender';
+      const prefGenderTextAm = isPrefFemale ? 'ሴት ብቻ' : isPrefMale ? 'ወንድ ብቻ' : 'ማናቸውም';
 
       const prefRoommate = draft.preferred_roommate || draft.roommate_traits || (isAm ? 'ተስማሚ እና ጽዱ የቤት ጓደኛ።' : 'Compatible and clean roommate.');
 
       const text = isAm
         ? `
-SpaceMatch Addis
-${codeTag}
+<b>SpaceMatch Addis</b>
+<b>${codeTag}</b>
 
 🏠 <b>የሚከራይ ክፍት ቦታ (SPACE AVAILABLE)</b>
 
-ክፍት ${draft.space_type || 'ክፍል'} ያላቸው ${hostGenderWordAm} አስተናጋጅ ተስማሚ የቤት ጓደኛ ይፈልጋሉ!
+ክፍት ${draft.space_type || 'ክፍል'} ያላቸው ${hostGenderWordAm} የክፍል አከራይ ተስማሚ የቤት ጓደኛ ይፈልጋሉ!
 
 📍 <b>አካባቢ:</b> ${escapeHtml(subcity)}
 💰 <b>ጠቅላላ ኪራይ:</b> ${rentStr} ብር (${shareStr} ብር በሰው)
-${genderEmoji} <b>አስተናጋጅ:</b> ${escapeHtml(hostGenderAm)}
+${genderEmoji} <b>የክፍል አከራይ:</b> ${escapeHtml(hostGenderAm)}
+👥 <b>የሚፈለግ ጾታ:</b> ${escapeHtml(prefGenderTextAm)}
 🤝 <b>የሚፈለግ የቤት ጓደኛ:</b> ${escapeHtml(prefRoommate)}
 ✨ <b>ግልጋሎቶች:</b> ${escapeHtml(amenitiesStr)}
 📸 <b>ፎቶዎች:</b> ${photosCount} ተያይዘዋል
@@ -1677,8 +1877,8 @@ ${genderEmoji} <b>አስተናጋጅ:</b> ${escapeHtml(hostGenderAm)}
 🔑 <i>SpaceMatchAddis — መጀመሪያ የቤት ጓደኛዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!</i>
         `.trim()
         : `
-SpaceMatch Addis
-${codeTag}
+<b>SpaceMatch Addis</b>
+<b>${codeTag}</b>
 
 🏠 <b>SPACE AVAILABLE</b>
 
@@ -1687,6 +1887,7 @@ We have a ${hostGenderWordEn} Space Host looking for a compatible roommate for a
 📍 <b>Location:</b> ${escapeHtml(subcity)}
 💰 <b>Total Rent:</b> ${rentStr} ETB (${shareStr} ETB per person)
 ${genderEmoji} <b>Space Host:</b> ${escapeHtml(hostGenderEn)}
+👥 <b>Preferred Gender:</b> ${escapeHtml(prefGenderTextEn)}
 🤝 <b>Preferred Roommate:</b> ${escapeHtml(prefRoommate)}
 ✨ <b>Amenities:</b> ${escapeHtml(amenitiesStr)}
 📸 <b>Photos:</b> ${photosCount} attached
@@ -3048,6 +3249,34 @@ We could not find an exact match for your selected filters in those specific sub
         }
       }
 
+      // Gender preference check for contact unlock
+      const { data: requesterProf } = await supabaseAdmin
+        .from('profiles')
+        .select('gender')
+        .eq('telegram_id', chatId)
+        .maybeSingle();
+
+      if (requesterProf?.gender) {
+        const genderCheck = checkGenderPreferenceMatch(
+          genderInfo,
+          bioInfo,
+          requesterProf.gender
+        );
+        if (!genderCheck.allowed) {
+          const userLang = getUserLanguage(chatId);
+          const isAm = userLang === 'am';
+          const { text: mismatchText, keyboard: mismatchKb } = getGenderMismatchCard(
+            isAm,
+            targetId,
+            genderCheck.targetPrefFormattedEn,
+            genderCheck.targetPrefFormattedAm,
+            requesterProf.gender
+          );
+          await sendOrEditCard(chatId, mismatchText, mismatchKb, messageIdToEdit);
+          return;
+        }
+      }
+
       let orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       try {
         const { data: newOrder } = await supabaseAdmin
@@ -3714,7 +3943,7 @@ ${res.message}
 
       if (callbackData === 'space_amenities_proceed') {
         const session = getSession(chatId);
-        await sendSpaceStep5PrefRoommate(chatId, session.draft_data, msgId);
+        await sendSpaceStep5HostGender(chatId, session.draft_data, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3724,9 +3953,37 @@ ${res.message}
         return NextResponse.json({ ok: true });
       }
 
+      if (callbackData.startsWith('space_host_gender:')) {
+        const hostGender = callbackData.split(':')[1];
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, gender: hostGender, my_gender: hostGender };
+        await sendSpaceStep6PrefGender(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'space_back_to_host_gender') {
+        const session = getSession(chatId);
+        await sendSpaceStep5HostGender(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('space_pref_gender:')) {
+        const prefGender = callbackData.split(':')[1];
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, preferred_gender: prefGender };
+        await sendSpaceStep7PrefRoommate(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'space_back_to_pref_gender') {
+        const session = getSession(chatId);
+        await sendSpaceStep6PrefGender(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
       if (callbackData === 'space_back_to_pref_roommate') {
         const session = getSession(chatId);
-        await sendSpaceStep5PrefRoommate(chatId, session.draft_data, msgId);
+        await sendSpaceStep7PrefRoommate(chatId, session.draft_data, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3734,13 +3991,13 @@ ${res.message}
         const subcity = callbackData.replace('space_subcity:', '');
         const session = getSession(chatId);
         const updatedDraft = { ...session.draft_data, preferred_subcity: [subcity], location: subcity };
-        await sendSpaceStep7Photos(chatId, updatedDraft, msgId);
+        await sendSpaceStep9Photos(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
       if (callbackData === 'space_back_to_subcity') {
         const session = getSession(chatId);
-        await sendSpaceStep6Subcity(chatId, session.draft_data, msgId);
+        await sendSpaceStep8Subcity(chatId, session.draft_data, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3785,7 +4042,8 @@ ${res.message}
         await supabaseAdmin.from('profiles').upsert({
           telegram_id: chatId,
           display_code: cleanCode,
-          gender: draft.gender || 'Member',
+          gender: draft.gender || draft.my_gender || 'Member',
+          preferred_gender: draft.preferred_gender || 'Any',
           locations: [subcity],
           budget_min: shareNum,
           budget_max: rentNum,
@@ -3802,8 +4060,8 @@ ${res.message}
           user_name: 'Verified Space Owner',
           username: callback.from?.username || null,
           age: draft.age || 24,
-          my_gender: draft.gender || 'Member',
-          preferred_gender: 'Any',
+          my_gender: draft.gender || draft.my_gender || 'Member',
+          preferred_gender: draft.preferred_gender || 'Any',
           preferred_subcity: [subcity],
           budget_min: shareNum,
           budget_max: rentNum,
@@ -4592,6 +4850,27 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
             [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
             msgId
           );
+          return NextResponse.json({ ok: true });
+        }
+
+        // Enforce gender preference
+        const genderCheck = checkGenderPreferenceMatch(
+          targetProfile.preferred_gender,
+          targetProfile.roommate_traits,
+          requesterProfile.gender
+        );
+
+        if (!genderCheck.allowed) {
+          const reqLang = getUserLanguage(chatId);
+          const reqIsAm = reqLang === 'am';
+          const { text: mismatchText, keyboard: mismatchKb } = getGenderMismatchCard(
+            reqIsAm,
+            targetProfile.display_code || 'Listing',
+            genderCheck.targetPrefFormattedEn,
+            genderCheck.targetPrefFormattedAm,
+            requesterProfile.gender
+          );
+          await sendOrEditCard(chatId, mismatchText, mismatchKb, msgId);
           return NextResponse.json({ ok: true });
         }
 
@@ -5500,6 +5779,8 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
           inline_keyboard: [
             [{ text: `⏳ Pending Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
             [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
+            [{ text: '➕ Add Admin by Username 👑', callback_data: 'admin_add_prompt' }],
+            [{ text: '👥 View Administrators', callback_data: 'admin_list_team' }],
             [{ text: '📡 Connected Channels & Settings 📢', callback_data: 'admin_list_channels' }],
             [{ text: '🔴 Active Channel Posts & Close / Match', callback_data: 'admin_list_active_posts' }],
             [{ text: '📢 Post Custom Announcement', callback_data: 'admin_custom_prompt' }],
@@ -5573,6 +5854,93 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
           buttons,
           msgId
         );
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin: Add Admin by Username Prompt Callback
+      if (callbackData === 'admin_add_prompt') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          return NextResponse.json({ ok: true });
+        }
+
+        await saveSession({
+          telegram_id: chatId,
+          step: 'admin_awaiting_username',
+          draft_data: { card_msg_id: msgId },
+          updated_at: new Date().toISOString(),
+        });
+
+        const promptText = `
+👑 <b>SpaceMatch Admin · Add Administrator</b>
+
+Please send the Telegram username of the user you want to appoint as an administrator (e.g. <code>@username</code> or <code>username</code>).
+
+<i>💡 They will immediately receive admin privileges to post (<code>/post</code>), review, and close listings (<code>/close</code>).</i>
+        `.trim();
+
+        const buttons = [
+          [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+          [{ text: '❌ Cancel', callback_data: 'admin_cancel' }],
+        ];
+
+        await sendOrEditCard(chatId, promptText, buttons, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin: View Admin Team Callback
+      if (callbackData === 'admin_list_team') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          return NextResponse.json({ ok: true });
+        }
+
+        let dbAdminList: any[] = [];
+        try {
+          const { data } = await supabaseAdmin
+            .from('users')
+            .select('telegram_id, first_name, last_name, username')
+            .eq('role', 'admin');
+          if (data) dbAdminList = data;
+        } catch {}
+
+        const pendingUsernames = await getPendingAdminUsernames();
+
+        let msg = `👑 <b>SpaceMatch Administrators (${adminIds.length + pendingUsernames.length} Total)</b>\n\n`;
+        msg += `🛡️ <b>Super Administrators:</b>\n`;
+        msg += `• Biruk (@birukadiyee · <code>800701176</code>)\n`;
+        msg += `• Wahid (@WWEHID · <code>148318506</code>)\n\n`;
+
+        if (dbAdminList.length > 0) {
+          msg += `👥 <b>Database Administrators:</b>\n`;
+          for (const a of dbAdminList) {
+            const name = [a.first_name, a.last_name].filter(Boolean).join(' ') || 'Admin';
+            const handle = a.username ? `@${a.username}` : `<code>${a.telegram_id}</code>`;
+            msg += `• ${name} (${handle})\n`;
+          }
+          msg += '\n';
+        }
+
+        if (pendingUsernames.length > 0) {
+          msg += `⏳ <b>Registered Admin Usernames:</b>\n`;
+          for (const u of pendingUsernames) {
+            msg += `• @${u} (Active upon opening bot)\n`;
+          }
+          msg += '\n';
+        }
+
+        msg += `📢 <b>Channel Administrators:</b>\n`;
+        msg += `• Automatically synced from connected channel administrators.\n`;
+
+        const buttons = [
+          [{ text: '➕ Add Admin by Username 👑', callback_data: 'admin_add_prompt' }],
+          [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+          [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+        ];
+
+        await sendOrEditCard(chatId, msg.trim(), buttons, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -6093,7 +6461,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           space_amenities_raw: rawAmenities,
         };
 
-        await sendSpaceStep5PrefRoommate(chatId, updatedDraft, activeMsgId);
+        await sendSpaceStep5HostGender(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -6107,7 +6475,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const isAm = lang === 'am';
         const rawPref = text.trim();
         if (!rawPref || rawPref.length < 2) {
-          await sendSpaceStep5PrefRoommate(
+          await sendSpaceStep7PrefRoommate(
             chatId,
             session.draft_data,
             activeMsgId,
@@ -6125,7 +6493,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           roommate_traits: rawPref,
         };
 
-        await sendSpaceStep6Subcity(chatId, updatedDraft, activeMsgId);
+        await sendSpaceStep8Subcity(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -6221,6 +6589,109 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           ],
           activeMsgId
         );
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── ADMIN: ADD ADMINISTRATOR BY USERNAME INPUT ──────────────────────
+      if (session.step === 'admin_awaiting_username') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          await clearSession(chatId);
+          return NextResponse.json({ ok: true });
+        }
+
+        const rawUser = text.trim();
+        if (rawUser === '/cancel' || rawUser.toLowerCase() === 'cancel') {
+          await clearSession(chatId);
+          await tgSend(chatId, `❌ Cancelled admin addition.`);
+          return NextResponse.json({ ok: true });
+        }
+
+        const cleanUser = rawUser.replace('@', '').trim();
+        if (!cleanUser || cleanUser.length < 3) {
+          await sendOrEditCard(
+            chatId,
+            `⚠️ <b>Invalid Username.</b> Please enter a valid Telegram username (e.g. <code>@username</code> or <code>username</code>):`,
+            [[{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }]],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        const isNumeric = /^\d+$/.test(cleanUser);
+        let userRecord: any = null;
+
+        if (isNumeric) {
+          const { data } = await supabaseAdmin.from('users').select('*').eq('telegram_id', Number(cleanUser)).maybeSingle();
+          userRecord = data;
+        } else {
+          const { data } = await supabaseAdmin.from('users').select('*').ilike('username', cleanUser).maybeSingle();
+          userRecord = data;
+          if (!userRecord) {
+            const { data: prof } = await supabaseAdmin.from('profiles').select('*').ilike('telegram_username', cleanUser).maybeSingle();
+            if (prof?.telegram_id) {
+              const { data: upsertedUser } = await supabaseAdmin
+                .from('users')
+                .upsert({
+                  telegram_id: prof.telegram_id,
+                  first_name: prof.full_name || cleanUser,
+                  username: cleanUser,
+                  role: 'admin',
+                  updated_at: new Date().toISOString(),
+                }, { onConflict: 'telegram_id' })
+                .select('*')
+                .single();
+              userRecord = upsertedUser;
+            }
+          }
+        }
+
+        if (userRecord) {
+          await supabaseAdmin
+            .from('users')
+            .update({ role: 'admin', updated_at: new Date().toISOString() })
+            .eq('id', userRecord.id);
+        }
+
+        // Always register in persistent admin username list so they retain admin privileges even across sessions
+        await registerAdminUsername(cleanUser);
+        invalidateAdminCache();
+        await clearSession(chatId);
+
+        const displayName = userRecord
+          ? ([userRecord.first_name, userRecord.last_name].filter(Boolean).join(' ') || (userRecord.username ? `@${userRecord.username}` : `ID ${userRecord.telegram_id}`))
+          : `@${cleanUser}`;
+
+        await sendOrEditCard(
+          chatId,
+          `✅ <b>${displayName}</b> has been successfully appointed as a SpaceMatch Administrator! 👑\n\nThey now have full access to <code>/admin</code>, <code>/post</code>, and <code>/close</code>.`,
+          [
+            [{ text: '👥 View Administrators', callback_data: 'admin_list_team' }],
+            [{ text: '➕ Add Another Admin', callback_data: 'admin_add_prompt' }],
+            [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+          ],
+          activeMsgId
+        );
+
+        if (userRecord?.telegram_id && Number(userRecord.telegram_id) !== chatId) {
+          await sendTelegram('sendMessage', {
+            chat_id: Number(userRecord.telegram_id),
+            text: `🎉 <b>You have been appointed as a SpaceMatch Administrator!</b>\n\nYou now have administrative privileges to post listings directly to the channel and manage/close listings:\n\n• <code>/post</code> - Launch channel posting wizard\n• <code>/close &lt;code&gt;</code> - Close matched listings\n• <code>/admins</code> - View administrator team`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
+                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+              ],
+            },
+          });
+        }
+
         return NextResponse.json({ ok: true });
       }
 
@@ -6838,6 +7309,25 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             return NextResponse.json({ ok: true });
           }
 
+          // Check gender preference match for verified returning user
+          const genderCheck = checkGenderPreferenceMatch(
+            targetProfile.preferred_gender,
+            targetProfile.roommate_traits,
+            myProfile.gender
+          );
+
+          if (!genderCheck.allowed) {
+            const { text: mismatchText, keyboard: mismatchKb } = getGenderMismatchCard(
+              reqIsAm,
+              targetProfile.display_code || lookupCode,
+              genderCheck.targetPrefFormattedEn,
+              genderCheck.targetPrefFormattedAm,
+              myProfile.gender
+            );
+            await sendOrEditCard(chatId, mismatchText, mismatchKb);
+            return NextResponse.json({ ok: true });
+          }
+
           // Present the Personalized Returning User Card to verified user
           await saveSession({
             telegram_id: chatId,
@@ -7358,6 +7848,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             inline_keyboard: [
               [{ text: `⏳ Pending Channel Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
               [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
+              [{ text: '➕ Add Admin by Username 👑', callback_data: 'admin_add_prompt' }],
+              [{ text: '👥 View Administrators', callback_data: 'admin_list_team' }],
               [{ text: '🔴 Active Channel Posts & Close / Match', callback_data: 'admin_list_active_posts' }],
               [{ text: '❌ Exit Admin Menu', callback_data: 'admin_cancel' }],
             ],
@@ -7483,6 +7975,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
+              [{ text: '➕ Add Admin by Username 👑', callback_data: 'admin_add_prompt' }],
               [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
               [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
             ],
@@ -7530,6 +8023,23 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         } else {
           const { data } = await supabaseAdmin.from('users').select('*').ilike('username', cleanQuery).maybeSingle();
           userRecord = data;
+          if (!userRecord) {
+            const { data: prof } = await supabaseAdmin.from('profiles').select('*').ilike('telegram_username', cleanQuery).maybeSingle();
+            if (prof?.telegram_id) {
+              const { data: upsertedUser } = await supabaseAdmin
+                .from('users')
+                .upsert({
+                  telegram_id: prof.telegram_id,
+                  first_name: prof.full_name || cleanQuery,
+                  username: cleanQuery,
+                  role: 'admin',
+                  updated_at: new Date().toISOString(),
+                }, { onConflict: 'telegram_id' })
+                .select('*')
+                .single();
+              userRecord = upsertedUser;
+            }
+          }
         }
 
         if (!userRecord) {
@@ -7545,10 +8055,20 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
               .single();
             userRecord = newUser;
           } else {
+            // Register username into persistent admin registry
+            await registerAdminUsername(cleanQuery);
+            invalidateAdminCache();
+
             await sendTelegram('sendMessage', {
               chat_id: chatId,
-              text: `⚠️ User <b>@${cleanQuery}</b> was not found in SpaceMatch database. They need to start the bot at least once first, or you can add them by numeric Telegram ID: <code>/add_admin &lt;id&gt;</code>.`,
+              text: `✅ <b>@${cleanQuery}</b> has been successfully registered as a SpaceMatch Administrator! 👑\n\nFull administrative permissions have been granted. They can now use <code>/admin</code>, <code>/post</code>, and <code>/close</code> as soon as they open the bot.`,
               parse_mode: 'HTML',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '👥 View Administrators', callback_data: 'admin_list_team' }],
+                  [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+                ],
+              },
             });
             return NextResponse.json({ ok: true });
           }
@@ -7557,6 +8077,10 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             .from('users')
             .update({ role: 'admin', updated_at: new Date().toISOString() })
             .eq('id', userRecord.id);
+        }
+
+        if (!isNumeric) {
+          await registerAdminUsername(cleanQuery);
         }
 
         // Invalidate admin cache

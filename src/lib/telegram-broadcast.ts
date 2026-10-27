@@ -391,17 +391,18 @@ export async function broadcastRoommateProfileToChannel(
     const userReligion = profile.religion || 'Any';
     const prefGender = profile.preferred_gender || 'Any';
 
-    const rawGender = (profile.my_gender || '').toLowerCase();
+    const rawGender = (profile.my_gender || profile.gender || '').toLowerCase();
     const isFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
     const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
     const seekerGenderWord = isFemale ? 'female' : isMale ? 'male' : 'verified';
-    const seekerGender = isFemale ? 'Female' : isMale ? 'Male' : (profile.my_gender || 'Member');
-    const genderEmoji = isFemale ? '👱‍♀️' : isMale ? '👨' : '👤';
+    const seekerGender = isFemale ? 'Female' : isMale ? 'Male' : 'Verified Roommate';
+    const genderEmoji = isFemale ? '👱‍♀️' : isMale ? '👨' : '🏠';
 
     const rawPrefGender = (prefGender || '').toLowerCase();
     const isPrefFemale = rawPrefGender.includes('female') || rawPrefGender.includes('ሴት');
     const isPrefMale = rawPrefGender.includes('male') || rawPrefGender.includes('ወንድ');
     const prefGenderWord = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
+    const prefGenderFormatted = isPrefFemale ? 'Female Only' : isPrefMale ? 'Male Only' : 'Any Gender';
 
     // Construct Preferred Roommate line matching reference layout
     let preferredRoommateDetails = (profile.preferred_roommate || cleanBio).trim();
@@ -436,23 +437,24 @@ export async function broadcastRoommateProfileToChannel(
       const rentStr = profile.space_rent ? `${Number(profile.space_rent).toLocaleString()} ETB` : 'Negotiable';
       const shareStr = profile.space_share ? `${Number(profile.space_share).toLocaleString()} ETB` : 'Split equally';
       const hostGenderWord = isFemale ? 'female' : isMale ? 'male' : 'verified';
-      const hostGender = isFemale ? 'Female' : isMale ? 'Male' : (profile.my_gender || 'Host');
+      const hostGender = isFemale ? 'Female' : isMale ? 'Male' : 'Verified Homeowner';
 
       text = `
-SpaceMatch Addis
-${codeTag}
+<b>SpaceMatch Addis</b>
+<b>${codeTag}</b>
 
-🏠 SPACE AVAILABLE
+🏠 <b>SPACE AVAILABLE</b>
 
 We have a ${hostGenderWord} Space Host looking for a ${prefGenderWord} roommate for a ${profile.space_type || 'Private Bedroom'}!
 
-📍 Location: ${subcitiesStr}
-💰 Total Rent: ${rentStr} (${shareStr} per person)
-${genderEmoji} Space Host: ${hostGender}
-🤝 Preferred Roommate: ${preferredRoommateDetails}
-✨ Amenities: ${amenitiesStr}
+📍 <b>Location:</b> ${subcitiesStr}
+💰 <b>Total Rent:</b> ${rentStr} (${shareStr} per person)
+${genderEmoji} <b>Space Host:</b> ${hostGender}
+👥 <b>Preferred Gender:</b> ${prefGenderFormatted}
+🤝 <b>Preferred Roommate:</b> ${preferredRoommateDetails}
+✨ <b>Amenities:</b> ${amenitiesStr}
 
-🔑 SpaceMatchAddis — Find your roommate first, then find your space together!
+🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
       `.trim();
     } else {
       const budgetMin = Number(profile.budget_min || 0).toLocaleString();
@@ -462,19 +464,20 @@ ${genderEmoji} Space Host: ${hostGender}
         : `Up to ${budgetMax} ETB per person`;
 
       text = `
-SpaceMatch Addis
-${codeTag}
+<b>SpaceMatch Addis</b>
+<b>${codeTag}</b>
 
-🏠 ROOMMATE SEARCH
+🏠 <b>ROOMMATE SEARCH</b>
 
 We have a ${seekerGenderWord} Space Seeker looking for a ${prefGenderWord} roommate to team up with and find a place together!
 
-📍 Preferred Locations: ${subcitiesStr}
-💰 Budget: ${budgetDisplay}
-${genderEmoji} Space Seeker: ${seekerGender}
-🤝 Preferred Roommate: ${preferredRoommateDetails}
+📍 <b>Preferred Locations:</b> ${subcitiesStr}
+💰 <b>Budget:</b> ${budgetDisplay}
+${genderEmoji} <b>Space Seeker:</b> ${seekerGender}
+👥 <b>Preferred Gender:</b> ${prefGenderFormatted}
+🤝 <b>Preferred Roommate:</b> ${preferredRoommateDetails}
 
-🔑 SpaceMatchAddis — Find your roommate first, then find your space together!
+🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
       `.trim();
     }
 
