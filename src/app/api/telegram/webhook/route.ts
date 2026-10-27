@@ -6931,11 +6931,15 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const parts = text.split(/\s+/);
         const bank = parts[1]?.toLowerCase();
         const reference = parts[2]?.trim();
+        const payerLang = getUserLanguage(chatId);
+        const payerIsAm = payerLang === 'am';
 
         if (!['telebirr', 'cbe'].includes(bank) || !reference) {
           await tgSend(
             chatId,
-            `⚠️ <b>Invalid format.</b>\n\nUsage: <code>/verify telebirr YOUR_REF</code> or <code>/verify cbe YOUR_REF</code>\n\n<i>Example: /verify telebirr FT260920042</i>`
+            payerIsAm
+              ? `⚠️ <b>የተሳሳተ አጻጻፍ።</b>\n\nአጠቃቀም: <code>/verify telebirr የደረሰኝ_ቁጥር</code> ወይም <code>/verify cbe የደረሰኝ_ቁጥር</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
+              : `⚠️ <b>Invalid format.</b>\n\nUsage: <code>/verify telebirr YOUR_REF</code> or <code>/verify cbe YOUR_REF</code>\n\n<i>Example: /verify telebirr FT260920042</i>`
           );
           return NextResponse.json({ ok: true });
         }
@@ -6950,7 +6954,9 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         if (existingPayment) {
           await tgSend(
             chatId,
-            `❌ <b>Reference Already Used</b>\n\nThis transaction reference has already been submitted. Please use a different reference number.`
+            payerIsAm
+              ? `❌ <b>ይህ የደረሰኝ ቁጥር አስቀድሞ ጥቅም ላይ ውሏል</b>\n\nይህ የግብይት ደረሰኝ ቁጥር ቀደም ሲል ተመዝግቧል። እባክዎ ትክክለኛውን የደረሰኝ ቁጥር ያስገቡ።`
+              : `❌ <b>Reference Already Used</b>\n\nThis transaction reference has already been submitted. Please use a different reference number.`
           );
           return NextResponse.json({ ok: true });
         }
@@ -6975,7 +6981,12 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         }
 
         if (!payerProfile) {
-          await tgSend(chatId, `⚠️ Profile not found. Please complete your onboarding first.`);
+          await tgSend(
+            chatId,
+            payerIsAm
+              ? `⚠️ መገለጫዎ አልተገኘም። እባክዎ መጀመሪያ ምዝገባዎን ያጠናቁ።`
+              : `⚠️ Profile not found. Please complete your onboarding first.`
+          );
           return NextResponse.json({ ok: true });
         }
 
@@ -7013,21 +7024,30 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         if (!activeMatch) {
           await tgSend(
             chatId,
-            `⚠️ No active match found waiting for payment. Please make sure your match has been accepted first.`
+            payerIsAm
+              ? `⚠️ ክፍያ የሚጠብቅ ንቁ የግንኙነት ጥያቄ አልተገኘም። እባክዎ መጀመሪያ ጥያቄው በሁለታችሁም መረጋገጡን ያረጋግጡ።`
+              : `⚠️ No active match found waiting for payment. Please make sure your match has been accepted first.`
           );
           return NextResponse.json({ ok: true });
         }
 
         // 4. Sending indicator
-        await tgSend(chatId, `⏳ <b>Verifying payment with Verify.ET...</b>`);
+        await tgSend(
+          chatId,
+          payerIsAm
+            ? `⏳ <b>ክፍያዎ በ Verify.ET እየተረጋገጠ ነው...</b>`
+            : `⏳ <b>Verifying payment with Verify.ET...</b>`
+        );
 
-        // 5. Call Verify.ET
-        const verifyResult = await verifyTelebirrPayment(reference, 50);
+        // 5. Call Verify.ET with 300 ETB
+        const verifyResult = await verifyTelebirrPayment(reference, 300);
 
         if (!verifyResult.success) {
           await tgSend(
             chatId,
-            `❌ <b>Verification Failed</b>\n\n${verifyResult.message}\n\nPlease double-check your reference number and try again.`
+            payerIsAm
+              ? `❌ <b>ክፍያው አልተረጋገጠም</b>\n\n${verifyResult.message}\n\nእባክዎ የደረሰኝ ቁጥርዎን ደግመው ያረጋግጡና እንደገና ይሞክሩ።`
+              : `❌ <b>Verification Failed</b>\n\n${verifyResult.message}\n\nPlease double-check your reference number and try again.`
           );
           return NextResponse.json({ ok: true });
         }
@@ -7038,7 +7058,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           user_id: payerProfile.id,
           bank,
           reference,
-          amount: verifyResult.paidAmount ?? 50,
+          amount: verifyResult.paidAmount ?? 300,
         });
 
         // 7. Determine which side paid and update the match
@@ -7069,7 +7089,9 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 
           await tgSend(
             chatId,
-            `✅ <b>50 ETB Verified!</b>\n\nWaiting for your potential roommate to complete their payment.`
+            payerIsAm
+              ? `✅ <b>የ 300 ብር ክፍያዎ ተረጋግጧል!</b>\n\nየክፍል ጓደኛዎ ክፍያ እስኪፈጽሙ ድረስ በመጠባበቅ ላይ ነው።`
+              : `✅ <b>300 ETB Verified!</b>\n\nWaiting for your potential roommate to complete their payment.`
           );
 
           // Alert the other user
@@ -7078,9 +7100,12 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             : (activeMatch.requester as any)?.telegram_id;
 
           if (otherTgId) {
+            const otherIsAm = getUserLanguage(otherTgId) === 'am';
             await tgSend(
               otherTgId,
-              `🔔 <b>Your roommate has completed their payment!</b>\n\nContact information will be revealed to both of you as soon as you complete your payment.\n\n<code>/verify telebirr YOUR_REFERENCE</code> or <code>/verify cbe YOUR_REFERENCE</code>`
+              otherIsAm
+                ? `🔔 <b>የክፍል ጓደኛዎ ክፍያቸውን አጠናቀዋል!</b>\n\nእርስዎም ክፍያዎን እንዳጠናቀቁ የስልክ እና የቴሌግራም አድራሻ ወዲያውኑ ለሁለታችሁም ይገለጻል።\n\n<code>/verify telebirr YOUR_REFERENCE</code> ወይም <code>/verify cbe YOUR_REFERENCE</code>`
+                : `🔔 <b>Your roommate has completed their payment!</b>\n\nContact information will be revealed to both of you as soon as you complete your payment.\n\n<code>/verify telebirr YOUR_REFERENCE</code> or <code>/verify cbe YOUR_REFERENCE</code>`
             );
           }
         } else {
@@ -7104,36 +7129,42 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           const channelMsgId = (activeMatch.target as any)?.channel_message_id;
           const targetDisplayCode = (activeMatch.target as any)?.display_code;
 
-          // Pre-reveal disclaimer: SpaceMatch connects roommates and assumes no liability after match
-          const disclaimerText = `⚠️ <b>Disclaimer:</b> Our job is to connect verified roommates. SpaceMatch Addis does not take responsibility for anything that happens after roommates are matched up.`;
-
-          // Build contact reveal messages
-          const buildRevealMsg = (other: any) => {
+          // Build contact reveal messages per user's language
+          const buildRevealMsg = (other: any, isAmUser: boolean) => {
             const tgHandle = other?.telegram_username ? `@${other.telegram_username}` : 'N/A';
-            return `🎉 <b>YOU'RE MATCHED!</b>\n\nBoth payments are verified. Your connection is complete!\n\n👤 <b>Name:</b> ${other?.full_name || 'Verified Member'}\n📞 <b>Phone:</b> <code>${other?.phone_number || 'N/A'}</code>\n💬 <b>Telegram:</b> ${tgHandle}\n\nGood luck finding your home together! 🏠🤝`;
+            return isAmUser
+              ? `🎉 <b>እንኳን ደስ አላችሁ! ተዛምዳችኋል!</b>\n\nየሁለታችሁም ክፍያ ተረጋግጧል። ግንኙነታችሁ ተጠናቋል!\n\n👤 <b>ስም:</b> ${other?.full_name || 'የተረጋገጠ አባል'}\n📞 <b>ስልክ:</b> <code>${other?.phone_number || 'የለም'}</code>\n💬 <b>ቴሌግራም:</b> ${tgHandle}\n\nመልካም የጋራ ኑሮ ይሁንላችሁ! 🏠🤝`
+              : `🎉 <b>YOU'RE MATCHED!</b>\n\nBoth payments are verified. Your connection is complete!\n\n👤 <b>Name:</b> ${other?.full_name || 'Verified Member'}\n📞 <b>Phone:</b> <code>${other?.phone_number || 'N/A'}</code>\n💬 <b>Telegram:</b> ${tgHandle}\n\nGood luck finding your home together! 🏠🤝`;
           };
+
+          const getDisclaimerText = (isAmUser: boolean) => isAmUser
+            ? `⚠️ <b>ማሳሰቢያ:</b> የእኛ ስራ የተረጋገጡ የቤት ጓደኞችን ማገናኘት ብቻ ነው። ከግንኙነቱ በኋላ ለሚፈጠሩ ማናቸውም ነገሮች ስፔስማች አዲስ ኃላፊነት አይወስድም።`
+            : `⚠️ <b>Disclaimer:</b> Our job is to connect verified roommates. SpaceMatch Addis does not take responsibility for anything that happens after roommates are matched up.`;
 
           const requesterData = activeMatch.requester as any;
           const targetData    = activeMatch.target as any;
 
-          const requesterRevealMarkup = targetData?.telegram_username
-            ? { inline_keyboard: [[{ text: '💬 Open Chat on Telegram', url: `https://t.me/${targetData.telegram_username}` }]] }
-            : undefined;
-
-          const targetRevealMarkup = requesterData?.telegram_username
-            ? { inline_keyboard: [[{ text: '💬 Open Chat on Telegram', url: `https://t.me/${requesterData.telegram_username}` }]] }
-            : undefined;
-
           const requesterTgId = requesterData?.telegram_id;
           const targetTgId    = targetData?.telegram_id;
 
+          const requesterIsAm = requesterTgId ? getUserLanguage(requesterTgId) === 'am' : false;
+          const targetIsAm = targetTgId ? getUserLanguage(targetTgId) === 'am' : false;
+
+          const requesterRevealMarkup = targetData?.telegram_username
+            ? { inline_keyboard: [[{ text: requesterIsAm ? '💬 በቴሌግራም አውራ' : '💬 Open Chat on Telegram', url: `https://t.me/${targetData.telegram_username}` }]] }
+            : undefined;
+
+          const targetRevealMarkup = requesterData?.telegram_username
+            ? { inline_keyboard: [[{ text: targetIsAm ? '💬 በቴሌግራም አውራ' : '💬 Open Chat on Telegram', url: `https://t.me/${requesterData.telegram_username}` }]] }
+            : undefined;
+
           if (requesterTgId) {
-            await tgSend(requesterTgId, disclaimerText);
-            await tgSend(requesterTgId, buildRevealMsg(targetData), requesterRevealMarkup);
+            await tgSend(requesterTgId, getDisclaimerText(requesterIsAm));
+            await tgSend(requesterTgId, buildRevealMsg(targetData, requesterIsAm), requesterRevealMarkup);
           }
           if (targetTgId) {
-            await tgSend(targetTgId, disclaimerText);
-            await tgSend(targetTgId, buildRevealMsg(requesterData), targetRevealMarkup);
+            await tgSend(targetTgId, getDisclaimerText(targetIsAm));
+            await tgSend(targetTgId, buildRevealMsg(requesterData, targetIsAm), targetRevealMarkup);
 
             // Schedule 24-hour follow-up check-in for listing owner
             const existingSession = getSession(targetTgId);
@@ -7686,17 +7717,22 @@ All administrators of this channel can now use bot admin features, and approved 
       // Handle Payment Reference Submission
       if (session.step.startsWith('awaiting_payment_for_unlock:')) {
         const txRef = text.trim();
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
+
         await sendTelegram('sendMessage', {
           chat_id: chatId,
-          text: `⏳ <b>Verifying transaction reference <code>${txRef}</code>...</b>`,
+          text: isAm
+            ? `⏳ <b>የግብይት ደረሰኝ ቁጥር <code>${txRef}</code> እየተረጋገጠ ነው...</b>`
+            : `⏳ <b>Verifying transaction reference <code>${txRef}</code>...</b>`,
           parse_mode: 'HTML',
         });
 
-        const verifyRes = await verifyTelebirrPayment(txRef, 50);
+        const verifyRes = await verifyTelebirrPayment(txRef, 300);
         const targetId = session.draft_data?.target_id;
         const targetType = session.draft_data?.target_type || 'roommate_profile';
 
-        let candidateName = 'Verified Roommate';
+        let candidateName = isAm ? 'የተረጋገጠ የክፍል ጓደኛ' : 'Verified Roommate';
         let candidatePhone = '0911234567';
         let candidateUsername = '';
 
@@ -7708,22 +7744,22 @@ All administrators of this channel can now use bot admin features, and approved 
               .eq('id', targetId)
               .single();
             if (dbProf?.users) {
-              candidateName = [dbProf.users.first_name, dbProf.users.last_name].filter(Boolean).join(' ') || 'Verified Seeker';
+              candidateName = [dbProf.users.first_name, dbProf.users.last_name].filter(Boolean).join(' ') || (isAm ? 'የተረጋገጠ ፈላጊ' : 'Verified Seeker');
               candidatePhone = dbProf.users.phone_number || '0911234567';
               candidateUsername = dbProf.users.username || '';
             }
           } catch {}
 
-          if (candidateName === 'Verified Roommate') {
+          if (candidateName === 'Verified Roommate' || candidateName === 'የተረጋገጠ የክፍል ጓደኛ') {
             const draft = await getRoommateDraft(targetId);
             if (draft) {
-              candidateName = draft.user_name || 'Verified Seeker';
+              candidateName = draft.user_name || (isAm ? 'የተረጋገጠ ፈላጊ' : 'Verified Seeker');
               candidatePhone = draft.contact_phone || '0911234567';
               candidateUsername = draft.username || '';
             }
           }
 
-          if (candidateName === 'Verified Roommate') {
+          if (candidateName === 'Verified Roommate' || candidateName === 'የተረጋገጠ የክፍል ጓደኛ') {
             try {
               const { data: pData } = await supabaseAdmin
                 .from('profiles')
@@ -7731,7 +7767,7 @@ All administrators of this channel can now use bot admin features, and approved 
                 .eq('id', targetId)
                 .single();
               if (pData) {
-                candidateName = pData.full_name || 'Roommate Seeker';
+                candidateName = pData.full_name || (isAm ? 'የክፍል ጓደኛ ፈላጊ' : 'Roommate Seeker');
                 candidatePhone = pData.phone_number || '';
                 candidateUsername = pData.telegram_username || '';
               }
@@ -7751,10 +7787,10 @@ All administrators of this channel can now use bot admin features, and approved 
             }
           } catch {}
 
-          if (candidateName === 'Verified Roommate') {
+          if (candidateName === 'Verified Roommate' || candidateName === 'የተረጋገጠ የክፍል ጓደኛ') {
             const draft = await getDraft(targetId);
             if (draft) {
-              candidateName = draft.title || 'Space Listing';
+              candidateName = draft.title || (isAm ? 'የሚከራይ ክፍል' : 'Space Listing');
               candidatePhone = draft.contact_phone || '0911234567';
               candidateUsername = draft.homeowner_username || '';
             }
@@ -7770,7 +7806,7 @@ All administrators of this channel can now use bot admin features, and approved 
               order_type: 'unlock_contact',
               target_type: targetType,
               target_id: targetId,
-              amount: 50.00,
+              amount: 300.00,
               transaction_reference: txRef,
               payment_status: 'completed',
               verified_at: new Date().toISOString(),
@@ -7781,7 +7817,17 @@ All administrators of this channel can now use bot admin features, and approved 
 
         await clearSession(chatId);
 
-        const unlockedContactMsg = `
+        const unlockedContactMsg = isAm
+          ? `
+🎉 <b>ስፔስማች አዲስ</b> · <b>የስልክ አድራሻ ተከፍቷል!</b>
+🛡️ <b>የፋይዳ መታወቂያ የተረጋገጠ</b>
+
+• <b>ሙሉ ስም:</b> <b>${candidateName}</b>
+• <b>ስልክ ቁጥር:</b> <code>${candidatePhone}</code>
+${candidateUsername ? `• <b>ቴሌግራም:</b> @${candidateUsername.replace('@', '')}\n` : ''}
+<blockquote>✅ ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል። ይህ አድራሻ በቋሚነት ወደ 'የከፈትኳቸው ስልኮች' ማውጫዎ ውስጥ ተቀምጧል።</blockquote>
+          `.trim()
+          : `
 🎉 <b>SpaceMatch</b> · <b>Contact Details Unlocked!</b>
 🛡️ <b>Fayda ID Verified</b>
 
@@ -7789,22 +7835,22 @@ All administrators of this channel can now use bot admin features, and approved 
 • <b>Phone Number:</b> <code>${candidatePhone}</code>
 ${candidateUsername ? `• <b>Telegram:</b> @${candidateUsername.replace('@', '')}\n` : ''}
 <blockquote>✅ Payment verified successfully. This contact is permanently saved to your account under 'My Saved Contacts'.</blockquote>
-        `.trim();
+          `.trim();
 
         const actionButtons: any[] = [];
         const contactRow: any[] = [];
         if (candidatePhone) {
-          contactRow.push({ text: `📞 Call (${candidatePhone})`, url: `tel:${candidatePhone}` });
+          contactRow.push({ text: isAm ? `📞 ደውል (${candidatePhone})` : `📞 Call (${candidatePhone})`, url: `tel:${candidatePhone}` });
         }
         if (candidateUsername) {
           const cleanUser = candidateUsername.replace('@', '');
-          contactRow.push({ text: `💬 Chat with @${cleanUser}`, url: `https://t.me/${cleanUser}` });
+          contactRow.push({ text: isAm ? `💬 ከ@${cleanUser} ጋር አውራ` : `💬 Chat with @${cleanUser}`, url: `https://t.me/${cleanUser}` });
         }
         if (contactRow.length > 0) actionButtons.push(contactRow);
 
         actionButtons.push([
-          { text: '📂 My Unlocked Contacts', callback_data: 'my_unlocked_contacts' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '📂 የከፈትኳቸው ስልኮች' : '📂 My Unlocked Contacts', callback_data: 'my_unlocked_contacts' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ]);
 
         await sendTelegram('sendMessage', {
