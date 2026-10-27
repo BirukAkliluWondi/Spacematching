@@ -390,57 +390,91 @@ export async function broadcastRoommateProfileToChannel(
     const userReligion = profile.religion || 'Any';
     const prefGender = profile.preferred_gender || 'Any';
 
+    const rawGender = (profile.my_gender || '').toLowerCase();
+    const isFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
+    const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
+    const seekerGenderWord = isFemale ? 'female' : isMale ? 'male' : 'verified';
+    const seekerGender = isFemale ? 'Female' : isMale ? 'Male' : (profile.my_gender || 'Member');
+    const genderEmoji = isFemale ? '👱‍♀️' : isMale ? '👨' : '👤';
+
+    const rawPrefGender = (prefGender || '').toLowerCase();
+    const isPrefFemale = rawPrefGender.includes('female') || rawPrefGender.includes('ሴት');
+    const isPrefMale = rawPrefGender.includes('male') || rawPrefGender.includes('ወንድ');
+    const prefGenderWord = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
+
+    // Construct Preferred Roommate line matching reference layout
+    let preferredRoommateDetails = cleanBio.trim();
+    const isGenericBio = !preferredRoommateDetails ||
+      preferredRoommateDetails.toLowerCase().includes('seeking a compatible') ||
+      preferredRoommateDetails.toLowerCase().includes('seeking compatible housemate');
+
+    if (isGenericBio) {
+      const parts: string[] = [];
+      if (isPrefFemale) parts.push('Female');
+      else if (isPrefMale) parts.push('Male');
+      if (userReligion && userReligion !== 'Any') parts.push(`preferably ${userReligion}`);
+      if (userJob && userJob !== 'Professional') parts.push(`employed (${userJob})`);
+      parts.push('clean and respectful');
+      preferredRoommateDetails = parts.join(', ');
+    } else {
+      if (isPrefFemale && !/\bfemale\b/i.test(preferredRoommateDetails)) {
+        preferredRoommateDetails = `Female, ${preferredRoommateDetails}`;
+      } else if (isPrefMale && !/\bmale\b/i.test(preferredRoommateDetails)) {
+        preferredRoommateDetails = `Male, ${preferredRoommateDetails}`;
+      }
+    }
+
+    if (!/[.!?]$/.test(preferredRoommateDetails)) {
+      preferredRoommateDetails += '.';
+    }
+
     let text = '';
     if (hasSpace) {
       const amenitiesStr = Array.isArray(profile.space_amenities) && profile.space_amenities.length > 0
         ? profile.space_amenities.join(', ')
         : 'WiFi, Kitchen, Water supply';
-      const rentStr = profile.space_rent ? `${Number(profile.space_rent).toLocaleString()} ETB / month` : 'Negotiable';
-      const shareStr = profile.space_share ? `${Number(profile.space_share).toLocaleString()} ETB / month` : 'Split equally';
+      const rentStr = profile.space_rent ? `${Number(profile.space_rent).toLocaleString()} ETB` : 'Negotiable';
+      const shareStr = profile.space_share ? `${Number(profile.space_share).toLocaleString()} ETB` : 'Split equally';
+      const hostGenderWord = isFemale ? 'female' : isMale ? 'male' : 'verified';
+      const hostGender = isFemale ? 'Female' : isMale ? 'Male' : (profile.my_gender || 'Host');
 
       text = `
-<b>Roommate available with a Room</b> ${codeTag}
-📍 <code>${subcitiesStr}</code> · 🛡️ <b>${faydaBadge}</b>
+SpaceMatch Addis
+${codeTag}
 
-• <b>Listing Code:</b> <code>${codeTag}</code>
-• <b>Gender:</b> ${profile.my_gender || 'Member'}
-• <b>Age:</b> ${userAge}
-• <b>Religion:</b> ${userReligion}
-• <b>Job / Occupation:</b> ${userJob}
-• <b>Preferred Gender:</b> ${prefGender}
-• <b>Preferred Locations:</b> <code>${subcitiesStr}</code>
-• <b>Space Type:</b> ${profile.space_type || 'Private Bedroom in Shared Flat'}
-• <b>Total Monthly Rent:</b> <code>${rentStr}</code>
-• <b>Your Share / Split:</b> <code>${shareStr}</code>
-• <b>Amenities:</b> ${amenitiesStr}
+🏠 SPACE AVAILABLE
 
-<blockquote>"${bioContent}"</blockquote>
+We have a ${hostGenderWord} Space Host looking for a ${prefGenderWord} roommate for a ${profile.space_type || 'Private Bedroom'}!
 
-🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
+📍 Location: ${subcitiesStr}
+💰 Total Rent: ${rentStr} (${shareStr} per person)
+${genderEmoji} Space Host: ${hostGender}
+🤝 Preferred Roommate: ${preferredRoommateDetails}
+✨ Amenities: ${amenitiesStr}
+
+🔑 SpaceMatchAddis — Find your roommate first, then find your space together!
       `.trim();
     } else {
       const budgetMin = Number(profile.budget_min || 0).toLocaleString();
       const budgetMax = Number(profile.budget_max || 10000).toLocaleString();
       const budgetDisplay = Number(profile.budget_min || 0) > 0
-        ? `${budgetMin} – ${budgetMax} ETB / month`
-        : `Up to ${budgetMax} ETB / month`;
+        ? `${budgetMin}–${budgetMax} ETB per person`
+        : `Up to ${budgetMax} ETB per person`;
 
       text = `
-<b>Roommate Available</b> ${codeTag}
-📍 <code>${subcitiesStr}</code> · 🛡️ <b>${faydaBadge}</b>
+SpaceMatch Addis
+${codeTag}
 
-• <b>Listing Code:</b> <code>${codeTag}</code>
-• <b>Gender:</b> ${profile.my_gender || 'Member'}
-• <b>Age:</b> ${userAge}
-• <b>Religion:</b> ${userReligion}
-• <b>Job / Occupation:</b> ${userJob}
-• <b>Preferred Gender:</b> ${prefGender}
-• <b>Preferred Locations:</b> <code>${subcitiesStr}</code>
-• <b>Budget:</b> <code>${budgetDisplay}</code>
+🏠 ROOMMATE SEARCH
 
-<blockquote>"${bioContent}"</blockquote>
+We have a ${seekerGenderWord} Space Seeker looking for a ${prefGenderWord} roommate to team up with and find a place together!
 
-🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
+📍 Preferred Locations: ${subcitiesStr}
+💰 Budget: ${budgetDisplay}
+${genderEmoji} Space Seeker: ${seekerGender}
+🤝 Preferred Roommate: ${preferredRoommateDetails}
+
+🔑 SpaceMatchAddis — Find your roommate first, then find your space together!
       `.trim();
     }
 
@@ -448,8 +482,8 @@ export async function broadcastRoommateProfileToChannel(
       inline_keyboard: [
         [
           {
-            text: `⚡ Contact with Roommate ${codeTag} ↗️`,
-            url: `https://t.me/${botUsername}?start=req_${cleanCode}`,
+            text: hasSpace ? `⚡ Contact with Host ${codeTag} ↗️` : `⚡ Contact with Roommate ${codeTag} ↗️`,
+            url: hasSpace ? `https://t.me/${botUsername}?start=order_${cleanCode}` : `https://t.me/${botUsername}?start=req_${cleanCode}`,
           },
         ],
         [
@@ -643,18 +677,23 @@ export async function broadcastListingToChannel(
     }
 
     const descContent = (space.description || 'Verified space available for rent in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const cleanSpaceCode = (space.id || '').replace(/^#/, '');
+    const codeTag = `#${cleanSpaceCode}`;
+    const rentFormatted = Number(space.price_per_month || 0).toLocaleString();
 
     const captionText = `
-🏠 <b>SpaceMatch</b> · <b>Space for Rent</b>
-📍 <code>${space.neighborhood || 'Addis Ababa'}</code> · 🛡️ <b>Host Verified</b>
+SpaceMatch Addis
+${codeTag}
 
-• <b>Property:</b> <b>${space.title}</b>
-• <b>Monthly Rent:</b> <code>${Number(space.price_per_month).toLocaleString()} ETB / month</code>
-• <b>Unlock Fee:</b> <code>${space.unlock_fee || 300} ETB</code>
+🏠 SPACE AVAILABLE
 
-<blockquote>"${descContent}"</blockquote>
+We have a verified Space Host offering a place for rent in Addis Ababa!
 
-🔒 <i>Host contact details unlock instantly via @${botUsername}</i>
+📍 Location: ${space.neighborhood || 'Addis Ababa'}
+💰 Monthly Rent: ${rentFormatted} ETB
+✨ Details: ${descContent}
+
+🔑 SpaceMatchAddis — Find your roommate first, then find your space together!
     `.trim();
 
     const inlineKeyboard = {

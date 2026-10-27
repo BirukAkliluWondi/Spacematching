@@ -72,8 +72,8 @@ export const I18N = {
     btnPrefFemale: '👩 Female Only',
     btnPrefAny: '👥 Any Gender',
 
-    stepTraits: '✨ <b>Describe your preferred type of roommate:</b> (e.g. Quiet and respectful)',
-    errTraits: 'Please describe your preferred roommate traits (e.g. Quiet, tidy, non-smoker):',
+    stepTraits: '✨ <b>Describe your preferred roommate:</b>\n<i>(Please include preferred gender, religion, job/occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed)</i>',
+    errTraits: 'Please describe your preferred roommate (e.g. Female, preferably Orthodox, clean, and employed):',
 
     stepLocations: '📍 <b>Select preferred areas:</b>',
     btnSelectAll: '🌐 Select ALL Sub-Cities & Proceed ➡️',
@@ -162,8 +162,8 @@ export const I18N = {
     btnPrefFemale: '👩 ሴት ብቻ',
     btnPrefAny: '👥 ማናቸውም',
 
-    stepTraits: '✨ <b>የሚፈልጉትን የቤት ጓደኛ ጠባይ በአጭሩ ይግለጹ:</b> (ምሳሌ: ጸጥታ የሚወድ እና ተግባቢ)',
-    errTraits: 'እባክዎ የሚፈልጉትን የቤት ጓደኛ ጠባይ በአጭሩ ይግለጹ (ምሳሌ: ጸጥታ የሚወድ):',
+    stepTraits: '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ:</b>\n<i>(ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ)</i>',
+    errTraits: 'እባክዎ የሚፈልጉትን የቤት ጓደኛ ይግለጹ (ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ):',
 
     stepLocations: '📍 <b>የሚመርጡትን የመኖሪያ አካባቢዎች ይምረጡ:</b>',
     btnSelectAll: '🌐 ሁሉንም ምረጥ & ቀጥል ➡️',

@@ -729,8 +729,8 @@ It has been 24 hours since your roommate contact was unlocked!
       });
 
       const promptText = isAm
-        ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ጠባይ በአጭሩ ይግለጹ:</b> (ምሳሌ: ጸጥታ የሚወድ እና ተግባቢ)'
-        : '✨ <b>Describe your preferred type of roommate:</b> (e.g. Quiet and respectful)';
+        ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ:</b>\n<i>(ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ)</i>'
+        : '✨ <b>Describe your preferred roommate:</b>\n<i>(Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed)</i>';
       const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
@@ -854,47 +854,95 @@ It has been 24 hours since your roommate contact was unlocked!
     ) => {
       const lang = getLanguage(profileData, chatId);
       const isAm = lang === 'am';
+      const cleanCode = (profileData.display_code || `RM${chatId.toString().slice(-4)}`).replace(/^#/, '');
+      const codeTag = `#${cleanCode}`;
+
       const subcitiesStr = Array.isArray(profileData.locations) && profileData.locations.length > 0
         ? profileData.locations.join(', ')
         : (isAm ? 'አዲስ አበባ' : 'Addis Ababa');
 
       const budgetMin = Number(profileData.budget_min || 0).toLocaleString();
       const budgetMax = Number(profileData.budget_max || 10000).toLocaleString();
-      const budgetDisplay = Number(profileData.budget_min || 0) > 0
-        ? (isAm ? `${budgetMin} – ${budgetMax} ብር / በወር` : `${budgetMin} – ${budgetMax} ETB / month`)
-        : (isAm ? `እስከ ${budgetMax} ብር / በወር` : `Up to ${budgetMax} ETB / month`);
+      const budgetDisplayEn = Number(profileData.budget_min || 0) > 0
+        ? `${budgetMin}–${budgetMax} ETB per person`
+        : `Up to ${budgetMax} ETB per person`;
+      const budgetDisplayAm = Number(profileData.budget_min || 0) > 0
+        ? `${budgetMin}–${budgetMax} ብር በሰው`
+        : `እስከ ${budgetMax} ብር በሰው`;
 
-      const jobLine = profileData.job
-        ? (isAm ? `• <b>ሙያ / ስራ:</b> ${escapeHtml(profileData.job)}\n` : `• <b>Occupation:</b> ${escapeHtml(profileData.job)}\n`)
-        : '';
-      const religionLine = profileData.religion
-        ? (isAm ? `• <b>እምነት:</b> ${escapeHtml(profileData.religion)}\n` : `• <b>Religion:</b> ${escapeHtml(profileData.religion)}\n`)
-        : '';
-      const prefLine = profileData.preferred_gender
-        ? (isAm ? `• <b>የሚፈልጉት:</b> ${escapeHtml(profileData.preferred_gender)} የቤት ጓደኛ\n` : `• <b>Prefers:</b> ${escapeHtml(profileData.preferred_gender)} Roommate\n`)
-        : '';
-      const ageStr = profileData.age
-        ? (isAm ? `፣ ዕድሜ ${profileData.age}` : `, Age ${profileData.age}`)
-        : '';
+      const rawGender = (profileData.gender || profileData.my_gender || '').toLowerCase();
+      const isFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
+      const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
+      const seekerGenderWordEn = isFemale ? 'female' : isMale ? 'male' : 'verified';
+      const seekerGenderWordAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : 'የተረጋገጠ/ች';
+      const seekerGenderEn = isFemale ? 'Female' : isMale ? 'Male' : (profileData.gender || 'Member');
+      const seekerGenderAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : (profileData.gender || 'አባል');
+      const genderEmoji = isFemale ? '👱‍♀️' : isMale ? '👨' : '👤';
+
+      const rawPref = (profileData.preferred_gender || '').toLowerCase();
+      const isPrefFemale = rawPref.includes('female') || rawPref.includes('ሴት');
+      const isPrefMale = rawPref.includes('male') || rawPref.includes('ወንድ');
+      const prefGenderWordEn = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
+      const prefGenderWordAm = isPrefFemale ? 'ሴት' : isPrefMale ? 'ወንድ' : 'ተስማሚ';
+
+      // Parse user traits / preferred roommate
+      let rawTraits = profileData.roommate_traits || profileData.lifestyle_bio || '';
+      if (rawTraits.includes(' | ')) {
+        const parts = rawTraits.split(' | ');
+        rawTraits = parts[parts.length - 1];
+      }
+      let prefDetailsEn = rawTraits.trim();
+      let prefDetailsAm = rawTraits.trim();
+
+      const isGeneric = !prefDetailsEn ||
+        prefDetailsEn.toLowerCase().includes('seeking compatible') ||
+        prefDetailsEn.toLowerCase().includes('seeking a compatible');
+
+      if (isGeneric) {
+        prefDetailsEn = `${isPrefFemale ? 'Female, ' : isPrefMale ? 'Male, ' : ''}preferably Orthodox, clean, and employed.`;
+        prefDetailsAm = `${isPrefFemale ? 'ሴት፣ ' : isPrefMale ? 'ወንድ፣ ' : ''}ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ።`;
+      } else {
+        if (isPrefFemale && !/\bfemale\b/i.test(prefDetailsEn) && !/ሴት/.test(prefDetailsEn)) {
+          prefDetailsEn = `Female, ${prefDetailsEn}`;
+          prefDetailsAm = `ሴት፣ ${prefDetailsAm}`;
+        } else if (isPrefMale && !/\bmale\b/i.test(prefDetailsEn) && !/ወንድ/.test(prefDetailsEn)) {
+          prefDetailsEn = `Male, ${prefDetailsEn}`;
+          prefDetailsAm = `ወንድ፣ ${prefDetailsAm}`;
+        }
+        if (!/[.!?]$/.test(prefDetailsEn)) prefDetailsEn += '.';
+        if (!/[.!?።]$/.test(prefDetailsAm)) prefDetailsAm += '።';
+      }
 
       const text = isAm
         ? `
-📋 <b>የሚለጠፈውን መረጃ ይከልሱ</b>
-📍 <code>${subcitiesStr}</code> · 🛡️ <b>በፋይዳ የተረጋገጠ ✅</b>
+SpaceMatch Addis
+${codeTag}
 
-• <b>መገለጫ:</b> የቤት ጓደኛ #${profileData.display_code} (${profileData.gender || 'አባል'}${ageStr})
-${jobLine}${religionLine}${prefLine}• <b>የበጀት መጠን:</b> <code>${budgetDisplay}</code>
-• <b>ተመራጭ አካባቢዎች:</b> <code>${subcitiesStr}</code>
-${profileData.roommate_traits ? `\n<blockquote>"${escapeHtml(profileData.roommate_traits)}"</blockquote>` : ''}
+🏠 <b>የቤት ጓደኛ ፍለጋ (ROOMMATE SEARCH)</b>
+
+አብረዋቸው የሚሆኑ እና አብረው ቤት የሚፈልጉ ${seekerGenderWordAm} የቤት ፈላጊ የሚሆን የ${prefGenderWordAm} የቤት ጓደኛ ይፈልጋሉ!
+
+📍 <b>ተመራጭ አካባቢዎች:</b> ${escapeHtml(subcitiesStr)}
+💰 <b>በጀት:</b> ${escapeHtml(budgetDisplayAm)}
+${genderEmoji} <b>የቤት ፈላጊ:</b> ${escapeHtml(seekerGenderAm)}
+🤝 <b>የሚፈለግ የቤት ጓደኛ:</b> ${escapeHtml(prefDetailsAm)}
+
+🔑 <i>SpaceMatchAddis — መጀመሪያ የቤት ጓደኛዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!</i>
         `.trim()
         : `
-📋 <b>Review Your Channel Post</b>
-📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
+SpaceMatch Addis
+${codeTag}
 
-• <b>Profile:</b> Roommate #${profileData.display_code} (${profileData.gender || 'Member'}${ageStr})
-${jobLine}${religionLine}${prefLine}• <b>Budget Range:</b> <code>${budgetDisplay}</code>
-• <b>Target Areas:</b> <code>${subcitiesStr}</code>
-${profileData.roommate_traits ? `\n<blockquote>"${escapeHtml(profileData.roommate_traits)}"</blockquote>` : ''}
+🏠 <b>ROOMMATE SEARCH</b>
+
+We have a ${seekerGenderWordEn} Space Seeker looking for a ${prefGenderWordEn} roommate to team up with and find a place together!
+
+📍 <b>Preferred Locations:</b> ${escapeHtml(subcitiesStr)}
+💰 <b>Budget:</b> ${escapeHtml(budgetDisplayEn)}
+${genderEmoji} <b>Space Seeker:</b> ${escapeHtml(seekerGenderEn)}
+🤝 <b>Preferred Roommate:</b> ${escapeHtml(prefDetailsEn)}
+
+🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
         `.trim();
 
       const targetIdentifier = profileData.display_code || profileData.id;
@@ -1567,27 +1615,54 @@ A verified roommate saw your listing and wants to connect!
         : (isAm ? 'ዋይፋይ፣ ወጥ ቤት፣ ውሃ' : 'WiFi, Kitchen, Water supply');
       const photosCount = draft.space_photos?.length || 0;
       const displayCode = draft.display_code || `SP${chatId.toString().slice(-4)}`;
+      const codeTag = `#${displayCode.replace(/^#/, '')}`;
+
+      const rawGender = (draft.gender || draft.my_gender || '').toLowerCase();
+      const isFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
+      const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
+      const hostGenderWordEn = isFemale ? 'female' : isMale ? 'male' : 'verified';
+      const hostGenderWordAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : 'የተረጋገጠ/ች';
+      const hostGenderEn = isFemale ? 'Female' : isMale ? 'Male' : (draft.gender || 'Host');
+      const hostGenderAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : (draft.gender || 'አስተናጋጅ');
+      const genderEmoji = isFemale ? '👱‍♀️' : isMale ? '👨' : '👤';
+
+      const prefRoommateEn = draft.preferred_roommate || 'Compatible, clean, and employed.';
+      const prefRoommateAm = draft.preferred_roommate || 'ተስማሚ፣ ጽዱ እና ተቀጣሪ የቤት ጓደኛ።';
 
       const text = isAm
         ? `
-🏠 <b>የሚከራየውን ክፍት ቦታ መረጃ ይከልሱ</b>
-📍 <code>${subcity}</code> · 🛡️ <b>በፋይዳ የተረጋገጠ ✅</b>
+SpaceMatch Addis
+${codeTag}
 
-• <b>የክፍሉ አይነት:</b> ${draft.space_type || 'ዋና መኝታ ቤት'}
-• <b>ጠቅላላ ኪራይ:</b> <code>${rentStr} ብር</code>
-• <b>የቤት ጓደኛ ድርሻ:</b> <code>${shareStr} ብር</code>
-• <b>ግልጋሎቶች:</b> ${amenitiesStr}
-• <b>ፎቶዎች:</b> ${photosCount} ተያይዘዋል
+🏠 <b>የሚከራይ ክፍት ቦታ (SPACE AVAILABLE)</b>
+
+ክፍት ${draft.space_type || 'ክፍል'} ያላቸው ${hostGenderWordAm} አስተናጋጅ ተስማሚ የቤት ጓደኛ ይፈልጋሉ!
+
+📍 <b>አካባቢ:</b> ${escapeHtml(subcity)}
+💰 <b>ጠቅላላ ኪራይ:</b> ${rentStr} ብር (${shareStr} ብር በሰው)
+${genderEmoji} <b>አስተናጋጅ:</b> ${escapeHtml(hostGenderAm)}
+🤝 <b>የሚፈለግ የቤት ጓደኛ:</b> ${escapeHtml(prefRoommateAm)}
+✨ <b>ግልጋሎቶች:</b> ${escapeHtml(amenitiesStr)}
+📸 <b>ፎቶዎች:</b> ${photosCount} ተያይዘዋል
+
+🔑 <i>SpaceMatchAddis — መጀመሪያ የቤት ጓደኛዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!</i>
         `.trim()
         : `
-🏠 <b>Review Space Listing</b>
-📍 <code>${subcity}</code> · 🛡️ <b>Fayda Verified ✅</b>
+SpaceMatch Addis
+${codeTag}
 
-• <b>Space:</b> ${draft.space_type || 'Private Bedroom'}
-• <b>Total Rent:</b> <code>${rentStr} ETB</code>
-• <b>Roommate Share:</b> <code>${shareStr} ETB</code>
-• <b>Amenities:</b> ${amenitiesStr}
-• <b>Photos:</b> ${photosCount} attached
+🏠 <b>SPACE AVAILABLE</b>
+
+We have a ${hostGenderWordEn} Space Host looking for a compatible roommate for a ${draft.space_type || 'Private Bedroom'}!
+
+📍 <b>Location:</b> ${escapeHtml(subcity)}
+💰 <b>Total Rent:</b> ${rentStr} ETB (${shareStr} ETB per person)
+${genderEmoji} <b>Space Host:</b> ${escapeHtml(hostGenderEn)}
+🤝 <b>Preferred Roommate:</b> ${escapeHtml(prefRoommateEn)}
+✨ <b>Amenities:</b> ${escapeHtml(amenitiesStr)}
+📸 <b>Photos:</b> ${photosCount} attached
+
+🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
         `.trim();
 
       const inlineKeyboard = [
@@ -6228,8 +6303,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             session.draft_data,
             activeMsgId,
             isAm
-              ? 'የሚፈልጉትን የቤት ጓደኛ ጠባይ በአጭሩ ይግለጹ (ምሳሌ: ጸጥታ የሚወድ):'
-              : 'Please describe your preferred roommate traits (e.g. Quiet, tidy, non-smoker):'
+              ? 'እባክዎ የሚፈልጉትን የቤት ጓደኛ ይግለጹ (ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ):'
+              : 'Please describe your preferred roommate (e.g. Female, preferably Orthodox, clean, and employed):'
           );
           return NextResponse.json({ ok: true });
         }
