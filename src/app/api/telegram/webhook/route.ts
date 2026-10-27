@@ -11,6 +11,8 @@ import {
   getAllSpaceDrafts,
   getAllRoommateDrafts,
   preloadSession,
+  getUserLanguage,
+  setUserLanguage,
   SpaceDraft,
   RoommateProfileDraft,
   getManagedChannels,
@@ -465,25 +467,31 @@ It has been 24 hours since your roommate contact was unlocked!
       targetAction: string,
       messageIdToEdit?: number
     ): Promise<number | undefined> => {
+      const session = getSession(chatId);
+      const lang = getLanguage(session.draft_data, chatId);
+      const isAm = lang === 'am';
+
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_standalone_fayda_fan',
-        draft_data: { card_msg_id: messageIdToEdit, target_action: targetAction },
+        draft_data: { ...session.draft_data, card_msg_id: messageIdToEdit, target_action: targetAction },
         updated_at: new Date().toISOString(),
       });
 
-      const gateText = `🛡️ <b>Enter your Fayda FAN number or scan QR:</b>`;
+      const gateText = isAm
+        ? `🛡️ <b>የፋይዳ FAN ቁጥር ያስገቡ ወይም QR ኮድ ይቃኙ:</b> (ምሳሌ: 1234 5678 9012)`
+        : `🛡️ <b>Enter your Fayda FAN number or scan QR:</b> (e.g. 1234 5678 9012)`;
 
       const inlineKeyboard = [
         [
           {
-            text: '📷 Scan Fayda QR ↗️',
+            text: isAm ? '📷 በካሜራ የፋይዳ QR ኮድ ይቃኙ ↗️' : '📷 Scan Fayda QR ↗️',
             web_app: { url: `${appUrl}?startapp=verify_fayda` },
           },
         ],
         [
           {
-            text: '🏠 Main Menu',
+            text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu',
             callback_data: 'nav_start',
           },
         ],
@@ -508,7 +516,7 @@ It has been 24 hours since your roommate contact was unlocked!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
-      const lang = getLanguage(draft);
+      const lang = getLanguage(draft, chatId);
       const isAm = lang === 'am';
       const header = draft.target_code
         ? (isAm ? `🤝 <b>ከቤት ጓደኛ #${draft.target_code} ጋር ይገናኙ</b>\n\n` : `🤝 <b>Connect with #${draft.target_code}</b>\n\n`)
@@ -527,7 +535,7 @@ It has been 24 hours since your roommate contact was unlocked!
       await saveSession({
         telegram_id: chatId,
         step: 'dyn_card_age',
-        draft_data: { ...draft, card_msg_id: newMsgId || activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: newMsgId || activeMsgId },
         updated_at: new Date().toISOString(),
       });
     };
@@ -539,16 +547,16 @@ It has been 24 hours since your roommate contact was unlocked!
       messageIdToEdit?: number
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'dyn_card_gender',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
-      const lang = getLanguage(draft);
-      const isAm = lang === 'am';
       const text = isAm ? '👤 <b>ጾታዎን ይምረጡ:</b>' : '👤 <b>Select your gender:</b>';
 
       const inlineKeyboard = [
@@ -572,16 +580,16 @@ It has been 24 hours since your roommate contact was unlocked!
       messageIdToEdit?: number
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'dyn_card_religion',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
-      const lang = getLanguage(draft);
-      const isAm = lang === 'am';
       const text = isAm ? '⛪ <b>እምነትዎን ይምረጡ:</b>' : '⛪ <b>Select your religion:</b>';
 
       const inlineKeyboard = [
@@ -610,16 +618,16 @@ It has been 24 hours since your roommate contact was unlocked!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'dyn_card_job',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
-      const lang = getLanguage(draft);
-      const isAm = lang === 'am';
       const promptText = isAm
         ? '💼 <b>የስራ ሁኔታዎ ወይም ሙያዎ ምንድን ነው?</b> (ምሳሌ: አካውንታንት)'
         : '💼 <b>What is your job / occupation?</b> (e.g. Accountant)';
@@ -643,16 +651,16 @@ It has been 24 hours since your roommate contact was unlocked!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'dyn_card_budget',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
-      const lang = getLanguage(draft);
-      const isAm = lang === 'am';
       const promptText = isAm
         ? '💰 <b>የወርሃዊ የኪራይ በጀትዎ ከስንት እስከ ስንት ነው?</b> (ምሳሌ: 8000 - 15000)'
         : '💰 <b>What is your monthly budget range in ETB?</b> (e.g. 8000 - 15000)';
@@ -675,16 +683,16 @@ It has been 24 hours since your roommate contact was unlocked!
       messageIdToEdit?: number
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'dyn_card_pref_gender',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
-      const lang = getLanguage(draft);
-      const isAm = lang === 'am';
       const text = isAm ? '👥 <b>ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ?</b>' : '👥 <b>Who do you prefer to live with?</b>';
 
       const inlineKeyboard = [
@@ -710,16 +718,16 @@ It has been 24 hours since your roommate contact was unlocked!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'dyn_card_traits',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
-      const lang = getLanguage(draft);
-      const isAm = lang === 'am';
       const promptText = isAm
         ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ጠባይ በአጭሩ ይግለጹ:</b> (ምሳሌ: ጸጥታ የሚወድ እና ተግባቢ)'
         : '✨ <b>Describe your preferred type of roommate:</b> (e.g. Quiet and respectful)';
@@ -742,18 +750,18 @@ It has been 24 hours since your roommate contact was unlocked!
       messageIdToEdit?: number
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
       const selectedList: string[] = draft.preferred_subcity || ['Bole'];
       const isAllSelected = ALL_SUBCITIES.every((s) => selectedList.includes(s));
 
       await saveSession({
         telegram_id: chatId,
         step: 'dyn_card_subcities',
-        draft_data: { ...draft, preferred_subcity: selectedList, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, preferred_subcity: selectedList, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
-      const lang = getLanguage(draft);
-      const isAm = lang === 'am';
       const gridRows: any[] = [];
       gridRows.push([
         {
@@ -807,16 +815,16 @@ It has been 24 hours since your roommate contact was unlocked!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'dyn_card_fayda_fan',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
-      const lang = getLanguage(draft);
-      const isAm = lang === 'am';
       const promptText = isAm
         ? '🛡️ <b>የፋይዳ FAN ቁጥር ያስገቡ ወይም QR ኮድ ይቃኙ:</b> (ምሳሌ: 1234 5678 9012)'
         : '🛡️ <b>Enter your Fayda FAN number or scan QR:</b> (e.g. 1234 5678 9012)';
@@ -844,22 +852,42 @@ It has been 24 hours since your roommate contact was unlocked!
       profileData: Record<string, any>,
       messageIdToEdit?: number
     ) => {
+      const lang = getLanguage(profileData, chatId);
+      const isAm = lang === 'am';
       const subcitiesStr = Array.isArray(profileData.locations) && profileData.locations.length > 0
         ? profileData.locations.join(', ')
-        : 'Addis Ababa';
+        : (isAm ? 'አዲስ አበባ' : 'Addis Ababa');
 
       const budgetMin = Number(profileData.budget_min || 0).toLocaleString();
       const budgetMax = Number(profileData.budget_max || 10000).toLocaleString();
       const budgetDisplay = Number(profileData.budget_min || 0) > 0
-        ? `${budgetMin} – ${budgetMax} ETB / month`
-        : `Up to ${budgetMax} ETB / month`;
+        ? (isAm ? `${budgetMin} – ${budgetMax} ብር / በወር` : `${budgetMin} – ${budgetMax} ETB / month`)
+        : (isAm ? `እስከ ${budgetMax} ብር / በወር` : `Up to ${budgetMax} ETB / month`);
 
-      const jobLine = profileData.job ? `• <b>Occupation:</b> ${profileData.job}\n` : '';
-      const religionLine = profileData.religion ? `• <b>Religion:</b> ${profileData.religion}\n` : '';
-      const prefLine = profileData.preferred_gender ? `• <b>Prefers:</b> ${profileData.preferred_gender} Roommate\n` : '';
-      const ageStr = profileData.age ? `, Age ${profileData.age}` : '';
+      const jobLine = profileData.job
+        ? (isAm ? `• <b>ሙያ / ስራ:</b> ${escapeHtml(profileData.job)}\n` : `• <b>Occupation:</b> ${escapeHtml(profileData.job)}\n`)
+        : '';
+      const religionLine = profileData.religion
+        ? (isAm ? `• <b>እምነት:</b> ${escapeHtml(profileData.religion)}\n` : `• <b>Religion:</b> ${escapeHtml(profileData.religion)}\n`)
+        : '';
+      const prefLine = profileData.preferred_gender
+        ? (isAm ? `• <b>የሚፈልጉት:</b> ${escapeHtml(profileData.preferred_gender)} የቤት ጓደኛ\n` : `• <b>Prefers:</b> ${escapeHtml(profileData.preferred_gender)} Roommate\n`)
+        : '';
+      const ageStr = profileData.age
+        ? (isAm ? `፣ ዕድሜ ${profileData.age}` : `, Age ${profileData.age}`)
+        : '';
 
-      const text = `
+      const text = isAm
+        ? `
+📋 <b>የሚለጠፈውን መረጃ ይከልሱ</b>
+📍 <code>${subcitiesStr}</code> · 🛡️ <b>በፋይዳ የተረጋገጠ ✅</b>
+
+• <b>መገለጫ:</b> የቤት ጓደኛ #${profileData.display_code} (${profileData.gender || 'አባል'}${ageStr})
+${jobLine}${religionLine}${prefLine}• <b>የበጀት መጠን:</b> <code>${budgetDisplay}</code>
+• <b>ተመራጭ አካባቢዎች:</b> <code>${subcitiesStr}</code>
+${profileData.roommate_traits ? `\n<blockquote>"${escapeHtml(profileData.roommate_traits)}"</blockquote>` : ''}
+        `.trim()
+        : `
 📋 <b>Review Your Channel Post</b>
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
 
@@ -867,19 +895,19 @@ It has been 24 hours since your roommate contact was unlocked!
 ${jobLine}${religionLine}${prefLine}• <b>Budget Range:</b> <code>${budgetDisplay}</code>
 • <b>Target Areas:</b> <code>${subcitiesStr}</code>
 ${profileData.roommate_traits ? `\n<blockquote>"${escapeHtml(profileData.roommate_traits)}"</blockquote>` : ''}
-      `.trim();
+        `.trim();
 
       const targetIdentifier = profileData.display_code || profileData.id;
       const inlineKeyboard = [
         [
           {
-            text: '📢 Submit for Admin Approval 🚀',
+            text: isAm ? '📢 ለአድሚን ማረጋገጫ ላክ 🚀' : '📢 Submit for Admin Approval 🚀',
             callback_data: `dyn_submit_channel:${targetIdentifier}`,
           },
         ],
         [
-          { text: '✏️ Edit Profile Details', callback_data: 'post_profile_start' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '✏️ መረጃ አሻሽል' : '✏️ Edit Profile Details', callback_data: 'post_profile_start' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -1177,7 +1205,30 @@ ${profileData.roommate_traits ? `\n<blockquote>"${escapeHtml(profileData.roommat
           ? `${budgetMinStr} – ${budgetMaxStr} ETB / month`
           : `Up to ${budgetMaxStr} ETB / month`;
 
-        const targetNotifyText = `
+        const targetLang = targetProfile.telegram_id ? getUserLanguage(targetProfile.telegram_id) : 'en';
+        const targetIsAm = targetLang === 'am';
+
+        const targetNotifyText = targetIsAm
+          ? `
+🤝 <b>ስፔስማች አዲስ · አዲስ የግንኙነት ጥያቄ!</b>
+
+አንድ የተረጋገጠ የክፍል ጓደኛ ማስታወቂያዎን አይቶ ሊገናኝዎት ይፈልጋል!
+
+• <b>መገለጫ:</b> ${userGender === 'Female' ? 'ሴት' : userGender === 'Male' ? 'ወንድ' : userGender}፣ ዕድሜ ${userAge}
+• <b>ስራ:</b> ${escapeHtml(userJob)}
+• <b>ሃይማኖት:</b> ${escapeHtml(userReligion)}
+• <b>የሚመርጡት:</b> የ${escapeHtml(userPrefGender === 'Female' ? 'ሴት' : userPrefGender === 'Male' ? 'ወንድ' : userPrefGender)} የቤት ጓደኛ
+• <b>የበጀት ክልል:</b> <code>${budgetDisplay}</code>
+• <b>ተመራጭ አካባቢዎች:</b> <code>${escapeHtml(reqSubcities)}</code>
+• <b>ሁኔታ:</b> 🛡️ <b>ፋይዳ የተረጋገጠ ✅</b>
+
+<blockquote>"${escapeHtml(userTraits)}"</blockquote>
+
+🔒 <i>የግል መረጃ (ስም፣ ስልክ ቁጥር እና ቴሌግራም አድራሻ) የሁለታችሁም ፈቃድ እስካልተረጋገጠና ክፍያ እስካልተጠናቀቀ ድረስ በሚስጥር የተጠበቀ ነው።</i>
+
+<blockquote>ከዚህ የክፍል ጓደኛ ጋር መገናኘት ይፈልጋሉ?</blockquote>
+`.trim()
+          : `
 🤝 <b>SpaceMatch · New Connection Request!</b>
 
 A verified roommate saw your listing and wants to connect!
@@ -1201,8 +1252,8 @@ A verified roommate saw your listing and wants to connect!
           const sendRes = await tgSend(targetProfile.telegram_id, targetNotifyText, {
             inline_keyboard: [
               [
-                { text: '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
-                { text: '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
+                { text: targetIsAm ? '✅ ተቀበል (Accept)' : '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
+                { text: targetIsAm ? '❌ አልፈልግም (Decline)' : '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
               ],
             ],
           });
@@ -1210,12 +1261,16 @@ A verified roommate saw your listing and wants to connect!
         }
 
         // Notify requester
+        const reqLang = getLanguage(draft, chatId);
+        const reqIsAm = reqLang === 'am';
         await sendOrEditCard(
           chatId,
-          `✅ <b>Fayda Verified & Match Request Sent!</b>\n\nYour request has been delivered to Roommate <b>#${targetProfile.display_code}</b>.\n\n<blockquote>🔔 You will receive an instant notification the moment they accept!</blockquote>`,
+          reqIsAm
+            ? `✅ <b>ፋይዳ ተረጋግጧል እና የግንኙነት ጥያቄ ተልኳል!</b>\n\nጥያቄዎ ወደ ክፍል ጓደኛ <b>#${targetProfile.display_code}</b> ደርሷል።\n\n<blockquote>🔔 እንደተቀበሉ ወዲያውኑ ማሳወቂያ ይደርስዎታል!</blockquote>`
+            : `✅ <b>Fayda Verified & Match Request Sent!</b>\n\nYour request has been delivered to Roommate <b>#${targetProfile.display_code}</b>.\n\n<blockquote>🔔 You will receive an instant notification the moment they accept!</blockquote>`,
           [
-            [{ text: '⚡ Find Other Roommates 🔍', callback_data: 'matchmaker_start' }],
-            [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+            [{ text: reqIsAm ? '⚡ ሌሎች ፈላጊዎችን ፈልግ 🔍' : '⚡ Find Other Roommates 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: reqIsAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
           ],
           activeMsgId
         );
@@ -1244,13 +1299,13 @@ A verified roommate saw your listing and wants to connect!
     // ── Helper: 2-Branch Selection: "I have a space" vs "We look for space together" ──
     const sendPostProfileBranchPrompt = async (chatId: number, messageIdToEdit?: number) => {
       const session = getSession(chatId);
-      const lang = getLanguage(session.draft_data);
+      const lang = getLanguage(session.draft_data, chatId);
       const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'post_profile_branch_select',
-        draft_data: { ...session.draft_data, card_msg_id: messageIdToEdit },
+        draft_data: { ...session.draft_data, lang, card_msg_id: messageIdToEdit },
         updated_at: new Date().toISOString(),
       });
 
@@ -1294,13 +1349,13 @@ A verified roommate saw your listing and wants to connect!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
-      const lang = getLanguage(draft);
+      const lang = getLanguage(draft, chatId);
       const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'space_input_type',
-        draft_data: { ...draft, listing_category: 'space_available', card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, listing_category: 'space_available', card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
@@ -1324,13 +1379,13 @@ A verified roommate saw your listing and wants to connect!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
-      const lang = getLanguage(draft);
+      const lang = getLanguage(draft, chatId);
       const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'space_input_rent',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
@@ -1356,13 +1411,13 @@ A verified roommate saw your listing and wants to connect!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
-      const lang = getLanguage(draft);
+      const lang = getLanguage(draft, chatId);
       const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'space_input_share',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
@@ -1396,13 +1451,13 @@ A verified roommate saw your listing and wants to connect!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
-      const lang = getLanguage(draft);
+      const lang = getLanguage(draft, chatId);
       const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'space_input_amenities',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
@@ -1427,13 +1482,13 @@ A verified roommate saw your listing and wants to connect!
       messageIdToEdit?: number
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
-      const lang = getLanguage(draft);
+      const lang = getLanguage(draft, chatId);
       const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'space_subcity_select',
-        draft_data: { ...draft, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
@@ -1468,13 +1523,13 @@ A verified roommate saw your listing and wants to connect!
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
       const photos: string[] = draft.space_photos || [];
-      const lang = getLanguage(draft);
+      const lang = getLanguage(draft, chatId);
       const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: 'space_input_photos',
-        draft_data: { ...draft, space_photos: photos, card_msg_id: activeMsgId },
+        draft_data: { ...draft, lang, space_photos: photos, card_msg_id: activeMsgId },
         updated_at: new Date().toISOString(),
       });
 
@@ -1502,36 +1557,49 @@ A verified roommate saw your listing and wants to connect!
       draft: Record<string, any>,
       messageIdToEdit?: number
     ) => {
-      const subcity = draft.preferred_subcity?.[0] || draft.location || 'Addis Ababa';
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
+      const subcity = draft.preferred_subcity?.[0] || draft.location || (isAm ? 'አዲስ አበባ' : 'Addis Ababa');
       const rentStr = Number(draft.space_rent || 0).toLocaleString();
       const shareStr = Number(draft.space_share || 0).toLocaleString();
       const amenitiesStr = Array.isArray(draft.space_amenities) && draft.space_amenities.length > 0
         ? draft.space_amenities.join(', ')
-        : 'WiFi, Kitchen, Water supply';
+        : (isAm ? 'ዋይፋይ፣ ወጥ ቤት፣ ውሃ' : 'WiFi, Kitchen, Water supply');
       const photosCount = draft.space_photos?.length || 0;
-      const displayCode = draft.display_code || `RM${chatId.toString().slice(-4)}`;
+      const displayCode = draft.display_code || `SP${chatId.toString().slice(-4)}`;
 
-      const text = `
+      const text = isAm
+        ? `
+🏠 <b>የሚከራየውን ክፍት ቦታ መረጃ ይከልሱ</b>
+📍 <code>${subcity}</code> · 🛡️ <b>በፋይዳ የተረጋገጠ ✅</b>
+
+• <b>የክፍሉ አይነት:</b> ${draft.space_type || 'ዋና መኝታ ቤት'}
+• <b>ጠቅላላ ኪራይ:</b> <code>${rentStr} ብር</code>
+• <b>የቤት ጓደኛ ድርሻ:</b> <code>${shareStr} ብር</code>
+• <b>ግልጋሎቶች:</b> ${amenitiesStr}
+• <b>ፎቶዎች:</b> ${photosCount} ተያይዘዋል
+        `.trim()
+        : `
 🏠 <b>Review Space Listing</b>
-📍 <code>${subcity}</code> · 🛡️ <b>Fayda Verified</b>
+📍 <code>${subcity}</code> · 🛡️ <b>Fayda Verified ✅</b>
 
 • <b>Space:</b> ${draft.space_type || 'Private Bedroom'}
 • <b>Total Rent:</b> <code>${rentStr} ETB</code>
 • <b>Roommate Share:</b> <code>${shareStr} ETB</code>
 • <b>Amenities:</b> ${amenitiesStr}
 • <b>Photos:</b> ${photosCount} attached
-      `.trim();
+        `.trim();
 
       const inlineKeyboard = [
         [
           {
-            text: '📢 Submit for Admin Approval 🚀',
+            text: isAm ? '📢 ለአድሚን ማረጋገጫ ላክ 🚀' : '📢 Submit for Admin Approval 🚀',
             callback_data: `space_submit_admin:${displayCode}`,
           },
         ],
         [
-          { text: '✏️ Edit Space Details', callback_data: 'post_branch_space' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '✏️ መረጃ አሻሽል' : '✏️ Edit Space Details', callback_data: 'post_branch_space' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -1780,7 +1848,7 @@ Please reply with the description, perks, or notes for this channel post.
       const isAdmin = adminIds.includes(chatId);
 
       const session = getSession(chatId);
-      const lang = getLanguage(session.draft_data);
+      const lang = getLanguage(session.draft_data, chatId);
       const isAm = lang === 'am';
 
       const welcomeText = isAm
@@ -1822,7 +1890,7 @@ Please reply with the description, perks, or notes for this channel post.
       await saveSession({
         telegram_id: chatId,
         step: 'idle',
-        draft_data: { ...session.draft_data, card_msg_id: activeId },
+        draft_data: { ...session.draft_data, lang, card_msg_id: activeId },
         updated_at: new Date().toISOString(),
       });
     };
@@ -1948,6 +2016,8 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
         return;
       }
 
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
       const selectedList: string[] = currentDraft.match_subcities || [];
       const isAllSelected = ALL_SUBCITIES.every((s) => selectedList.includes(s));
 
@@ -1956,8 +2026,8 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       gridRows.push([
         {
           text: isAllSelected
-            ? '✅ All Selected (Proceed ➡️)'
-            : '🌐 Select ALL Sub-Cities & Proceed ➡️',
+            ? (isAm ? '✅ ሁሉም ተመርጠዋል (ቀጥል ➡️)' : '✅ All Selected (Proceed ➡️)')
+            : (isAm ? '🌐 ሁሉንም ምረጥ & ቀጥል ➡️' : '🌐 Select ALL Sub-Cities & Proceed ➡️'),
           callback_data: 'match_select_all_subs',
         },
       ]);
@@ -1984,13 +2054,15 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 
       gridRows.push([
         {
-          text: `➡️ Next: My Gender (${selectedList.length} Selected)`,
+          text: isAm ? `➡️ ቀጥል: ጾታ (${selectedList.length} ተመርጠዋል)` : `➡️ Next: My Gender (${selectedList.length} Selected)`,
           callback_data: 'match_goto_gender',
         },
       ]);
-      gridRows.push([{ text: '🏠 Main Menu', callback_data: 'nav_start' }]);
+      gridRows.push([{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]);
 
-      const text = `📍 <b>Where would you like to live in Addis Ababa?</b>\n<i>Choose areas below or select all:</i>`;
+      const text = isAm
+        ? `📍 <b>የት አካባቢ መኖር ይፈልጋሉ?</b> (ምሳሌ: ቦሌ)`
+        : `📍 <b>Where would you like to live in Addis Ababa?</b> (e.g. Bole)`;
 
       const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
       const activeMsgId = await sendOrEditCard(chatId, text, gridRows, targetMsgId);
@@ -1999,7 +2071,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_match_subcities',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
@@ -2010,16 +2082,18 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       currentDraft: Record<string, any> = {},
       messageIdToEdit?: number
     ) => {
-      const text = `👤 <b>What is your gender?</b>`;
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
+      const text = isAm ? `👤 <b>ጾታዎን ይምረጡ:</b>` : `👤 <b>What is your gender?</b>`;
 
       const keyboard = [
         [
-          { text: '👩 Female', callback_data: 'match_set_my_gender:Female' },
-          { text: '👨 Male', callback_data: 'match_set_my_gender:Male' },
+          { text: isAm ? '👩 ሴት' : '👩 Female', callback_data: 'match_set_my_gender:Female' },
+          { text: isAm ? '👨 ወንድ' : '👨 Male', callback_data: 'match_set_my_gender:Male' },
         ],
         [
-          { text: '⬅️ Back to Areas', callback_data: 'matchmaker_start' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ወደ አካባቢዎች ተመለስ' : '⬅️ Back to Areas', callback_data: 'matchmaker_start' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -2030,7 +2104,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_match_gender',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
@@ -2042,13 +2116,15 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       messageIdToEdit?: number,
       errorMessage?: string
     ) => {
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
       const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}🎂 <b>What is your age?</b>`;
+      const text = `${header}${isAm ? '🎂 <b>ዕድሜዎ ስንት ነው?</b> (ምሳሌ: 24)' : '🎂 <b>What is your age?</b> (e.g. 24)'}`;
 
       const keyboard = [
         [
-          { text: '⬅️ Back to Gender', callback_data: 'match_goto_gender' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ወደ ጾታ ተመለስ' : '⬅️ Back to Gender', callback_data: 'match_goto_gender' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -2059,7 +2135,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_match_age',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
@@ -2070,19 +2146,21 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       currentDraft: Record<string, any> = {},
       messageIdToEdit?: number
     ) => {
-      const text = `👥 <b>Who do you prefer to live with?</b>`;
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
+      const text = isAm ? `👥 <b>ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ?</b>` : `👥 <b>Who do you prefer to live with?</b>`;
 
       const keyboard = [
         [
-          { text: '👩 Female Only', callback_data: 'match_set_pref_gender:Female' },
-          { text: '👨 Male Only', callback_data: 'match_set_pref_gender:Male' },
+          { text: isAm ? '👩 ሴት ብቻ' : '👩 Female Only', callback_data: 'match_set_pref_gender:Female' },
+          { text: isAm ? '👨 ወንድ ብቻ' : '👨 Male Only', callback_data: 'match_set_pref_gender:Male' },
         ],
         [
-          { text: '👫 Any Gender Compatible', callback_data: 'match_set_pref_gender:Any' },
+          { text: isAm ? '👫 ማናቸውም' : '👫 Any Gender Compatible', callback_data: 'match_set_pref_gender:Any' },
         ],
         [
-          { text: '⬅️ Back to Age', callback_data: 'match_goto_age' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ወደ ዕድሜ ተመለስ' : '⬅️ Back to Age', callback_data: 'match_goto_age' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -2093,7 +2171,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_match_pref_gender',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
@@ -2105,16 +2183,18 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       messageIdToEdit?: number,
       errorMessage?: string
     ) => {
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
       const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}💰 <b>Maximum monthly rent budget (ETB):</b>`;
+      const text = `${header}${isAm ? '💰 <b>ከፍተኛው ወርሃዊ የኪራይ በጀት በብር:</b> (ምሳሌ: 10000)' : '💰 <b>Maximum monthly rent budget in ETB:</b> (e.g. 10000)'}`;
 
       const keyboard = [
         [
-          { text: '⚡ Any Budget (No Cap)', callback_data: 'match_set_budget:0' },
+          { text: isAm ? '⚡ ማንኛውም በጀት (ገደብ የለሽ)' : '⚡ Any Budget (No Cap)', callback_data: 'match_set_budget:0' },
         ],
         [
-          { text: '⬅️ Back to Preference', callback_data: 'match_goto_pref_gender' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ወደ ምርጫ ተመለስ' : '⬅️ Back to Preference', callback_data: 'match_goto_pref_gender' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -2125,7 +2205,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_match_budget_input',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
@@ -2146,6 +2226,8 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
         return;
       }
 
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
       const selectedList: string[] = currentDraft.preferred_subcity || [];
       const isAllSelected = ALL_SUBCITIES.every((s) => selectedList.includes(s));
 
@@ -2154,8 +2236,8 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       gridRows.push([
         {
           text: isAllSelected
-            ? '✅ All Selected (Proceed ➡️)'
-            : '🌐 Select ALL Sub-Cities & Proceed ➡️',
+            ? (isAm ? '✅ ሁሉም ተመርጠዋል (ቀጥል ➡️)' : '✅ All Selected (Proceed ➡️)')
+            : (isAm ? '🌐 ሁሉንም ምረጥ & ቀጥል ➡️' : '🌐 Select ALL Sub-Cities & Proceed ➡️'),
           callback_data: 'seeker_select_all_and_proceed',
         },
       ]);
@@ -2182,13 +2264,15 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 
       gridRows.push([
         {
-          text: `➡️ Next: My Gender (${selectedList.length} Selected)`,
+          text: isAm ? `➡️ ቀጥል: ጾታ (${selectedList.length} ተመርጠዋል)` : `➡️ Next: My Gender (${selectedList.length} Selected)`,
           callback_data: 'seeker_goto_gender',
         },
       ]);
-      gridRows.push([{ text: '🏠 Main Menu', callback_data: 'nav_start' }]);
+      gridRows.push([{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]);
 
-      const text = `📍 <b>Where would you like to live in Addis Ababa?</b>\n<i>Choose areas below or select all:</i>`;
+      const text = isAm
+        ? `📍 <b>የት አካባቢ መኖር ይፈልጋሉ?</b> (ምሳሌ: ቦሌ)`
+        : `📍 <b>Where would you like to live in Addis Ababa?</b> (e.g. Bole)`;
 
       const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
       const activeMsgId = await sendOrEditCard(chatId, text, gridRows, targetMsgId);
@@ -2197,21 +2281,23 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_seeker_subcities_grid',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
 
     // Helper: Seeker Step 2 (My Gender)
     const sendSeekerMyGenderStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
-      const text = `👤 <b>What is your gender?</b>`;
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
+      const text = isAm ? `👤 <b>ጾታዎን ይምረጡ:</b>` : `👤 <b>What is your gender?</b>`;
 
       const keyboard = [
         [
-          { text: '👩 Female', callback_data: 'seeker_my_gender:Female' },
-          { text: '👨 Male', callback_data: 'seeker_my_gender:Male' },
+          { text: isAm ? '👩 ሴት' : '👩 Female', callback_data: 'seeker_my_gender:Female' },
+          { text: isAm ? '👨 ወንድ' : '👨 Male', callback_data: 'seeker_my_gender:Male' },
         ],
-        [{ text: '⬅️ Back to Areas', callback_data: 'seeker_subcity_menu' }],
+        [{ text: isAm ? '⬅️ ወደ አካባቢዎች ተመለስ' : '⬅️ Back to Areas', callback_data: 'seeker_subcity_menu' }],
       ];
 
       const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -2221,7 +2307,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_seeker_my_gender',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
@@ -2233,13 +2319,15 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       messageIdToEdit?: number,
       errorMessage?: string
     ) => {
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
       const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}🎂 <b>What is your age?</b>`;
+      const text = `${header}${isAm ? '🎂 <b>ዕድሜዎ ስንት ነው?</b> (ምሳሌ: 24)' : '🎂 <b>What is your age?</b> (e.g. 24)'}`;
 
       const keyboard = [
         [
-          { text: '⬅️ Back to Gender', callback_data: 'seeker_goto_gender' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ወደ ጾታ ተመለስ' : '⬅️ Back to Gender', callback_data: 'seeker_goto_gender' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -2250,26 +2338,28 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_seeker_age',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
 
     // Helper: Seeker Step 4 (Preferred Roommate Gender)
     const sendSeekerPrefGenderStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
-      const text = `👥 <b>Who do you prefer to live with?</b>`;
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
+      const text = isAm ? `👥 <b>ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ?</b>` : `👥 <b>Who do you prefer to live with?</b>`;
 
       const keyboard = [
         [
-          { text: '👩 Female Only', callback_data: 'seeker_pref_gender:Female' },
-          { text: '👨 Male Only', callback_data: 'seeker_pref_gender:Male' },
+          { text: isAm ? '👩 ሴት ብቻ' : '👩 Female Only', callback_data: 'seeker_pref_gender:Female' },
+          { text: isAm ? '👨 ወንድ ብቻ' : '👨 Male Only', callback_data: 'seeker_pref_gender:Male' },
         ],
         [
-          { text: '👫 Any Gender Compatible', callback_data: 'seeker_pref_gender:Any' },
+          { text: isAm ? '👫 ማናቸውም' : '👫 Any Gender Compatible', callback_data: 'seeker_pref_gender:Any' },
         ],
         [
-          { text: '⬅️ Back to Age', callback_data: 'seeker_goto_age' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ወደ ዕድሜ ተመለስ' : '⬅️ Back to Age', callback_data: 'seeker_goto_age' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -2280,7 +2370,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_seeker_pref_gender',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
@@ -2292,13 +2382,15 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       messageIdToEdit?: number,
       errorMessage?: string
     ) => {
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
       const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}💰 <b>Monthly budget (ETB):</b>`;
+      const text = `${header}${isAm ? '💰 <b>ወርሃዊ በጀት በብር:</b> (ምሳሌ: 10000)' : '💰 <b>Monthly budget (ETB):</b> (e.g. 10000)'}`;
 
       const keyboard = [
         [
-          { text: '⬅️ Back to Preference', callback_data: 'seeker_goto_pref_gender' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ወደ ምርጫ ተመለስ' : '⬅️ Back to Preference', callback_data: 'seeker_goto_pref_gender' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -2309,20 +2401,22 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_seeker_budget_text',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
 
     // Helper: Seeker Step 6 (Lifestyle Bio - Direct Input or Skip)
     const sendSeekerBioStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
-      const text = `📝 <b>Tell us briefly about yourself:</b>`;
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
+      const text = isAm ? `📝 <b>ስለራስዎ በአጭሩ ይንገሩን:</b> (ምሳሌ: ጸጥታ የሚወድ ሰራተኛ)` : `📝 <b>Tell us briefly about yourself:</b> (e.g. Quiet professional)`;
 
       const keyboard = [
-        [{ text: '⏭️ Skip Bio', callback_data: 'seeker_skip_bio' }],
+        [{ text: isAm ? '⏭️ ይህን እለፍ' : '⏭️ Skip Bio', callback_data: 'seeker_skip_bio' }],
         [
-          { text: '⬅️ Back to Budget', callback_data: 'seeker_goto_budget' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ወደ በጀት ተመለስ' : '⬅️ Back to Budget', callback_data: 'seeker_goto_budget' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -2333,7 +2427,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_seeker_bio_text',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
@@ -2345,13 +2439,15 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       messageIdToEdit?: number,
       errorMessage?: string
     ) => {
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
       const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}📞 <b>What is your contact phone number?</b>`;
+      const text = `${header}${isAm ? '📞 <b>የስልክ ቁጥርዎን ያስገቡ:</b> (ምሳሌ: 0912345678)' : '📞 <b>What is your contact phone number?</b> (e.g. 0912345678)'}`;
 
       const keyboard = [
         [
-          { text: '⬅️ Back to Bio', callback_data: 'seeker_goto_bio' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ወደ መገለጫ ተመለስ' : '⬅️ Back to Bio', callback_data: 'seeker_goto_bio' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -2362,30 +2458,41 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_seeker_phone',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
 
     // Helper: Seeker Review & Final Submit
     const sendSeekerFaydaStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
-      const subcitiesStr = (currentDraft.preferred_subcity || []).join(', ') || 'Addis Ababa';
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
+      const subcitiesStr = (currentDraft.preferred_subcity || []).join(', ') || (isAm ? 'አዲስ አበባ' : 'Addis Ababa');
       const cleanBio = (currentDraft.lifestyle_bio || 'Seeking compatible roommate').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-      const summaryText = `
+      const summaryText = isAm
+        ? `
+✨ <b>የመረጃ ክለሳ</b>
+📍 <code>${subcitiesStr}</code>
+
+• <b>መገለጫ:</b> ${currentDraft.my_gender || 'አልተገለጸም'}${currentDraft.age ? `፣ <code>${currentDraft.age} ዓመት</code>` : ''} · የሚመርጡት: ${currentDraft.preferred_gender || 'ማንኛውም'}
+• <b>ወርሃዊ በጀት:</b> <code>${Number(currentDraft.budget_max || 10000).toLocaleString()} ብር / በወር</code>
+• <b>ስልክ ቁጥር:</b> <code>${currentDraft.contact_phone || 'ተሰጥቷል'}</code>
+        `.trim()
+        : `
 ✨ <b>Profile Review</b>
 📍 <code>${subcitiesStr}</code>
 
 • <b>Profile:</b> ${currentDraft.my_gender || 'Not specified'}${currentDraft.age ? `, <code>${currentDraft.age} yrs</code>` : ''} · Prefers: ${currentDraft.preferred_gender || 'Any'}
 • <b>Monthly Budget:</b> <code>${Number(currentDraft.budget_max || 10000).toLocaleString()} ETB / month</code>
 • <b>Contact Phone:</b> <code>${currentDraft.contact_phone || 'Provided'}</code>
-      `.trim();
+        `.trim();
 
       const keyboard = [
-        [{ text: '⚡ Publish to Channel & Matchmaker 🚀', callback_data: 'seeker_final_submit' }],
+        [{ text: isAm ? '⚡ ቻናል እና ማችሜከር ላይ ይለጠፍ 🚀' : '⚡ Publish to Channel & Matchmaker 🚀', callback_data: 'seeker_final_submit' }],
         [
-          { text: '⬅️ Edit Details', callback_data: 'seeker_flow' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ መረጃ አሻሽል' : '⬅️ Edit Details', callback_data: 'seeker_flow' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -2396,7 +2503,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_seeker_fayda_upload',
-        draft_data: currentDraft,
+        draft_data: { ...currentDraft, lang },
         updated_at: new Date().toISOString(),
       });
     };
@@ -2421,6 +2528,8 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       const myAge = criteria.age ? Number(criteria.age) : undefined;
       const budgetMax = criteria.budget_max !== undefined ? Number(criteria.budget_max) : 100000;
       const ageBracket = criteria.age_bracket || '';
+      const lang = getLanguage(criteria, chatId);
+      const isAm = lang === 'am';
 
       // 1. Fetch live profiles from Supabase DB
       let dbProfiles: any[] = [];
@@ -2521,20 +2630,29 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 
       // Check empty state
       if (allProfiles.length === 0) {
-        const emptyText = `
+        const emptyText = isAm
+          ? `
+🔍 <b>ስፔስማች አዲስ</b> · <b>ምንም የክፍል ጓደኛ ፕሮፋይል አልተገኘም</b>
+
+በአሁኑ ሰዓት በመረጃ ቋታችን ውስጥ ምንም ንቁ የክፍል ጓደኛ ማስታወቂያ የለም።
+
+<blockquote>🌟 <b>በቴሌግራም ቻናላችን ላይ ይለቀቁ!</b>
+አሁን የራስዎን ማስታወቂያ ያስመዝግቡ — ተስማሚ የቤት ጓደኞች እንዲያገኙዎት በቀጥታ በቻናላችን ላይ ይለጠፋል!</blockquote>
+          `.trim()
+          : `
 🔍 <b>SpaceMatch</b> · <b>No Roommate Profiles Yet</b>
 
 There are currently no other active roommate listings in our database.
 
 <blockquote>🌟 <b>Be Featured on Our Channel!</b>
 Post your seeker profile now — it will broadcast directly to our Telegram channel so compatible roommates can connect with you!</blockquote>
-        `.trim();
+          `.trim();
 
         const emptyKeyboard = {
           inline_keyboard: [
-            [{ text: '➕ Post My Seeker Profile', callback_data: 'seeker_flow' }],
-            [{ text: '🔄 Try Again', callback_data: 'matchmaker_start' }],
-            [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+            [{ text: isAm ? '➕ የኔን መረጃ ቻናል ላይ ልለጥፍ' : '➕ Post My Seeker Profile', callback_data: 'seeker_flow' }],
+            [{ text: isAm ? '🔄 እንደገና ሞክር' : '🔄 Try Again', callback_data: 'matchmaker_start' }],
+            [{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
           ],
         };
 
@@ -2603,20 +2721,28 @@ Post your seeker profile now — it will broadcast directly to our Telegram chan
       scoredMatches.sort((a, b) => b.matchScore - a.matchScore);
 
       if (scoredMatches.length === 0) {
-        const noMatchesText = `
+        const noMatchesText = isAm
+          ? `
+🔍 <b>ስፔስማች አዲስ</b> · <b>ምንም ተስማሚ ሰው አልተገኘም</b>
+
+በመረጧቸው ክፍለ ከተሞች እና መስፈርቶች መሰረት በአሁኑ ሰዓት ምንም ተዛማጅ ሰው አልተገኘም።
+
+<blockquote>💡 አዲስ አበባ ውስጥ ያሉ ሌሎች ፈላጊዎችን ይመልከቱ ወይም ሌሎች እንዲያገኙዎት የራስዎን መረጃ ይለጥፉ!</blockquote>
+          `.trim()
+          : `
 🔍 <b>SpaceMatch</b> · <b>No Exact Matches Found</b>
 
 We could not find an exact match for your selected filters in those specific sub-cities right now.
 
 <blockquote>💡 Try browsing all active seekers across Addis Ababa or post your seeker profile so compatible roommates can reach out to you!</blockquote>
-        `.trim();
+          `.trim();
 
         const noMatchesKeyboard = {
           inline_keyboard: [
-            [{ text: '🌐 Browse All Active Seekers', callback_data: 'match_browse_all' }],
-            [{ text: '➕ Post My Seeker Profile', callback_data: 'seeker_flow' }],
-            [{ text: '🔄 Change Filters', callback_data: 'matchmaker_start' }],
-            [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+            [{ text: isAm ? '🌐 ሁሉንም ፈላጊዎች እይ' : '🌐 Browse All Active Seekers', callback_data: 'match_browse_all' }],
+            [{ text: isAm ? '➕ የኔን መረጃ ቻናል ላይ ልለጥፍ' : '➕ Post My Seeker Profile', callback_data: 'seeker_flow' }],
+            [{ text: isAm ? '🔄 መስፈርቶችን ቀይር' : '🔄 Change Filters', callback_data: 'matchmaker_start' }],
+            [{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
           ],
         };
 
@@ -2645,11 +2771,28 @@ We could not find an exact match for your selected filters in those specific sub
       const subcitiesStr = Array.isArray(match.preferred_subcity)
         ? match.preferred_subcity.join(', ')
         : 'Addis Ababa';
-      const badge = match.fayda_status === 'verified' ? 'VERIFIED ✅ 🛡️' : 'PENDING REVIEW ⚠️';
-      const ageDisplay = match.age ? `, ${match.age} yrs` : '';
-      const bioContent = (match.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const badge = isAm
+        ? (match.fayda_status === 'verified' ? 'የተረጋገጠ ✅ 🛡️' : 'በግምገማ ላይ ⚠️')
+        : (match.fayda_status === 'verified' ? 'VERIFIED ✅ 🛡️' : 'PENDING REVIEW ⚠️');
+      const ageDisplay = match.age ? (isAm ? `፣ ${match.age} ዓመት` : `, ${match.age} yrs`) : '';
+      const bioContent = (match.lifestyle_bio || (isAm ? 'በአዲስ አበባ ውስጥ ተስማሚ የቤት ጓደኛ እፈልጋለሁ።' : 'Seeking a compatible roommate in Addis Ababa.')).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const genderDisplay = isAm ? (match.my_gender === 'Female' ? 'ሴት' : match.my_gender === 'Male' ? 'ወንድ' : match.my_gender) : match.my_gender;
+      const prefGenderDisplay = isAm ? (match.preferred_gender === 'Female' ? 'ሴት' : match.preferred_gender === 'Male' ? 'ወንድ' : match.preferred_gender === 'Any' ? 'ማንኛውም' : match.preferred_gender) : match.preferred_gender;
 
-      const matchCardText = `
+      const matchCardText = isAm
+        ? `
+🎯 <b>ተዛማጅ #${safeIndex + 1} ከ ${scoredMatches.length}</b> · <b>${match.matchScore}% ተዛማጅነት</b>
+📍 <code>${subcitiesStr}</code> · 🛡️ <b>${badge}</b>
+
+• <b>ተፈላጊ:</b> የተረጋገጠ ፈላጊ (${genderDisplay}${ageDisplay})
+• <b>የሚፈልጉት:</b> የ${prefGenderDisplay} የቤት ጓደኛ
+• <b>ወርሃዊ በጀት:</b> <code>እስከ ${Number(match.budget_max).toLocaleString()} ብር / ወር</code>
+
+<blockquote>"${bioContent}"</blockquote>
+
+🔒 <i>የግለሰቡ ማንነት፣ ስልክ ቁጥር እና ቴሌግራም አድራሻ ክፍያ እስኪፈጸም ድረስ የተደበቀ ነው።</i>
+        `.trim()
+        : `
 🎯 <b>Match #${safeIndex + 1} of ${scoredMatches.length}</b> · <b>${match.matchScore}% Match</b>
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>${badge}</b>
 
@@ -2660,14 +2803,14 @@ We could not find an exact match for your selected filters in those specific sub
 <blockquote>"${bioContent}"</blockquote>
 
 🔒 <i>Personal identity, phone number, and Telegram handle are concealed until payment.</i>
-      `.trim();
+        `.trim();
 
       const inlineKeyboardRows: any[] = [];
 
       // Primary Action: Unlock Contact Information
       inlineKeyboardRows.push([
         {
-          text: '🔓 Unlock Contact Information',
+          text: isAm ? '🔓 የስልክ አድራሻቸውን ክፈት' : '🔓 Unlock Contact Information',
           callback_data: `search_unlock_contact:${match.id}`,
         },
       ]);
@@ -2676,23 +2819,23 @@ We could not find an exact match for your selected filters in those specific sub
       if (scoredMatches.length > 1) {
         const navRow: any[] = [];
         if (safeIndex > 0) {
-          navRow.push({ text: '⬅️ Prev', callback_data: `match_page:${safeIndex - 1}` });
+          navRow.push({ text: isAm ? '⬅️ ወደ ኋላ' : '⬅️ Prev', callback_data: `match_page:${safeIndex - 1}` });
         }
         navRow.push({ text: `📄 ${safeIndex + 1} / ${scoredMatches.length}`, callback_data: 'match_noop' });
         if (safeIndex < scoredMatches.length - 1) {
-          navRow.push({ text: 'Next ➡️', callback_data: `match_page:${safeIndex + 1}` });
+          navRow.push({ text: isAm ? 'ወደ ፊት ➡️' : 'Next ➡️', callback_data: `match_page:${safeIndex + 1}` });
         }
         inlineKeyboardRows.push(navRow);
       }
 
       // Actions & Navigation
       inlineKeyboardRows.push([
-        { text: '🔍 Refine Filters', callback_data: 'matchmaker_start' },
-        { text: '➕ Post My Profile', callback_data: 'seeker_flow' },
+        { text: isAm ? '🔍 መስፈርቶችን አስተካክል' : '🔍 Refine Filters', callback_data: 'matchmaker_start' },
+        { text: isAm ? '➕ የኔን መረጃ ልለጥፍ' : '➕ Post My Profile', callback_data: 'seeker_flow' },
       ]);
       inlineKeyboardRows.push([
-        { text: '📂 My Unlocked Contacts', callback_data: 'my_unlocked_contacts' },
-        { text: '🏠 Main Menu', callback_data: 'nav_start' },
+        { text: isAm ? '📂 የከፈትኳቸው ስልኮች' : '📂 My Unlocked Contacts', callback_data: 'my_unlocked_contacts' },
+        { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
       ]);
 
       if (messageIdToEdit) {
@@ -2822,17 +2965,24 @@ We could not find an exact match for your selected filters in those specific sub
 
       const session = getSession(chatId);
       const targetMsgId = messageIdToEdit || session.draft_data?.card_msg_id;
+      const lang = getLanguage(session.draft_data, chatId);
+      const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
         step: `awaiting_payment_for_unlock:${orderId}`,
-        draft_data: { order_id: orderId, target_id: targetId, target_type: targetType, card_msg_id: targetMsgId },
+        draft_data: {
+          ...session.draft_data,
+          lang,
+          order_id: orderId,
+          target_id: targetId,
+          target_type: targetType,
+          card_msg_id: targetMsgId,
+        },
         updated_at: new Date().toISOString(),
       });
 
       const cleanBio = bioInfo ? bioInfo.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
-      const lang = getLanguage(session.draft_data);
-      const isAm = lang === 'am';
       const paywallText = isAm
         ? `
 🔒 <b>ስፔስማች አዲስ · የተረጋገጠ የስልክ አድራሻ መክፈቻ</b>
@@ -2865,8 +3015,8 @@ Transfer <code>300 ETB</code> to either account:
 
       const paywallKeyboard = [
         [
-          { text: '⬅️ Back to Matches', callback_data: 'matchmaker_start' },
-          { text: '🏠 Main Menu', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ወደ ማዛመጃ ተመለስ' : '⬅️ Back to Matches', callback_data: 'matchmaker_start' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
         ],
       ];
 
@@ -3125,13 +3275,17 @@ Transfer <code>300 ETB</code> to either account:
         sendTelegram('answerCallbackQuery', { callback_query_id: callback.id }).catch(() => {});
       }
 
+      // Load session from Supabase before any getSession() call
+      await preloadSession(chatId);
+
       if (callbackData === 'open_lang_select') {
         await sendLanguageSelectCard(chatId, msgId);
         return NextResponse.json({ ok: true });
       }
 
       if (callbackData === 'set_lang:am' || callbackData === 'set_lang:en') {
-        const chosenLang = callbackData.split(':')[1];
+        const chosenLang = callbackData.split(':')[1] as 'am' | 'en';
+        setUserLanguage(chatId, chosenLang);
         const sess = getSession(chatId);
         await saveSession({
           ...sess,
@@ -3141,9 +3295,6 @@ Transfer <code>300 ETB</code> to either account:
         await sendPrimaryWelcomeMenu(chatId, msgId);
         return NextResponse.json({ ok: true });
       }
-
-      // Load session from Supabase before any getSession() call
-      await preloadSession(chatId);
 
       // ── NEW: Onboarding callbacks (gender, location, move-in) ──────────────
       if (isOnboardingCallback(callbackData)) {
@@ -3397,20 +3548,22 @@ ${res.message}
       }
 
       if (callbackData === 'post_branch_space') {
-        await sendSpaceStep1Type(chatId, {}, msgId);
+        const session = getSession(chatId);
+        await sendSpaceStep1Type(chatId, { ...session.draft_data, mode: 'post_space' }, msgId);
         return NextResponse.json({ ok: true });
       }
 
       if (callbackData === 'post_branch_seeker') {
+        const session = getSession(chatId);
         const isVerified = await isUserFaydaVerified(chatId);
         if (isVerified) {
           const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
           if (p) {
-            await sendChannelPublishPreviewCard(chatId, p, msgId);
+            await sendChannelPublishPreviewCard(chatId, { ...p, lang: session.draft_data?.lang }, msgId);
             return NextResponse.json({ ok: true });
           }
         }
-        await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel', listing_category: 'seeker' }, msgId);
+        await sendDynamicCardStep1Age(chatId, { ...session.draft_data, mode: 'post_to_channel', listing_category: 'seeker' }, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3566,8 +3719,26 @@ ${res.message}
         });
 
         // Notify user
+        const lang = getLanguage(draft, chatId);
+        const isAm = lang === 'am';
         const targetChannel = await getPrimaryChannel();
-        const userConfirmText = `
+        const userConfirmText = isAm
+          ? `
+⏳ <b>ስፔስማች · የሚከራየው ክፍል መረጃ ለአድሚን ተልኳል!</b>
+
+የእርስዎ የክፍል መረጃ (<code>#${cleanCode}</code>) ወደ ቻናል አስተዳዳሪዎች ተልኳል።
+
+• <b>የመለያ ኮድ:</b> <b>#${cleanCode}</b>
+• <b>የክፍሉ አይነት:</b> ${draft.space_type || 'ዋና መኝታ ቤት'}
+• <b>ጠቅላላ ኪራይ:</b> <code>${rentNum.toLocaleString()} ብር / በወር</code>
+• <b>የቤት ጓደኛ ድርሻ:</b> <code>${shareNum.toLocaleString()} ብር / በወር</code>
+• <b>የተያያዙ ፎቶዎች:</b> ${photos.length} ፎቶዎች
+• <b>ሁኔታ:</b> ⏳ <b>አድሚን እስኪያረጋግጥ በመጠባበቅ ላይ</b>
+• <b>ዒላማ ቻናል:</b> <code>${targetChannel}</code>
+
+<blockquote>🔒 ልክ በአድሚን እንደጸደቀ፣ መረጃዎ በቀጥታ ወደ ቻናሉ ይለጠፋል!</blockquote>
+          `.trim()
+          : `
 ⏳ <b>SpaceMatch · Space Listing Submitted for Review!</b>
 
 Your room listing (<code>#${cleanCode}</code>) has been submitted to channel administrators.
@@ -3581,11 +3752,11 @@ Your room listing (<code>#${cleanCode}</code>) has been submitted to channel adm
 • <b>Target Channel:</b> <code>${targetChannel}</code>
 
 <blockquote>🔒 Once approved, your listing will be published directly to the channel with the header <b>"Roommate available with a Room"</b>!</blockquote>
-        `.trim();
+          `.trim();
 
         await sendOrEditCard(chatId, userConfirmText, [
-          [{ text: '⚡ Search Active Roommates 🔍', callback_data: 'search_roommate_start' }],
-          [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+          [{ text: isAm ? '⚡ የቤት ጓደኛ ፈልግ 🔍' : '⚡ Search Active Roommates 🔍', callback_data: 'search_roommate_start' }],
+          [{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
         ], msgId);
 
         // Notify admins
@@ -3929,8 +4100,24 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
         });
 
         // 2. Show confirmation waiting card to the user
+        const lang = getLanguage(draft, chatId);
+        const isAm = lang === 'am';
         const targetChannel = await getPrimaryChannel();
-        const userConfirmText = `
+        const userConfirmText = isAm
+          ? `
+⏳ <b>ስፔስማች · ለአድሚን ማረጋገጫ ተልኳል!</b>
+
+የእርስዎ ሚስጥራዊ የቤት ጓደኛ መረጃ (<code>#${displayCode}</code>) ወደ ቻናል አስተዳዳሪዎች ተልኳል።
+
+• <b>የመለያ ኮድ:</b> <b>#${displayCode}</b>
+• <b>ተመራጭ አካባቢዎች:</b> <code>${subcitiesStr}</code>
+• <b>የበጀት መጠን:</b> <code>እስከ ${Number(budgetNum).toLocaleString()} ብር / በወር</code>
+• <b>ሁኔታ:</b> ⏳ <b>አድሚን እስኪያረጋግጥ በመጠባበቅ ላይ</b>
+• <b>ዒላማ ቻናል:</b> <code>${targetChannel}</code>
+
+<blockquote>🔒 <b>ሚስጥራዊነት የተጠበቀ:</b> ትክክለኛ ስምዎ፣ ስልክ ቁጥርዎ እና የቴሌግራም አድራሻዎ በፍጹም አይገለጥም። አድሚኑ መረጃውን እንዳረጋገጠ ወደ ቻናሉ ይለጠፋል!</blockquote>
+          `.trim()
+          : `
 ⏳ <b>SpaceMatch · Submitted for Admin Approval!</b>
 
 Your anonymous roommate listing (<code>#${displayCode}</code>) has been submitted to the channel administrators.
@@ -3942,14 +4129,14 @@ Your anonymous roommate listing (<code>#${displayCode}</code>) has been submitte
 • <b>Target Channel:</b> <code>${targetChannel}</code>
 
 <blockquote>🔒 <b>Privacy Shield Active:</b> Your real name, phone number, and Telegram handle remain 100% private. Once an administrator approves your profile, it will be broadcasted to the official channel and you will be notified immediately!</blockquote>
-        `.trim();
+          `.trim();
 
         await sendOrEditCard(
           chatId,
           userConfirmText,
           [
-            [{ text: '⚡ Find Roommates Now · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
-            [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+            [{ text: isAm ? '⚡ የቤት ጓደኛ ፈልግ · Matchmaker 🔍' : '⚡ Find Roommates Now · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
           ],
           msgId
         );
@@ -4346,12 +4533,16 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
         }
 
         // Notify requester in-place
+        const requesterLang = getLanguage(undefined, chatId);
+        const requesterIsAm = requesterLang === 'am';
         await sendOrEditCard(
           chatId,
-          `✅ <b>Match Request Delivered!</b>\n\nYour request has been sent to Roommate <b>#${targetProfile.display_code}</b>.\n\n<blockquote>🔔 You will receive an instant notification here the moment they accept!</blockquote>`,
+          requesterIsAm
+            ? `✅ <b>የግንኙነት ጥያቄ ተልኳል!</b>\n\nጥያቄዎ ወደ ክፍል ጓደኛ <b>#${targetProfile.display_code}</b> ደርሷል።\n\n<blockquote>🔔 እንደተቀበሉ ወዲያውኑ ማሳወቂያ ይደርስዎታል!</blockquote>`
+            : `✅ <b>Match Request Delivered!</b>\n\nYour request has been sent to Roommate <b>#${targetProfile.display_code}</b>.\n\n<blockquote>🔔 You will receive an instant notification here the moment they accept!</blockquote>`,
           [
-            [{ text: '⚡ Find Other Roommates 🔍', callback_data: 'matchmaker_start' }],
-            [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+            [{ text: requesterIsAm ? '⚡ ሌሎች ፈላጊዎችን ፈልግ 🔍' : '⚡ Find Other Roommates 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: requesterIsAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
           ],
           msgId
         );
@@ -4402,7 +4593,25 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
           cleanTraits = parts[parts.length - 1];
         }
 
-        const notifyText = `
+        const targetLang = targetProfile.telegram_id ? getUserLanguage(targetProfile.telegram_id) : 'en';
+        const targetIsAm = targetLang === 'am';
+
+        const notifyText = targetIsAm
+          ? `
+🤝 <b>ስፔስማች አዲስ · አዲስ የግንኙነት ጥያቄ!</b>
+
+አንድ የተረጋገጠ የክፍል ጓደኛ ማስታወቂያዎን አይቶ ሊገናኝዎት ይፈልጋል!
+
+• <b>መገለጫ:</b> ${requesterProfile.gender === 'Female' ? 'ሴት' : requesterProfile.gender === 'Male' ? 'ወንድ' : requesterProfile.gender || 'አባል'}፣ ዕድሜ ${reqAge}
+${reqJob ? `• <b>ስራ:</b> ${escapeHtml(reqJob)}\n` : ''}${reqReligion ? `• <b>ሃይማኖት:</b> ${escapeHtml(reqReligion)}\n` : ''}${reqPrefGender ? `• <b>የሚመርጡት:</b> የ${escapeHtml(reqPrefGender === 'Female' ? 'ሴት' : reqPrefGender === 'Male' ? 'ወንድ' : reqPrefGender)} የቤት ጓደኛ\n` : ''}• <b>የበጀት ክልል:</b> <code>${requesterBudgetStr}</code>
+• <b>ተመራጭ አካባቢዎች:</b> <code>${escapeHtml(requesterLocations)}</code>
+• <b>ሁኔታ:</b> 🛡️ <b>ፋይዳ የተረጋገጠ ✅</b>
+${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>` : ''}
+🔒 <i>የግል መረጃ (ስም፣ ስልክ ቁጥር እና ቴሌግራም አድራሻ) የሁለታችሁም ፈቃድ እስካልተረጋገጠና ክፍያ እስካልተጠናቀቀ ድረስ በሚስጥር የተጠበቀ ነው።</i>
+
+<blockquote>ከዚህ የክፍል ጓደኛ ጋር መገናኘት ይፈልጋሉ?</blockquote>
+`.trim()
+          : `
 🤝 <b>SpaceMatch · New Connection Request!</b>
 
 A verified roommate saw your listing and wants to connect!
@@ -4424,8 +4633,8 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>` : ''}
             {
               inline_keyboard: [
                 [
-                  { text: '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
-                  { text: '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
+                  { text: targetIsAm ? '✅ ተቀበል (Accept)' : '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
+                  { text: targetIsAm ? '❌ አልፈልግም (Decline)' : '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
                 ],
               ],
             }
@@ -4439,17 +4648,30 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>` : ''}
       // ── NEW: Match Accept ──────────────────────────────────────────────────
       if (callbackData.startsWith('match_accept:')) {
         const matchId = callbackData.split(':')[1];
+        const acceptLang = getUserLanguage(chatId);
+        const acceptIsAm = acceptLang === 'am';
 
         // Ensure target user is Fayda verified before accepting
         if (!(await isUserFaydaVerified(chatId))) {
           await saveSession({
             telegram_id: chatId,
             step: `awaiting_target_fayda_fan:${matchId}`,
-            draft_data: { match_id: matchId, card_msg_id: msgId },
+            draft_data: { match_id: matchId, card_msg_id: msgId, lang: acceptLang },
             updated_at: new Date().toISOString(),
           });
 
-          const gateText = `
+          const gateText = acceptIsAm
+            ? `
+🛡️ <b>የፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል</b>
+
+ይህንን የክፍል ጓደኝነት ለመቀበል ሁለቱም ወገኖች በፋይዳ መረጋገጥ አለባቸው።
+
+• <b>አማራጭ ሀ:</b> የ <b>12 ወይም 16 ዲጂት ፋይዳ ቁጥርዎን (FAN)</b> እዚህ ይጻፉ:
+<i>ምሳሌ: <code>1234 5678 9012</code></i>
+
+• <b>አማራጭ ለ:</b> ካሜራዎን በመጠቀም QR ስካን ያድርጉ:
+            `.trim()
+            : `
 🛡️ <b>Fayda ID Verification Required</b>
 
 Before accepting this roommate connection, SpaceMatch requires both parties to be Fayda verified for maximum safety.
@@ -4458,16 +4680,16 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
 <i>Example: <code>1234 5678 9012</code></i>
 
 • <b>Option B:</b> Scan using your camera:
-          `.trim();
+            `.trim();
 
           const inlineKeyboard = [
             [
               {
-                text: '📷 Open Camera to Scan Fayda QR ↗️',
+                text: acceptIsAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️',
                 web_app: { url: `${appUrl}?startapp=verify_fayda` },
               },
             ],
-            [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+            [{ text: acceptIsAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }],
           ];
 
           await sendOrEditCard(chatId, gateText, inlineKeyboard, msgId);
@@ -4481,7 +4703,7 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
           .single();
 
         if (!match || match.status !== 'pending_acceptance') {
-          await tgSend(chatId, `ℹ️ This match request is no longer pending.`);
+          await tgSend(chatId, acceptIsAm ? `ℹ️ ይህ የግንኙነት ጥያቄ በአሁኑ ሰዓት ንቁ አይደለም።` : `ℹ️ This match request is no longer pending.`);
           return NextResponse.json({ ok: true });
         }
 
@@ -4494,19 +4716,26 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
         const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
         const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
 
-        const paymentInstructions = `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>50 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>After both parties have paid, contact information will be revealed to both of you. If one party refuses to pay, your payment will be fully refunded.</i>\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
+        const getPaymentInstructions = (isAmUser: boolean) => isAmUser
+          ? `🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>\n\nየእርስ በእርስ ስልክ አድራሻን ለመክፈት እያንዳንዱ ወገን የ <b>300 ብር</b> የአገልግሎት ክፍያ ይከፍላል።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ ስልክ እና አድራሻ ወዲያውኑ ይገለጻል። አንደኛው ወገን ክፍያ ካልፈጸመ የከፈሉት ሙሉ በሙሉ ይመለሳል።</i>\n\nክፍያ ከፈጸሙ በኋላ የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REFERENCE</code>\nወይም\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
+          : `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>300 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>After both parties have paid, contact information will be revealed to both of you. If one party refuses to pay, your payment will be fully refunded.</i>\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
 
         // Send to both users
         const requesterTgId = (match.requester as any)?.telegram_id;
         const targetTgId = (match.target as any)?.telegram_id;
 
+        const targetInstructions = getPaymentInstructions(acceptIsAm);
+
         if (msgId) {
-          await sendOrEditCard(chatId, `✅ <b>You Accepted the Match Request!</b>\n\n${paymentInstructions}`, [], msgId);
+          await sendOrEditCard(chatId, acceptIsAm ? `✅ <b>የግንኙነት ጥያቄውን ተቀብለዋል!</b>\n\n${targetInstructions}` : `✅ <b>You Accepted the Match Request!</b>\n\n${targetInstructions}`, [], msgId);
         } else if (targetTgId) {
-          await tgSend(targetTgId, paymentInstructions);
+          await tgSend(targetTgId, targetInstructions);
         }
 
-        if (requesterTgId) await tgSend(requesterTgId, paymentInstructions);
+        if (requesterTgId) {
+          const reqIsAm = getUserLanguage(requesterTgId) === 'am';
+          await tgSend(requesterTgId, getPaymentInstructions(reqIsAm));
+        }
 
         return NextResponse.json({ ok: true });
       }
@@ -4514,6 +4743,8 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
       // ── NEW: Match Decline ─────────────────────────────────────────────────
       if (callbackData.startsWith('match_decline:')) {
         const matchId = callbackData.split(':')[1];
+        const decLang = getUserLanguage(chatId);
+        const decIsAm = decLang === 'am';
 
         const { data: match } = await supabaseAdmin
           .from('matches')
@@ -4522,7 +4753,7 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
           .single();
 
         if (!match) {
-          await tgSend(chatId, `ℹ️ Match not found.`);
+          await tgSend(chatId, decIsAm ? `ℹ️ ጥያቄው አልተገኘም።` : `ℹ️ Match not found.`);
           return NextResponse.json({ ok: true });
         }
 
@@ -4533,21 +4764,24 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
 
         // Notify decliner
         if (msgId) {
-          await sendOrEditCard(chatId, `✅ You've declined the match request.`, [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]], msgId);
+          await sendOrEditCard(chatId, decIsAm ? `✅ የግንኙነት ጥያቄውን አልተቀበሉትም።` : `✅ You've declined the match request.`, [[{ text: decIsAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]], msgId);
         } else {
-          await tgSend(chatId, `✅ You've declined the match request.`);
+          await tgSend(chatId, decIsAm ? `✅ የግንኙነት ጥያቄውን አልተቀበሉትም።` : `✅ You've declined the match request.`);
         }
 
         // Notify requester
         const requesterTgId = (match.requester as any)?.telegram_id;
         if (requesterTgId) {
+          const reqIsAm = getUserLanguage(requesterTgId) === 'am';
           await tgSend(
             requesterTgId,
-            `📭 <b>Match Unavailable</b>\n\nPotential Roommate is unavailable. Keep looking on the channel or post your profile! 🏠`,
+            reqIsAm
+              ? `📭 <b>ይህ ክፍል ጓደኛ በአሁኑ ሰዓት ዝግጁ አይደለም</b>\n\nሌሎች አማራጮችን በቻናላችን ላይ ይመልከቱ ወይም የራስዎን መረጃ ይለጥፉ! 🏠`
+              : `📭 <b>Match Unavailable</b>\n\nPotential Roommate is unavailable. Keep looking on the channel or post your profile! 🏠`,
             {
               inline_keyboard: [
-                [{ text: '📢 Post My Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
-                [{ text: '⚡ Find Other Roommates · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+                [{ text: reqIsAm ? '📢 የኔን መረጃ ቻናል ላይ ልለጥፍ ↗️' : '📢 Post My Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
+                [{ text: reqIsAm ? '⚡ ሌሎች ፈላጊዎችን ፈልግ 🔍' : '⚡ Find Other Roommates · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
               ],
             }
           );
@@ -5628,22 +5862,26 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           const largestPhoto = message.photo[message.photo.length - 1];
           const fileId = largestPhoto.file_id;
           const updatedPhotos = [...photos, fileId];
+          const lang = getLanguage(session.draft_data, chatId);
+          const isAm = lang === 'am';
 
           await saveSession({
             telegram_id: chatId,
             step: 'space_input_photos',
-            draft_data: { ...session.draft_data, space_photos: updatedPhotos },
+            draft_data: { ...session.draft_data, lang, space_photos: updatedPhotos },
             updated_at: new Date().toISOString(),
           });
 
           await sendTelegram('sendMessage', {
             chat_id: chatId,
-            text: `✅ <b>Photo received!</b> (Total uploaded: <b>${updatedPhotos.length}</b>)\n\nYou can send another photo, or tap below to proceed:`,
+            text: isAm
+              ? `✅ <b>ፎቶው ደርሷል!</b> (ጠቅላላ የገቡ: <b>${updatedPhotos.length}</b>)\n\nተጨማሪ ፎቶ መላክ ይችላሉ፣ ወይም ለመቀጠል ከስር ይጫኑ:`
+              : `✅ <b>Photo received!</b> (Total uploaded: <b>${updatedPhotos.length}</b>)\n\nYou can send another photo, or tap below to proceed:`,
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `➡️ Proceed with ${updatedPhotos.length} Photo(s) 🚀`, callback_data: 'space_photos_done' }],
-                [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+                [{ text: isAm ? `➡️ ቀጥል (${updatedPhotos.length} ፎቶ) 🚀` : `➡️ Proceed with ${updatedPhotos.length} Photo(s) 🚀`, callback_data: 'space_photos_done' }],
+                [{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }],
               ],
             },
           });
@@ -5657,17 +5895,21 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const typeText = text.trim();
         if (!typeText || typeText.length < 3) {
           await sendSpaceStep1Type(
             chatId,
             session.draft_data,
             activeMsgId,
-            'Please enter a description of the space layout (at least 3 characters):'
+            isAm
+              ? 'እባክዎ የሚከራየውን ክፍል አይነት በአጭሩ ይግለጹ (ምሳሌ: ዋና መኝታ ቤት):'
+              : 'Please enter a description of the space layout (at least 3 characters, e.g. Master Bedroom):'
           );
           return NextResponse.json({ ok: true });
         }
-        const updatedDraft = { ...session.draft_data, space_type: typeText };
+        const updatedDraft = { ...session.draft_data, lang, space_type: typeText };
         await sendSpaceStep2Rent(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -5678,17 +5920,21 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const parsedRent = parseNumericInput(text);
         if (!parsedRent || parsedRent < 500 || parsedRent > 500000) {
           await sendSpaceStep2Rent(
             chatId,
             session.draft_data,
             activeMsgId,
-            'Please enter a valid monthly rent amount between 500 and 500,000 ETB:'
+            isAm
+              ? 'ከ 500 እስከ 500,000 በብር መካከል ትክክለኛ ወርሃዊ ኪራይ ያስገቡ (ምሳሌ: 12000):'
+              : 'Please enter a valid monthly rent amount between 500 and 500,000 ETB (e.g. 12000):'
           );
           return NextResponse.json({ ok: true });
         }
-        const updatedDraft = { ...session.draft_data, space_rent: parsedRent };
+        const updatedDraft = { ...session.draft_data, lang, space_rent: parsedRent };
         await sendSpaceStep3Share(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -5699,17 +5945,21 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const parsedShare = parseNumericInput(text);
         if (!parsedShare || parsedShare < 200 || parsedShare > 500000) {
           await sendSpaceStep3Share(
             chatId,
             session.draft_data,
             activeMsgId,
-            'Please enter a valid roommate share amount between 200 and 500,000 ETB:'
+            isAm
+              ? 'ከ 200 እስከ 500,000 በብር መካከል ትክክለኛ የቤት ጓደኛ ድርሻ ያስገቡ (ምሳሌ: 6000):'
+              : 'Please enter a valid roommate share amount between 200 and 500,000 ETB (e.g. 6000):'
           );
           return NextResponse.json({ ok: true });
         }
-        const updatedDraft = { ...session.draft_data, space_share: parsedShare };
+        const updatedDraft = { ...session.draft_data, lang, space_share: parsedShare };
         await sendSpaceStep4Amenities(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -5720,13 +5970,17 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const rawAmenities = text.trim();
         if (!rawAmenities || rawAmenities.length < 2) {
           await sendSpaceStep4Amenities(
             chatId,
             session.draft_data,
             activeMsgId,
-            'Please type at least one amenity or feature included with the space:'
+            isAm
+              ? 'ቤቱ የሚያካትታቸውን ግልጋሎቶች በአጭሩ ይጻፉ (ምሳሌ: ዋይፋይ):'
+              : 'Please type at least one amenity or feature included with the space (e.g. WiFi):'
           );
           return NextResponse.json({ ok: true });
         }
@@ -5738,6 +5992,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 
         const updatedDraft = {
           ...session.draft_data,
+          lang,
           space_amenities: parsedAmenities.length > 0 ? parsedAmenities : [rawAmenities],
           space_amenities_raw: rawAmenities,
         };
@@ -5752,15 +6007,19 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const fanResult = await verifyFaydaFan(text, chatId);
 
         if (!fanResult.valid || !fanResult.fanNumber) {
           await sendOrEditCard(
             chatId,
-            `🛡️ <b>SpaceMatch · Fayda ID Verification Required</b>\n\n⚠️ <b>${fanResult.error || 'Invalid Fayda FAN number. Please check the digits and try again.'}</b>\n\nPlease reply with your 12-digit or 16-digit FAN number:`,
+            isAm
+              ? `🛡️ <b>ስፔስማች አዲስ · የፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል</b>\n\n⚠️ <b>${fanResult.error || 'ትክክለኛ የፋይዳ ቁጥር አይደለም። እባክዎ ቁጥሩን በትክክል ያስገቡ (12 ወይም 16 ዲጂት):'}</b>\n\nየእርስዎን 12 ወይም 16 ዲጂት የፋይዳ ቁጥር (FAN) እዚህ ይጻፉ:`
+              : `🛡️ <b>SpaceMatch · Fayda ID Verification Required</b>\n\n⚠️ <b>${fanResult.error || 'Invalid Fayda FAN number. Please check the digits and try again.'}</b>\n\nPlease reply with your 12-digit or 16-digit FAN number:`,
             [
-              [{ text: '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
-              [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+              [{ text: isAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
+              [{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }],
             ],
             activeMsgId
           );
@@ -5777,8 +6036,10 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         if (existingUser) {
           await sendOrEditCard(
             chatId,
-            `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda National ID is already registered to another account.`,
-            [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            isAm
+              ? `⚠️ <b>ይህ የፋይዳ ቁጥር ቀደም ሲል ተመዝግቧል</b>\n\nይህ የፋይዳ ብሔራዊ መታወቂያ በሌላ አካውንት ስም ተመዝግቧል።`
+              : `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda National ID is already registered to another account.`,
+            [[{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]],
             activeMsgId
           );
           return NextResponse.json({ ok: true });
@@ -5800,7 +6061,18 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 
         await clearSession(chatId);
 
-        const verifiedText = `
+        const verifiedText = isAm
+          ? `
+🎉 <b>የፋይዳ ብሔራዊ መታወቂያዎ ተረጋግጧል!</b>
+🛡️ <b>ሁኔታ:</b> የተረጋገጠ ✅
+
+• <b>የፋይዳ መለያ:</b> <code>•••• •••• ${fanResult.fanNumber.slice(-4)}</code>
+• <b>ፈቃድ:</b> ሙሉ አገልግሎት (ማዛመጃ፣ የፈላጊ መገለጫ፣ የጋራ ግንኙነት)
+• <b>ማረጋገጫ:</b> የቬርሆፍ ቼክሰም የተረጋገጠ ✅
+
+<blockquote>በአዲስ አበባ ውስጥ በሙሉ እምነት እና ደህንነት መፈለግ እና መገናኘት ይችላሉ።</blockquote>
+          `.trim()
+          : `
 🎉 <b>FAYDA NATIONAL ID VERIFIED!</b>
 🛡️ <b>Status:</b> VERIFIED ✅
 
@@ -5809,15 +6081,15 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 • <b>Validation:</b> Instant Offline Dihedral Checksum Validated ✅
 
 <blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
-        `.trim();
+          `.trim();
 
         await sendOrEditCard(
           chatId,
           verifiedText,
           [
-            [{ text: '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
-            [{ text: '📢 Post Your Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
-            [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+            [{ text: isAm ? '⚡ የክፍል ጓደኛ ፈልግ · ማዛመጃ 🔍' : '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: isAm ? '📢 መረጃህን ቻናል ላይ ልጠፍ ↗️' : '📢 Post Your Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
+            [{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }],
           ],
           activeMsgId
         );
@@ -5869,18 +6141,22 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const ageVal = parseNumericInput(text);
         if (!ageVal || ageVal < 18 || ageVal > 85) {
           await sendDynamicCardStep1Age(
             chatId,
             session.draft_data,
             activeMsgId,
-            'Please enter a valid numerical age between 18 and 85 (e.g. 24):'
+            isAm
+              ? 'ትክክለኛ ዕድሜዎን በቁጥር ያስገቡ (ከ 18 እስከ 85፣ ምሳሌ: 24):'
+              : 'Please enter a valid numerical age between 18 and 85 (e.g. 24):'
           );
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, age: ageVal };
+        const updatedDraft = { ...session.draft_data, age: ageVal, lang };
         await sendDynamicCardStep2Gender(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -5891,18 +6167,22 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const jobVal = text.trim();
         if (!jobVal || jobVal.length < 2 || jobVal.length > 80) {
           await sendDynamicCardStep4Job(
             chatId,
             session.draft_data,
             activeMsgId,
-            'Please enter a valid job or occupation (e.g. Software Engineer, Accountant, Student):'
+            isAm
+              ? 'የስራ ሁኔታዎን ወይም ሙያዎን በአጭሩ ይጻፉ (ምሳሌ: አካውንታንት):'
+              : 'Please enter a valid job or occupation (e.g. Software Engineer, Accountant, Student):'
           );
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, job: jobVal };
+        const updatedDraft = { ...session.draft_data, job: jobVal, lang };
         await sendDynamicCardStep5Budget(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -5913,18 +6193,22 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const budgetRange = parseBudgetRangeInput(text);
         if (!budgetRange || budgetRange.max < 500 || budgetRange.max > 1000000) {
           await sendDynamicCardStep5Budget(
             chatId,
             session.draft_data,
             activeMsgId,
-            'Please enter a valid monthly budget range in ETB (e.g. 8000 - 15000):'
+            isAm
+              ? 'ትክክለኛ ወርሃዊ የበጀት ክልል በብር ያስገቡ (ምሳሌ: 8000 - 15000):'
+              : 'Please enter a valid monthly budget range in ETB (e.g. 8000 - 15000):'
           );
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, budget_min: budgetRange.min, budget_max: budgetRange.max };
+        const updatedDraft = { ...session.draft_data, budget_min: budgetRange.min, budget_max: budgetRange.max, lang };
         await sendDynamicCardStep6PrefGender(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -5935,18 +6219,22 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const traitsVal = text.trim();
         if (!traitsVal || traitsVal.length < 3 || traitsVal.length > 500) {
           await sendDynamicCardStep7Traits(
             chatId,
             session.draft_data,
             activeMsgId,
-            'Please describe your preferred roommate traits (e.g. Quiet, tidy, non-smoker):'
+            isAm
+              ? 'የሚፈልጉትን የቤት ጓደኛ ጠባይ በአጭሩ ይግለጹ (ምሳሌ: ጸጥታ የሚወድ):'
+              : 'Please describe your preferred roommate traits (e.g. Quiet, tidy, non-smoker):'
           );
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, roommate_traits: traitsVal };
+        const updatedDraft = { ...session.draft_data, roommate_traits: traitsVal, lang };
         await sendDynamicCardStep8Subcities(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -5957,6 +6245,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const fanResult = await verifyFaydaFan(text, chatId);
 
         if (!fanResult.valid || !fanResult.fanNumber) {
@@ -5964,14 +6254,13 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             chatId,
             session.draft_data,
             activeMsgId,
-            fanResult.error || 'Invalid Fayda FAN number. Please check the digits and try again.'
+            fanResult.error || (isAm ? 'ትክክለኛ የፋይዳ ቁጥር አይደለም። እባክዎ ቁጥሩን በትክክል ያስገቡ (12 ወይም 16 ዲጂት):' : 'Invalid Fayda FAN number. Please check the digits and try again.')
           );
           return NextResponse.json({ ok: true });
         }
 
-        await completeSeekerOnboarding(chatId, session.draft_data, activeMsgId, message.from);
+        await completeSeekerOnboarding(chatId, { ...session.draft_data, lang }, activeMsgId, message.from);
         return NextResponse.json({ ok: true });
-
       }
 
       // Target User Verification before accepting match
@@ -5981,16 +6270,20 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const fanResult = await verifyFaydaFan(text, chatId);
 
         if (!fanResult.valid || !fanResult.fanNumber) {
-          const errMsg = fanResult.error || 'Invalid Fayda FAN number. Please check the digits and try again.';
+          const errMsg = fanResult.error || (isAm ? 'ትክክለኛ የፋይዳ ቁጥር አይደለም። እባክዎ ቁጥሩን በትክክል ያስገቡ (12 ወይም 16 ዲጂት):' : 'Invalid Fayda FAN number. Please check the digits and try again.');
           await sendOrEditCard(
             chatId,
-            `🛡️ <b>Fayda ID Verification Required</b>\n\n⚠️ <b>${errMsg}</b>\n\nPlease reply with your 12-digit or 16-digit FAN number:`,
+            isAm
+              ? `🛡️ <b>ስፔስማች አዲስ · የፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል</b>\n\n⚠️ <b>${errMsg}</b>\n\nየእርስዎን 12 ወይም 16 ዲጂት የፋይዳ ቁጥር (FAN) እዚህ ይጻፉ:`
+              : `🛡️ <b>Fayda ID Verification Required</b>\n\n⚠️ <b>${errMsg}</b>\n\nPlease reply with your 12-digit or 16-digit FAN number:`,
             [
-              [{ text: '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
-              [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+              [{ text: isAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
+              [{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }],
             ],
             activeMsgId
           );
@@ -6007,8 +6300,10 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         if (existingUser) {
           await sendOrEditCard(
             chatId,
-            `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda ID is already associated with another account. Please use your own Fayda ID.`,
-            [[{ text: '🏠 Cancel', callback_data: 'nav_start' }]],
+            isAm
+              ? `⚠️ <b>ይህ የፋይዳ ቁጥር ቀደም ሲል ተመዝግቧል</b>\n\nይህ የፋይዳ መታወቂያ በሌላ አካውንት ስም ተመዝግቧል። እባክዎ የራስዎን የፋይዳ ቁጥር ይጠቀሙ።`
+              : `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda ID is already associated with another account. Please use your own Fayda ID.`,
+            [[{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }]],
             activeMsgId
           );
           return NextResponse.json({ ok: true });
@@ -6039,7 +6334,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           .single();
 
         if (!match || match.status !== 'pending_acceptance') {
-          await sendOrEditCard(chatId, `✅ <b>Fayda Verified!</b> However, this match request is no longer pending.`, [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]], activeMsgId);
+          await sendOrEditCard(chatId, isAm ? `✅ <b>ፋይዳ ተረጋግጧል!</b> ነገር ግን ይህ የግንኙነት ጥያቄ በአሁኑ ሰዓት ንቁ አይደለም።` : `✅ <b>Fayda Verified!</b> However, this match request is no longer pending.`, [[{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]], activeMsgId);
           return NextResponse.json({ ok: true });
         }
 
@@ -6051,13 +6346,20 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
         const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
 
-        const paymentInstructions = `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>50 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>After both parties have paid, contact information will be revealed to both of you. If one party refuses to pay, your payment will be fully refunded.</i>\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
+        const paymentInstructions = isAm
+          ? `🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>\n\nየእርስ በእርስ ስልክ አድራሻን ለመክፈት እያንዳንዱ ወገን የ <b>300 ብር</b> የአገልግሎት ክፍያ ይከፍላል።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ ስልክ እና አድራሻ ወዲያውኑ ይገለጻል። አንደኛው ወገን ክፍያ ካልፈጸመ የከፈሉት ሙሉ በሙሉ ይመለሳል።</i>\n\nክፍያ ከፈጸሙ በኋላ የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REFERENCE</code>\nወይም\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
+          : `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>300 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>After both parties have paid, contact information will be revealed to both of you. If one party refuses to pay, your payment will be fully refunded.</i>\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
 
-        await sendOrEditCard(chatId, `✅ <b>Fayda Verified Successfully!</b>\n\nYou have accepted the connection request.\n\n${paymentInstructions}`, [], activeMsgId);
+        await sendOrEditCard(chatId, isAm ? `✅ <b>የፋይዳ ማረጋገጫ ተሳክቷል!</b>\n\nየግንኙነት ጥያቄውን ተቀብለዋል።\n\n${paymentInstructions}` : `✅ <b>Fayda Verified Successfully!</b>\n\nYou have accepted the connection request.\n\n${paymentInstructions}`, [], activeMsgId);
 
         const requesterTgId = (match.requester as any)?.telegram_id;
         if (requesterTgId) {
-          await tgSend(requesterTgId, paymentInstructions);
+          const reqLang = getUserLanguage(requesterTgId);
+          const reqIsAm = reqLang === 'am';
+          const requesterInstructions = reqIsAm
+            ? `🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>\n\nየእርስ በእርስ ስልክ አድራሻን ለመክፈት እያንዳንዱ ወገን የ <b>300 ብር</b> የአገልግሎት ክፍያ ይከፍላል።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ ስልክ እና አድራሻ ወዲያውኑ ይገለጻል። አንደኛው ወገን ክፍያ ካልፈጸመ የከፈሉት ሙሉ በሙሉ ይመለሳል።</i>\n\nክፍያ ከፈጸሙ በኋላ የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REFERENCE</code>\nወይም\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
+            : paymentInstructions;
+          await tgSend(requesterTgId, requesterInstructions);
         }
 
         return NextResponse.json({ ok: true });
@@ -6069,13 +6371,20 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const targetMsgId = session.draft_data.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const ageVal = parseNumericInput(text);
         if (!ageVal || ageVal < 18 || ageVal > 99) {
-          await sendMatchmakerAgeStep(chatId, session.draft_data, targetMsgId, '⚠️ <b>Please type a valid numerical age between 18 and 99:</b>');
+          await sendMatchmakerAgeStep(
+            chatId,
+            session.draft_data,
+            targetMsgId,
+            isAm ? '⚠️ <b>ትክክለኛ ዕድሜዎን በቁጥር ያስገቡ (ከ 18 እስከ 99፣ ምሳሌ: 24):</b>' : '⚠️ <b>Please type a valid numerical age between 18 and 99 (e.g. 24):</b>'
+          );
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, age: ageVal };
+        const updatedDraft = { ...session.draft_data, age: ageVal, lang };
         await sendMatchmakerPrefGenderStep(chatId, updatedDraft, targetMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -6086,13 +6395,20 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const targetMsgId = session.draft_data.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const budgetVal = parseNumericInput(text);
         if (!budgetVal || budgetVal <= 0 || budgetVal > 1000000) {
-          await sendMatchmakerBudgetStep(chatId, session.draft_data, targetMsgId, '⚠️ <b>Please type a valid monthly budget cap in ETB:</b>');
+          await sendMatchmakerBudgetStep(
+            chatId,
+            session.draft_data,
+            targetMsgId,
+            isAm ? '⚠️ <b>ትክክለኛ ወርሃዊ የበጀት ጣሪያ በብር ያስገቡ (ምሳሌ: 10000):</b>' : '⚠️ <b>Please type a valid monthly budget cap in ETB (e.g. 10000):</b>'
+          );
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, budget_max: budgetVal };
+        const updatedDraft = { ...session.draft_data, budget_max: budgetVal, lang };
         await executeAutomatedMatchmaker(chatId, updatedDraft, targetMsgId, 0);
         return NextResponse.json({ ok: true });
       }
@@ -6103,13 +6419,20 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const targetMsgId = session.draft_data.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const ageVal = parseNumericInput(text);
         if (!ageVal || ageVal < 18 || ageVal > 99) {
-          await sendSeekerAgeStep(chatId, session.draft_data, targetMsgId, '⚠️ <b>Please enter a valid age between 18 and 99:</b>');
+          await sendSeekerAgeStep(
+            chatId,
+            session.draft_data,
+            targetMsgId,
+            isAm ? '⚠️ <b>ትክክለኛ ዕድሜዎን በቁጥር ያስገቡ (ከ 18 እስከ 99፣ ምሳሌ: 24):</b>' : '⚠️ <b>Please enter a valid age between 18 and 99 (e.g. 24):</b>'
+          );
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, age: ageVal };
+        const updatedDraft = { ...session.draft_data, age: ageVal, lang };
         await sendSeekerPrefGenderStep(chatId, updatedDraft, targetMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -6120,13 +6443,20 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const targetMsgId = session.draft_data.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const budgetVal = parseNumericInput(text);
         if (!budgetVal || budgetVal < 500 || budgetVal > 1000000) {
-          await sendSeekerBudgetStep(chatId, session.draft_data, targetMsgId, '⚠️ <b>Please type a valid monthly budget cap in ETB:</b>');
+          await sendSeekerBudgetStep(
+            chatId,
+            session.draft_data,
+            targetMsgId,
+            isAm ? '⚠️ <b>ትክክለኛ ወርሃዊ የበጀት ጣሪያ በብር ያስገቡ (ምሳሌ: 10000):</b>' : '⚠️ <b>Please type a valid monthly budget cap in ETB (e.g. 10000):</b>'
+          );
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, budget_max: budgetVal };
+        const updatedDraft = { ...session.draft_data, budget_max: budgetVal, lang };
         await sendSeekerBioStep(chatId, updatedDraft, targetMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -6137,8 +6467,10 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const targetMsgId = session.draft_data.card_msg_id;
-        const bioText = text.toLowerCase() === 'skip' ? 'Seeking compatible roommate' : text;
-        const updatedDraft = { ...session.draft_data, lifestyle_bio: bioText };
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
+        const bioText = text.toLowerCase() === 'skip' ? (isAm ? 'ተስማሚ የቤት ጓደኛ እፈልጋለሁ' : 'Seeking compatible roommate') : text;
+        const updatedDraft = { ...session.draft_data, lifestyle_bio: bioText, lang };
         await sendSeekerPhoneStep(chatId, updatedDraft, targetMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -6149,13 +6481,20 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const targetMsgId = session.draft_data.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
         const cleaned = text.replace(/\s+/g, '').replace(/^\+251/, '0');
         if (!/^(0[97]\d{8}|\+251[97]\d{8})$/.test(text.replace(/\s+/g, ''))) {
-          await sendSeekerPhoneStep(chatId, session.draft_data, targetMsgId, '⚠️ <b>Please type a valid Ethiopian phone number (e.g. <code>0912345678</code>):</b>');
+          await sendSeekerPhoneStep(
+            chatId,
+            session.draft_data,
+            targetMsgId,
+            isAm ? '⚠️ <b>ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ (ምሳሌ: <code>0912345678</code>):</b>' : '⚠️ <b>Please type a valid Ethiopian phone number (e.g. <code>0912345678</code>):</b>'
+          );
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, contact_phone: cleaned };
+        const updatedDraft = { ...session.draft_data, contact_phone: cleaned, lang };
         await sendSeekerFaydaStep(chatId, updatedDraft, targetMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -6291,13 +6630,18 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             }
           }
 
+          const reqLang = getUserLanguage(chatId);
+          const reqIsAm = reqLang === 'am';
+
           if (!targetProfile) {
             await sendOrEditCard(
               chatId,
-              `⚠️ <b>SpaceMatch</b> · <b>Listing Not Available</b>\n\nRoommate <b>#${lookupCode}</b> is no longer available or was removed.\n\n<blockquote>Browse other active verified roommates below:</blockquote>`,
+              reqIsAm
+                ? `⚠️ <b>ስፔስማች</b> · <b>ይህ ማስታወቂያ በአሁኑ ሰዓት አይገኝም</b>\n\nየክፍል ጓደኛ <b>#${lookupCode}</b> ተሰርዟል ወይም ከአሁን በኋላ አይገኝም።\n\n<blockquote>ሌሎች ንቁ እና የተረጋገጡ ፈላጊዎችን ከታች ይመልከቱ:</blockquote>`
+                : `⚠️ <b>SpaceMatch</b> · <b>Listing Not Available</b>\n\nRoommate <b>#${lookupCode}</b> is no longer available or was removed.\n\n<blockquote>Browse other active verified roommates below:</blockquote>`,
               [
-                [{ text: '⚡ Find Active Roommates · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
-                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+                [{ text: reqIsAm ? '⚡ ሌሎች ፈላጊዎችን ፈልግ 🔍' : '⚡ Find Active Roommates · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+                [{ text: reqIsAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
               ]
             );
             return NextResponse.json({ ok: true });
@@ -6307,11 +6651,13 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           if (targetProfile.status === 'matched' || targetProfile.status === 'closed') {
             await sendOrEditCard(
               chatId,
-              `🔴 <b>SpaceMatch</b> · <b>Listing Closed / Matched</b>\n\n🤝 Roommate <b>#${targetProfile.display_code || lookupCode}</b> has already found a match! 🎉\n\n<blockquote>This listing is officially closed. Browse other verified roommates below:</blockquote>`,
+              reqIsAm
+                ? `🔴 <b>ስፔስማች</b> · <b>ማስታወቂያው ተዘግቷል</b>\n\n🤝 የክፍል ጓደኛ <b>#${targetProfile.display_code || lookupCode}</b> የቤት ጓደኛ አግኝቷል! 🎉\n\n<blockquote>ይህ ማስታወቂያ በይፋ ተዘግቷል። ሌሎች የተረጋገጡ ፈላጊዎችን ከታች ይመልከቱ:</blockquote>`
+                : `🔴 <b>SpaceMatch</b> · <b>Listing Closed / Matched</b>\n\n🤝 Roommate <b>#${targetProfile.display_code || lookupCode}</b> has already found a match! 🎉\n\n<blockquote>This listing is officially closed. Browse other verified roommates below:</blockquote>`,
               [
-                [{ text: '⚡ Find Roommates Now · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
-                [{ text: '👥 Post Seeker Profile', callback_data: 'seeker_flow' }],
-                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+                [{ text: reqIsAm ? '⚡ ሌሎች ፈላጊዎችን ፈልግ 🔍' : '⚡ Find Roommates Now · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+                [{ text: reqIsAm ? '👥 መረጃዬን ልለጥፍ' : '👥 Post Seeker Profile', callback_data: 'seeker_flow' }],
+                [{ text: reqIsAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
               ]
             );
             return NextResponse.json({ ok: true });
@@ -6321,10 +6667,12 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           if (String(targetProfile.telegram_id) === String(chatId)) {
             await sendOrEditCard(
               chatId,
-              `ℹ️ <b>SpaceMatch</b> · <b>Your Active Channel Post</b>\n\nThis is your active listing for Roommate <b>#${targetProfile.display_code || lookupCode}</b>.\n\n<blockquote>If you have found a roommate, tap below to mark it as closed:</blockquote>`,
+              reqIsAm
+                ? `ℹ️ <b>ስፔስማች</b> · <b>የእርስዎ ንቁ ማስታወቂያ</b>\n\nይህ በቻናሉ ላይ የተለጠፈው የእርስዎ ማስታወቂያ (<b>#${targetProfile.display_code || lookupCode}</b>) ነው።\n\n<blockquote>የቤት ጓደኛ ካገኙ ማስታወቂያውን ለመዝጋት ከታች ይጫኑ:</blockquote>`
+                : `ℹ️ <b>SpaceMatch</b> · <b>Your Active Channel Post</b>\n\nThis is your active listing for Roommate <b>#${targetProfile.display_code || lookupCode}</b>.\n\n<blockquote>If you have found a roommate, tap below to mark it as closed:</blockquote>`,
               [
-                [{ text: '🔴 Mark as Closed / Matched', callback_data: `user_close_listing:${targetProfile.id}` }],
-                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+                [{ text: reqIsAm ? '🔴 እንደተዘጋ ምልክት አድርግ' : '🔴 Mark as Closed / Matched', callback_data: `user_close_listing:${targetProfile.id}` }],
+                [{ text: reqIsAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
               ]
             );
             return NextResponse.json({ ok: true });
@@ -6352,6 +6700,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
               target_code: targetProfile.display_code || lookupCode,
               target_locations: targetLocations,
               target_budget: targetBudgetStr,
+              lang: reqLang,
             });
             return NextResponse.json({ ok: true });
           }
@@ -6365,6 +6714,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
               target_code: targetProfile.display_code || lookupCode,
               target_locations: targetLocations,
               target_budget: targetBudgetStr,
+              lang: reqLang,
             },
             updated_at: new Date().toISOString(),
           });
@@ -6374,10 +6724,22 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           const bMin = Number(myProfile.budget_min || 0);
           const bMax = Number(myProfile.budget_max || 10000);
           const myBudgetStr = bMin > 0 ? `${bMin.toLocaleString()} – ${bMax.toLocaleString()} ETB` : `Up to ${bMax.toLocaleString()} ETB`;
-          const myGenderStr = myProfile.gender || 'Member';
-          const myAgeStr = myProfile.age ? `, ${myProfile.age} yrs` : '';
+          const myGenderStr = reqIsAm ? (myProfile.gender === 'Female' ? 'ሴት' : myProfile.gender === 'Male' ? 'ወንድ' : myProfile.gender || 'አባል') : (myProfile.gender || 'Member');
+          const myAgeStr = myProfile.age ? (reqIsAm ? `፣ ${myProfile.age} ዓመት` : `, ${myProfile.age} yrs`) : '';
 
-          const inspectionCard = `
+          const inspectionCard = reqIsAm
+            ? `
+🤝 <b>ከክፍል ጓደኛ #${targetProfile.display_code || lookupCode} ጋር ይገናኙ</b>
+
+• <b>ተፈላጊ:</b> #${targetProfile.display_code || lookupCode} (📍 <code>${targetLocations}</code>)
+• <b>የእርስዎ መገለጫ:</b> #${myCode} (${myGenderStr}${myAgeStr})
+• <b>ስራ:</b> ${escapeHtml(myProfile.job || 'ሙያተኛ')}
+• <b>ሃይማኖት:</b> ${escapeHtml(myProfile.religion || 'ማንኛውም')}
+• <b>የሚመርጡት:</b> የ${escapeHtml(myProfile.preferred_gender === 'Female' ? 'ሴት' : myProfile.preferred_gender === 'Male' ? 'ወንድ' : myProfile.preferred_gender || 'ማንኛውም')} ክፍል ጓደኛ
+• <b>የእርስዎ በጀት:</b> <code>${myBudgetStr}</code>
+• <b>የእርስዎ አካባቢዎች:</b> <code>${escapeHtml(myLocations)}</code>
+            `.trim()
+            : `
 🤝 <b>Connect with Roommate #${targetProfile.display_code || lookupCode}</b>
 
 • <b>Target:</b> #${targetProfile.display_code || lookupCode} (📍 <code>${targetLocations}</code>)
@@ -6387,18 +6749,18 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 • <b>Prefers:</b> ${escapeHtml(myProfile.preferred_gender || 'Any')} Roommate
 • <b>Your Budget:</b> <code>${myBudgetStr}</code>
 • <b>Your Areas:</b> <code>${escapeHtml(myLocations)}</code>
-          `.trim();
+            `.trim();
 
           await sendOrEditCard(
             chatId,
             inspectionCard,
             [
               [
-                { text: `🚀 Send Request to #${targetProfile.display_code || lookupCode}`, callback_data: `confirm_match:${targetProfile.id}` },
+                { text: reqIsAm ? `🚀 ጥያቄ ላክ (#${targetProfile.display_code || lookupCode})` : `🚀 Send Request to #${targetProfile.display_code || lookupCode}`, callback_data: `confirm_match:${targetProfile.id}` },
               ],
               [
-                { text: '✏️ Edit My Profile', callback_data: 'post_profile_start' },
-                { text: '🏠 Main Menu', callback_data: 'nav_start' },
+                { text: reqIsAm ? '✏️ መገለጫዬን አስተካክል' : '✏️ Edit My Profile', callback_data: 'post_profile_start' },
+                { text: reqIsAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
               ],
             ]
           );
@@ -6454,7 +6816,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         }
 
         if (text === '/start property_type') {
-          await sendSpaceStep1Type(chatId, {});
+          const session = getSession(chatId);
+          await sendSpaceStep1Type(chatId, { ...session.draft_data, mode: 'post_space' });
           return NextResponse.json({ ok: true });
         }
 

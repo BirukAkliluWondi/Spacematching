@@ -75,12 +75,31 @@ export interface SpaceDraft {
 // Empty session factory
 // ---------------------------------------------------------------------------
 function emptySession(telegramId: number): BotSession {
+  const cachedLang = _userLanguageCache[String(telegramId)];
   return {
     telegram_id: telegramId,
     step: 'idle',
-    draft_data: {},
+    draft_data: cachedLang ? { lang: cachedLang } : {},
     updated_at: new Date().toISOString(),
   };
+}
+
+// In-memory cache per serverless invocation (populated by preloadSession)
+const _sessionCache: Record<string, BotSession> = {};
+const _userLanguageCache: Record<string, 'am' | 'en'> = {};
+
+export function getUserLanguage(telegramId: number): 'am' | 'en' | undefined {
+  return _userLanguageCache[String(telegramId)] || (_sessionCache[String(telegramId)]?.draft_data?.lang as ('am' | 'en') | undefined);
+}
+
+export function setUserLanguage(telegramId: number, lang: 'am' | 'en'): void {
+  _userLanguageCache[String(telegramId)] = lang;
+  if (_sessionCache[String(telegramId)]) {
+    _sessionCache[String(telegramId)].draft_data = {
+      ..._sessionCache[String(telegramId)].draft_data,
+      lang,
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -90,16 +109,23 @@ export function getSession(telegramId: number): BotSession {
   // NOTE: Supabase JS v2 requires async, but the old code was sync.
   // We keep the sync interface here and use a module-level in-memory cache
   // that is populated by the async preload below. Call preloadSession() first.
-  return _sessionCache[String(telegramId)] ?? emptySession(telegramId);
+  const sess = _sessionCache[String(telegramId)] ?? emptySession(telegramId);
+  const userLang = _userLanguageCache[String(telegramId)];
+  if (userLang && !sess.draft_data?.lang) {
+    sess.draft_data = { ...sess.draft_data, lang: userLang };
+  }
+  return sess;
 }
-
-// In-memory cache per serverless invocation (populated by preloadSession)
-const _sessionCache: Record<string, BotSession> = {};
 
 /** Call this at the top of the webhook handler BEFORE calling getSession(). */
 export async function preloadSession(telegramId: number): Promise<BotSession> {
   const cached = _sessionCache[String(telegramId)];
   if (cached) {
+    if (cached.draft_data?.lang) {
+      _userLanguageCache[String(telegramId)] = cached.draft_data.lang;
+    } else if (_userLanguageCache[String(telegramId)]) {
+      cached.draft_data.lang = _userLanguageCache[String(telegramId)];
+    }
     return cached;
   }
   try {
@@ -118,6 +144,12 @@ export async function preloadSession(telegramId: number): Promise<BotSession> {
         }
       : emptySession(telegramId);
 
+    if (session.draft_data?.lang) {
+      _userLanguageCache[String(telegramId)] = session.draft_data.lang;
+    } else if (_userLanguageCache[String(telegramId)]) {
+      session.draft_data.lang = _userLanguageCache[String(telegramId)];
+    }
+
     _sessionCache[String(telegramId)] = session;
     return session;
   } catch {
@@ -128,6 +160,14 @@ export async function preloadSession(telegramId: number): Promise<BotSession> {
 }
 
 export async function saveSession(session: BotSession): Promise<void> {
+  // Ensure draft_data is an object and retains language
+  session.draft_data = session.draft_data ?? {};
+  const activeLang = session.draft_data.lang || _userLanguageCache[String(session.telegram_id)];
+  if (activeLang) {
+    session.draft_data.lang = activeLang;
+    _userLanguageCache[String(session.telegram_id)] = activeLang;
+  }
+
   // Update cache immediately so subsequent getSession() calls in the same
   // request see the new state, then persist to Supabase and await.
   _sessionCache[String(session.telegram_id)] = session;
@@ -153,8 +193,10 @@ export async function saveSession(session: BotSession): Promise<void> {
 export async function clearSession(telegramId: number): Promise<void> {
   const current = getSession(telegramId);
   const preservedDraft: Record<string, any> = {};
-  if (current?.draft_data?.lang) {
-    preservedDraft.lang = current.draft_data.lang;
+  const activeLang = current?.draft_data?.lang || _userLanguageCache[String(telegramId)];
+  if (activeLang) {
+    preservedDraft.lang = activeLang;
+    _userLanguageCache[String(telegramId)] = activeLang;
   }
   if (current?.draft_data?.checkin_scheduled) {
     preservedDraft.checkin_scheduled = true;
