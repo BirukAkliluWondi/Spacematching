@@ -1416,8 +1416,12 @@ A verified roommate saw your listing and wants to connect!
 <blockquote>Would you like to connect with this roommate?</blockquote>
 `.trim();
 
-        if (targetProfile.telegram_id) {
-          const sendRes = await tgSend(targetProfile.telegram_id, targetNotifyText, {
+        const targetNotifyId = targetProfile.telegram_id > 0
+          ? targetProfile.telegram_id
+          : (Number(targetProfile.telegram_username?.replace('admin_', '')) || Number(targetProfile.phone_number?.replace('admin:', '')) || (await getAdminIds())[0] || 800701176);
+
+        if (targetNotifyId) {
+          const sendRes = await tgSend(targetNotifyId, targetNotifyText, {
             inline_keyboard: [
               [
                 { text: targetIsAm ? '✅ ተቀበል (Accept)' : '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
@@ -1425,7 +1429,7 @@ A verified roommate saw your listing and wants to connect!
               ],
             ],
           });
-          console.log('[completeSeekerOnboarding] Anonymous notification to target telegram_id', targetProfile.telegram_id, 'result:', sendRes?.ok ? 'DELIVERED' : sendRes?.description);
+          console.log('[completeSeekerOnboarding] Anonymous notification to target telegram_id', targetNotifyId, 'result:', sendRes?.ok ? 'DELIVERED' : sendRes?.description);
         }
 
         // Notify requester
@@ -3734,11 +3738,14 @@ Transfer <code>300 ETB</code> to either account:
         const genderStr = draft.gender || 'Any';
         const bioStr = draft.details || 'Seeking compatible roommate in Addis Ababa.';
 
-        // 1. Save to Supabase profiles first
+        const codeDigits = parseInt(displayCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
+        const syntheticTgId = - (1000000000 + codeDigits);
+
+        // 1. Save to Supabase profiles with unique synthetic ID and admin tracking
         const { data: savedProfile, error: saveErr } = await supabaseAdmin
           .from('profiles')
-          .insert({
-            telegram_id: chatId,
+          .upsert({
+            telegram_id: syntheticTgId,
             display_code: displayCode,
             gender: genderStr,
             locations: subcities,
@@ -3748,7 +3755,10 @@ Transfer <code>300 ETB</code> to either account:
             kyc_status: 'verified',
             status: 'active',
             onboarding_step: 'completed',
-          })
+            telegram_username: `admin_${chatId}`,
+            phone_number: `admin:${chatId}`,
+            full_name: 'Verified Channel Listing',
+          }, { onConflict: 'display_code' })
           .select('*')
           .single();
 
@@ -3756,39 +3766,68 @@ Transfer <code>300 ETB</code> to either account:
           console.error('Error saving admin post to profiles:', saveErr);
         }
 
-        // 2. Also save to roommate_profiles
-        try {
-          await supabaseAdmin.from('roommate_profiles').insert({
-            user_telegram_id: chatId,
-            display_code: displayCode,
-            my_gender: genderStr,
-            preferred_gender: 'Any',
-            preferred_subcity: subcities,
-            budget_min: 0,
-            budget_max: budgetNum,
-            lifestyle_bio: bioStr,
-            unlock_fee: 300,
-            status: 'approved',
-          });
-        } catch {}
+        // 2. Also save to draft store so it is cached in session drafts
+        await saveRoommateDraft({
+          id: displayCode,
+          user_telegram_id: syntheticTgId,
+          display_code: displayCode,
+          user_name: 'Verified Channel Listing',
+          username: `admin_${chatId}`,
+          age: 24,
+          my_gender: genderStr,
+          preferred_gender: 'Any',
+          preferred_subcity: subcities,
+          budget_min: 0,
+          budget_max: budgetNum,
+          lifestyle_bio: bioStr,
+          listing_category: draft.category === 'entire' ? 'space_available' : 'seeker',
+          status: 'approved',
+          unlock_fee: 300,
+          fayda_status: 'verified',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
 
         // 3. Broadcast to channel with the 3 mandatory buttons
         const targetChannel = await getPrimaryChannel();
-        const postCardText = `
-<b>Roommate Available</b> #${displayCode}
-📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
+        const isEntire = draft.category === 'entire';
+        const postCardText = isEntire
+          ? `
+<b>SpaceMatch Addis</b>
+<b>#${displayCode}</b>
 
-• <b>Gender:</b> ${genderStr}
-• <b>Budget Cap:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
+🏠 <b>SPACE AVAILABLE</b>
 
-<blockquote>"${bioStr}"</blockquote>
+We have a verified Space Host looking for a compatible roommate!
 
-🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
-        `.trim();
+📍 <b>Location:</b> ${subcitiesStr}
+💰 <b>Total Rent:</b> ${Number(budgetNum).toLocaleString()} ETB / month
+👤 <b>Space Host:</b> ${genderStr === 'Female' ? 'Female' : genderStr === 'Male' ? 'Male' : 'Verified Homeowner'}
+👥 <b>Preferred Gender:</b> Any Gender
+🤝 <b>Preferred Roommate:</b> ${bioStr}
+
+🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
+          `.trim()
+          : `
+<b>SpaceMatch Addis</b>
+<b>#${displayCode}</b>
+
+🏠 <b>ROOMMATE SEARCH</b>
+
+We have a ${genderStr === 'Female' ? 'female' : genderStr === 'Male' ? 'male' : 'verified'} Space Seeker looking for a roommate to team up with and find a place together!
+
+📍 <b>Preferred Locations:</b> ${subcitiesStr}
+💰 <b>Budget:</b> Up to ${Number(budgetNum).toLocaleString()} ETB per person
+👤 <b>Space Seeker:</b> ${genderStr === 'Female' ? 'Female' : genderStr === 'Male' ? 'Male' : 'Verified Roommate'}
+👥 <b>Preferred Gender:</b> Any Gender
+🤝 <b>Preferred Roommate:</b> ${bioStr}
+
+🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
+          `.trim();
 
         const channelButtons = {
           inline_keyboard: [
-            [{ text: `⚡ Contact with Roommate #${displayCode} ↗️`, url: `https://t.me/${botUsername}?start=req_${displayCode}` }],
+            [{ text: isEntire ? `⚡ Contact with Host #${displayCode} ↗️` : `⚡ Contact with Roommate #${displayCode} ↗️`, url: `https://t.me/${botUsername}?start=req_${displayCode}` }],
             [{ text: '📢 Post My Profile ↗️', url: `https://t.me/${botUsername}?start=post_profile` }],
             [{ text: '🔍 Search Roommate for Me ↗️', url: `https://t.me/${botUsername}?start=search_roommate` }],
           ],
@@ -3807,10 +3846,6 @@ Transfer <code>300 ETB</code> to either account:
         if (channelMsgId) {
           await supabaseAdmin
             .from('profiles')
-            .update({ channel_message_id: channelMsgId })
-            .ilike('display_code', displayCode);
-          await supabaseAdmin
-            .from('roommate_profiles')
             .update({ channel_message_id: channelMsgId })
             .ilike('display_code', displayCode);
         }
@@ -5009,9 +5044,13 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>` : ''}
 <blockquote>Would you like to connect with this roommate?</blockquote>
 `.trim();
 
-        if (targetProfile.telegram_id) {
+        const targetNotifyId = targetProfile.telegram_id > 0
+          ? targetProfile.telegram_id
+          : (Number(targetProfile.telegram_username?.replace('admin_', '')) || Number(targetProfile.phone_number?.replace('admin:', '')) || (await getAdminIds())[0] || 800701176);
+
+        if (targetNotifyId) {
           const sendRes = await tgSend(
-            targetProfile.telegram_id,
+            targetNotifyId,
             notifyText,
             {
               inline_keyboard: [
@@ -5022,7 +5061,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>` : ''}
               ],
             }
           );
-          console.log('[confirm_match] Anonymous notification to target telegram_id', targetProfile.telegram_id, 'result:', sendRes?.ok ? 'DELIVERED' : sendRes?.description);
+          console.log('[confirm_match] Anonymous notification to target telegram_id', targetNotifyId, 'result:', sendRes?.ok ? 'DELIVERED' : sendRes?.description);
         }
 
         return NextResponse.json({ ok: true });
@@ -7151,25 +7190,46 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             if (pId) {
               targetProfile = pId;
             } else {
-              const { data: rm } = await supabaseAdmin
-                .from('roommate_profiles')
-                .select('*')
-                .or(`id.eq.${lookupCode},display_code.ilike.${lookupCode}`)
-                .maybeSingle();
-              if (rm) {
-                targetProfile = {
-                  id: rm.id,
-                  telegram_id: rm.user_telegram_id,
-                  display_code: rm.display_code || lookupCode,
-                  gender: rm.my_gender,
-                  locations: rm.preferred_subcity,
-                  budget_min: rm.budget_min,
-                  budget_max: rm.budget_max,
-                  roommate_traits: rm.lifestyle_bio,
-                  status: rm.status,
-                  channel_message_id: rm.channel_message_id,
-                };
+              const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lookupCode);
+              if (isUuid) {
+                const { data: rm } = await supabaseAdmin
+                  .from('roommate_profiles')
+                  .select('*')
+                  .eq('id', lookupCode)
+                  .maybeSingle();
+                if (rm) {
+                  targetProfile = {
+                    id: rm.id,
+                    telegram_id: rm.user_telegram_id,
+                    display_code: lookupCode,
+                    gender: rm.my_gender,
+                    locations: rm.preferred_subcity,
+                    budget_min: rm.budget_min,
+                    budget_max: rm.budget_max,
+                    roommate_traits: rm.lifestyle_bio,
+                    status: rm.status,
+                    channel_message_id: rm.channel_message_id,
+                  };
+                }
               }
+            }
+          }
+
+          // Check pending roommate drafts cache
+          if (!targetProfile) {
+            const draft = await getRoommateDraft(lookupCode);
+            if (draft) {
+              targetProfile = {
+                id: draft.id || lookupCode,
+                telegram_id: draft.user_telegram_id || -105,
+                display_code: draft.display_code || lookupCode,
+                gender: draft.my_gender || 'Any',
+                locations: draft.preferred_subcity || ['Addis Ababa'],
+                budget_min: draft.budget_min || 0,
+                budget_max: draft.budget_max || 10000,
+                roommate_traits: draft.lifestyle_bio || 'Channel Roommate Listing',
+                status: 'active',
+              };
             }
           }
 
@@ -7185,47 +7245,33 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
                 .maybeSingle();
               if (pByMsg) {
                 targetProfile = pByMsg;
-              } else {
-                const { data: rmByMsg } = await supabaseAdmin
-                  .from('roommate_profiles')
-                  .select('*')
-                  .eq('channel_message_id', channelMsgId)
-                  .maybeSingle();
-                if (rmByMsg) {
-                  targetProfile = {
-                    id: rmByMsg.id,
-                    telegram_id: rmByMsg.user_telegram_id,
-                    display_code: rmByMsg.display_code || lookupCode,
-                    gender: rmByMsg.my_gender,
-                    locations: rmByMsg.preferred_subcity,
-                    budget_min: rmByMsg.budget_min,
-                    budget_max: rmByMsg.budget_max,
-                    roommate_traits: rmByMsg.lifestyle_bio,
-                    status: rmByMsg.status,
-                    channel_message_id: rmByMsg.channel_message_id,
-                  };
-                }
               }
             }
           }
 
-          // Fallback: If still not found and it starts with post_ or RM, create active profile placeholder
-          if (!targetProfile && (lookupCode.toLowerCase().startsWith('post_') || /^RM\d+$/i.test(lookupCode))) {
+          // Fallback: If still not found and it starts with post_ or RM / SP, create active profile placeholder
+          if (!targetProfile && (lookupCode.toLowerCase().startsWith('post_') || /^[A-Z]{2}\d+$/i.test(lookupCode))) {
             const adminIds = await getAdminIds();
             const primaryAdmin = adminIds[0] || 800701176;
+            const codeDigits = parseInt(lookupCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
+            const fallbackSyntheticId = - (1000000000 + codeDigits);
+
             const { data: createdProfile } = await supabaseAdmin
               .from('profiles')
               .upsert({
-                telegram_id: primaryAdmin,
+                telegram_id: fallbackSyntheticId,
                 display_code: lookupCode.toUpperCase(),
                 gender: 'Any',
                 locations: ['Addis Ababa'],
                 budget_min: 0,
                 budget_max: 10000,
-                roommate_traits: 'Channel Roommate Listing',
+                roommate_traits: 'Channel Roommate Listing in Addis Ababa.',
                 kyc_status: 'verified',
                 status: 'active',
                 onboarding_step: 'completed',
+                telegram_username: `admin_${primaryAdmin}`,
+                phone_number: `admin:${primaryAdmin}`,
+                full_name: 'Verified Channel Listing',
               }, { onConflict: 'display_code' })
               .select('*')
               .maybeSingle();
@@ -7785,14 +7831,18 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             await tgSend(requesterTgId, getDisclaimerText(requesterIsAm));
             await tgSend(requesterTgId, buildRevealMsg(targetData, requesterIsAm), requesterRevealMarkup);
           }
-          if (targetTgId) {
-            await tgSend(targetTgId, getDisclaimerText(targetIsAm));
-            await tgSend(targetTgId, buildRevealMsg(requesterData, targetIsAm), targetRevealMarkup);
+          const targetNotifyId = (targetTgId && targetTgId > 0)
+            ? targetTgId
+            : (Number(targetData?.telegram_username?.replace('admin_', '')) || Number(targetData?.phone_number?.replace('admin:', '')) || (await getAdminIds())[0] || 800701176);
+
+          if (targetNotifyId) {
+            await tgSend(targetNotifyId, getDisclaimerText(targetIsAm));
+            await tgSend(targetNotifyId, buildRevealMsg(requesterData, targetIsAm), targetRevealMarkup);
 
             // Schedule 24-hour follow-up check-in for listing owner
-            const existingSession = getSession(targetTgId);
+            const existingSession = getSession(targetNotifyId);
             await saveSession({
-              telegram_id: targetTgId,
+              telegram_id: targetNotifyId,
               step: existingSession?.step || 'idle',
               draft_data: {
                 ...(existingSession?.draft_data || {}),
