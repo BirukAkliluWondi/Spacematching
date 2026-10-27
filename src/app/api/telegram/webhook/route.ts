@@ -886,31 +886,29 @@ It has been 24 hours since your roommate contact was unlocked!
       const prefGenderWordAm = isPrefFemale ? 'ሴት' : isPrefMale ? 'ወንድ' : 'ተስማሚ';
 
       // Parse user traits / preferred roommate
-      let rawTraits = profileData.roommate_traits || profileData.lifestyle_bio || '';
+      let rawTraits = profileData.preferred_roommate || profileData.roommate_traits || profileData.lifestyle_bio || '';
       if (rawTraits.includes(' | ')) {
         const parts = rawTraits.split(' | ');
         rawTraits = parts[parts.length - 1];
       }
-      let prefDetailsEn = rawTraits.trim();
-      let prefDetailsAm = rawTraits.trim();
+      let prefDetails = rawTraits.trim();
 
-      const isGeneric = !prefDetailsEn ||
-        prefDetailsEn.toLowerCase().includes('seeking compatible') ||
-        prefDetailsEn.toLowerCase().includes('seeking a compatible');
+      const isGeneric = !prefDetails ||
+        prefDetails.toLowerCase().includes('seeking compatible') ||
+        prefDetails.toLowerCase().includes('seeking a compatible');
 
       if (isGeneric) {
-        prefDetailsEn = `${isPrefFemale ? 'Female, ' : isPrefMale ? 'Male, ' : ''}preferably Orthodox, clean, and employed.`;
-        prefDetailsAm = `${isPrefFemale ? 'ሴት፣ ' : isPrefMale ? 'ወንድ፣ ' : ''}ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ።`;
+        prefDetails = isAm
+          ? (isPrefFemale ? 'ሴት፣ ተስማሚ እና ጽዱ የቤት ጓደኛ።' : isPrefMale ? 'ወንድ፣ ተስማሚ እና ጽዱ የቤት ጓደኛ።' : 'ተስማሚ እና ጽዱ የቤት ጓደኛ።')
+          : (isPrefFemale ? 'Female, compatible and clean roommate.' : isPrefMale ? 'Male, compatible and clean roommate.' : 'Compatible and clean roommate.');
       } else {
-        if (isPrefFemale && !/\bfemale\b/i.test(prefDetailsEn) && !/ሴት/.test(prefDetailsEn)) {
-          prefDetailsEn = `Female, ${prefDetailsEn}`;
-          prefDetailsAm = `ሴት፣ ${prefDetailsAm}`;
-        } else if (isPrefMale && !/\bmale\b/i.test(prefDetailsEn) && !/ወንድ/.test(prefDetailsEn)) {
-          prefDetailsEn = `Male, ${prefDetailsEn}`;
-          prefDetailsAm = `ወንድ፣ ${prefDetailsAm}`;
+        if (isPrefFemale && !/\bfemale\b/i.test(prefDetails) && !/ሴት/.test(prefDetails)) {
+          prefDetails = isAm ? `ሴት፣ ${prefDetails}` : `Female, ${prefDetails}`;
+        } else if (isPrefMale && !/\bmale\b/i.test(prefDetails) && !/ወንድ/.test(prefDetails)) {
+          prefDetails = isAm ? `ወንድ፣ ${prefDetails}` : `Male, ${prefDetails}`;
         }
-        if (!/[.!?]$/.test(prefDetailsEn)) prefDetailsEn += '.';
-        if (!/[.!?።]$/.test(prefDetailsAm)) prefDetailsAm += '።';
+        if (isAm && !/[.!?።]$/.test(prefDetails)) prefDetails += '።';
+        else if (!isAm && !/[.!?]$/.test(prefDetails)) prefDetails += '.';
       }
 
       const text = isAm
@@ -925,7 +923,7 @@ ${codeTag}
 📍 <b>ተመራጭ አካባቢዎች:</b> ${escapeHtml(subcitiesStr)}
 💰 <b>በጀት:</b> ${escapeHtml(budgetDisplayAm)}
 ${genderEmoji} <b>የቤት ፈላጊ:</b> ${escapeHtml(seekerGenderAm)}
-🤝 <b>የሚፈለግ የቤት ጓደኛ:</b> ${escapeHtml(prefDetailsAm)}
+🤝 <b>የሚፈለግ የቤት ጓደኛ:</b> ${escapeHtml(prefDetails)}
 
 🔑 <i>SpaceMatchAddis — መጀመሪያ የቤት ጓደኛዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!</i>
         `.trim()
@@ -940,7 +938,7 @@ We have a ${seekerGenderWordEn} Space Seeker looking for a ${prefGenderWordEn} r
 📍 <b>Preferred Locations:</b> ${escapeHtml(subcitiesStr)}
 💰 <b>Budget:</b> ${escapeHtml(budgetDisplayEn)}
 ${genderEmoji} <b>Space Seeker:</b> ${escapeHtml(seekerGenderEn)}
-🤝 <b>Preferred Roommate:</b> ${escapeHtml(prefDetailsEn)}
+🤝 <b>Preferred Roommate:</b> ${escapeHtml(prefDetails)}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
         `.trim();
@@ -1524,7 +1522,39 @@ A verified roommate saw your listing and wants to connect!
       return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
     };
 
-    const sendSpaceStep5Subcity = async (
+    const sendSpaceStep5PrefRoommate = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number,
+      errorMsg?: string
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'space_input_pref_roommate',
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const promptText = isAm
+        ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ (Preferred Roommate):</b>\n<i>(ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ)</i>'
+        : '✨ <b>Describe your preferred roommate:</b>\n<i>(Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed)</i>';
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+
+      const inlineKeyboard = [
+        [
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_amenities' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const sendSpaceStep6Subcity = async (
       chatId: number,
       draft: Record<string, any>,
       messageIdToEdit?: number
@@ -1553,7 +1583,7 @@ A verified roommate saw your listing and wants to connect!
       }
 
       gridRows.push([
-        { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_amenities' },
+        { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_pref_roommate' },
         { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
       ]);
 
@@ -1564,7 +1594,7 @@ A verified roommate saw your listing and wants to connect!
       return await sendOrEditCard(chatId, text, gridRows, activeMsgId);
     };
 
-    const sendSpaceStep6Photos = async (
+    const sendSpaceStep7Photos = async (
       chatId: number,
       draft: Record<string, any>,
       messageIdToEdit?: number
@@ -1626,8 +1656,7 @@ A verified roommate saw your listing and wants to connect!
       const hostGenderAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : (draft.gender || 'አስተናጋጅ');
       const genderEmoji = isFemale ? '👱‍♀️' : isMale ? '👨' : '👤';
 
-      const prefRoommateEn = draft.preferred_roommate || 'Compatible, clean, and employed.';
-      const prefRoommateAm = draft.preferred_roommate || 'ተስማሚ፣ ጽዱ እና ተቀጣሪ የቤት ጓደኛ።';
+      const prefRoommate = draft.preferred_roommate || draft.roommate_traits || (isAm ? 'ተስማሚ እና ጽዱ የቤት ጓደኛ።' : 'Compatible and clean roommate.');
 
       const text = isAm
         ? `
@@ -1641,7 +1670,7 @@ ${codeTag}
 📍 <b>አካባቢ:</b> ${escapeHtml(subcity)}
 💰 <b>ጠቅላላ ኪራይ:</b> ${rentStr} ብር (${shareStr} ብር በሰው)
 ${genderEmoji} <b>አስተናጋጅ:</b> ${escapeHtml(hostGenderAm)}
-🤝 <b>የሚፈለግ የቤት ጓደኛ:</b> ${escapeHtml(prefRoommateAm)}
+🤝 <b>የሚፈለግ የቤት ጓደኛ:</b> ${escapeHtml(prefRoommate)}
 ✨ <b>ግልጋሎቶች:</b> ${escapeHtml(amenitiesStr)}
 📸 <b>ፎቶዎች:</b> ${photosCount} ተያይዘዋል
 
@@ -1658,7 +1687,7 @@ We have a ${hostGenderWordEn} Space Host looking for a compatible roommate for a
 📍 <b>Location:</b> ${escapeHtml(subcity)}
 💰 <b>Total Rent:</b> ${rentStr} ETB (${shareStr} ETB per person)
 ${genderEmoji} <b>Space Host:</b> ${escapeHtml(hostGenderEn)}
-🤝 <b>Preferred Roommate:</b> ${escapeHtml(prefRoommateEn)}
+🤝 <b>Preferred Roommate:</b> ${escapeHtml(prefRoommate)}
 ✨ <b>Amenities:</b> ${escapeHtml(amenitiesStr)}
 📸 <b>Photos:</b> ${photosCount} attached
 
@@ -3630,14 +3659,6 @@ ${res.message}
 
       if (callbackData === 'post_branch_seeker') {
         const session = getSession(chatId);
-        const isVerified = await isUserFaydaVerified(chatId);
-        if (isVerified) {
-          const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
-          if (p) {
-            await sendChannelPublishPreviewCard(chatId, { ...p, lang: session.draft_data?.lang }, msgId);
-            return NextResponse.json({ ok: true });
-          }
-        }
         await sendDynamicCardStep1Age(chatId, { ...session.draft_data, mode: 'post_to_channel', listing_category: 'seeker' }, msgId);
         return NextResponse.json({ ok: true });
       }
@@ -3693,7 +3714,7 @@ ${res.message}
 
       if (callbackData === 'space_amenities_proceed') {
         const session = getSession(chatId);
-        await sendSpaceStep5Subcity(chatId, session.draft_data, msgId);
+        await sendSpaceStep5PrefRoommate(chatId, session.draft_data, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3703,17 +3724,23 @@ ${res.message}
         return NextResponse.json({ ok: true });
       }
 
+      if (callbackData === 'space_back_to_pref_roommate') {
+        const session = getSession(chatId);
+        await sendSpaceStep5PrefRoommate(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
       if (callbackData.startsWith('space_subcity:')) {
         const subcity = callbackData.replace('space_subcity:', '');
         const session = getSession(chatId);
         const updatedDraft = { ...session.draft_data, preferred_subcity: [subcity], location: subcity };
-        await sendSpaceStep6Photos(chatId, updatedDraft, msgId);
+        await sendSpaceStep7Photos(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
       if (callbackData === 'space_back_to_subcity') {
         const session = getSession(chatId);
-        await sendSpaceStep5Subcity(chatId, session.draft_data, msgId);
+        await sendSpaceStep6Subcity(chatId, session.draft_data, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3726,7 +3753,8 @@ ${res.message}
             ...session.draft_data,
             age: p?.age || session.draft_data.age || 24,
             gender: p?.gender || session.draft_data.gender || 'Member',
-            roommate_traits: p?.roommate_traits || session.draft_data.roommate_traits || 'Roommate available with a room in Addis Ababa.',
+            roommate_traits: session.draft_data.preferred_roommate || session.draft_data.roommate_traits || p?.roommate_traits || 'Roommate available with a room in Addis Ababa.',
+            preferred_roommate: session.draft_data.preferred_roommate || session.draft_data.roommate_traits || p?.preferred_roommate,
           };
           await sendSpacePreviewCard(chatId, mergedDraft, msgId);
           return NextResponse.json({ ok: true });
@@ -3761,7 +3789,7 @@ ${res.message}
           locations: [subcity],
           budget_min: shareNum,
           budget_max: rentNum,
-          roommate_traits: `Age ${draft.age || 24} · ${draft.roommate_traits || 'Roommate available with a room in Addis Ababa.'}`,
+          roommate_traits: `Age ${draft.age || 24} · ${draft.preferred_roommate || draft.roommate_traits || 'Roommate available with a room in Addis Ababa.'}`,
           kyc_status: 'verified',
           status: 'paused',
         }, { onConflict: 'telegram_id' });
@@ -3779,7 +3807,8 @@ ${res.message}
           preferred_subcity: [subcity],
           budget_min: shareNum,
           budget_max: rentNum,
-          lifestyle_bio: draft.roommate_traits || 'Roommate available with a room in Addis Ababa.',
+          lifestyle_bio: draft.preferred_roommate || draft.roommate_traits || 'Roommate available with a room in Addis Ababa.',
+          preferred_roommate: draft.preferred_roommate || draft.roommate_traits,
           listing_category: 'space_available',
           space_type: draft.space_type || 'Private Bedroom in Shared Flat',
           space_rent: rentNum,
@@ -5885,15 +5914,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         text === '📢 Post Your Profile to Channel'
       ) {
         await clearSession(chatId);
-        const isVerified = await isUserFaydaVerified(chatId);
-        if (isVerified) {
-          const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
-          if (p) {
-            await sendChannelPublishPreviewCard(chatId, p);
-            return NextResponse.json({ ok: true });
-          }
-        }
-        await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' });
+        await sendPostProfileBranchPrompt(chatId);
         return NextResponse.json({ ok: true });
       }
 
@@ -6072,7 +6093,39 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           space_amenities_raw: rawAmenities,
         };
 
-        await sendSpaceStep5Subcity(chatId, updatedDraft, activeMsgId);
+        await sendSpaceStep5PrefRoommate(chatId, updatedDraft, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Space Preferred Roommate Text Input
+      if (session.step === 'space_input_pref_roommate') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
+        const rawPref = text.trim();
+        if (!rawPref || rawPref.length < 2) {
+          await sendSpaceStep5PrefRoommate(
+            chatId,
+            session.draft_data,
+            activeMsgId,
+            isAm
+              ? 'እባክዎ የሚፈልጉትን የቤት ጓደኛ ይግለጹ (ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ):'
+              : 'Please describe your preferred roommate (e.g. Female, preferably Orthodox, clean, and employed):'
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        const updatedDraft = {
+          ...session.draft_data,
+          lang,
+          preferred_roommate: rawPref,
+          roommate_traits: rawPref,
+        };
+
+        await sendSpaceStep6Subcity(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -6309,7 +6362,12 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, roommate_traits: traitsVal, lang };
+        const updatedDraft = {
+          ...session.draft_data,
+          roommate_traits: traitsVal,
+          preferred_roommate: traitsVal,
+          lang,
+        };
         await sendDynamicCardStep8Subcities(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }

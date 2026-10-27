@@ -334,6 +334,7 @@ export async function broadcastRoommateProfileToChannel(
             profile.space_share = d.space_share ? Number(d.space_share) : profile.space_share;
             profile.space_amenities = d.space_amenities || profile.space_amenities || [];
             profile.space_photos = d.space_photos || profile.space_photos || [];
+            if (d.preferred_roommate) profile.preferred_roommate = d.preferred_roommate;
             if (d.age) profile.age = d.age;
             if (d.preferred_subcity) profile.preferred_subcity = d.preferred_subcity;
           }
@@ -403,19 +404,18 @@ export async function broadcastRoommateProfileToChannel(
     const prefGenderWord = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
 
     // Construct Preferred Roommate line matching reference layout
-    let preferredRoommateDetails = cleanBio.trim();
+    let preferredRoommateDetails = (profile.preferred_roommate || cleanBio).trim();
+    if (preferredRoommateDetails.includes(' | ')) {
+      const parts = preferredRoommateDetails.split(' | ');
+      preferredRoommateDetails = parts[parts.length - 1].trim();
+    }
     const isGenericBio = !preferredRoommateDetails ||
       preferredRoommateDetails.toLowerCase().includes('seeking a compatible') ||
-      preferredRoommateDetails.toLowerCase().includes('seeking compatible housemate');
+      preferredRoommateDetails.toLowerCase().includes('seeking compatible housemate') ||
+      preferredRoommateDetails.toLowerCase().includes('roommate available with a room');
 
     if (isGenericBio) {
-      const parts: string[] = [];
-      if (isPrefFemale) parts.push('Female');
-      else if (isPrefMale) parts.push('Male');
-      if (userReligion && userReligion !== 'Any') parts.push(`preferably ${userReligion}`);
-      if (userJob && userJob !== 'Professional') parts.push(`employed (${userJob})`);
-      parts.push('clean and respectful');
-      preferredRoommateDetails = parts.join(', ');
+      preferredRoommateDetails = isPrefFemale ? 'Female, compatible and clean roommate.' : isPrefMale ? 'Male, compatible and clean roommate.' : 'Compatible and clean roommate.';
     } else {
       if (isPrefFemale && !/\bfemale\b/i.test(preferredRoommateDetails)) {
         preferredRoommateDetails = `Female, ${preferredRoommateDetails}`;

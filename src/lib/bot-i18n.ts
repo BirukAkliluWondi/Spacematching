@@ -96,6 +96,9 @@ export const I18N = {
     spaceStepAmenities: '✨ <b>What amenities are included with the space?</b> (e.g. WiFi, Kitchen, Water tanker)',
     errSpaceAmenities: 'Please enter at least one amenity or feature included with the space (e.g. WiFi):',
 
+    spaceStepPrefRoommate: '✨ <b>Describe your preferred roommate:</b>\n<i>(Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed)</i>',
+    errSpacePrefRoommate: 'Please describe your preferred roommate (e.g. Female, preferably Orthodox, clean, and employed):',
+
     spaceStepSubcity: '📍 <b>Select sub-city where the space is located:</b>',
     spaceStepPhotos: '📸 <b>Upload photos of the space:</b>',
     spaceSkipPhotos: '⏭️ Skip Photos',
@@ -185,6 +188,9 @@ export const I18N = {
 
     spaceStepAmenities: '✨ <b>ቤቱ የሚያካትታቸው ግልጋሎቶች ምንድን ናቸው?</b> (ምሳሌ: ዋይፋይ፣ ወጥ ቤት፣ የውሃ ታንከር)',
     errSpaceAmenities: 'እባክዎ ቤቱ የሚያካትታቸውን ግልጋሎቶች በአጭሩ ይጻፉ (ምሳሌ: ዋይፋይ):',
+
+    spaceStepPrefRoommate: '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ (Preferred Roommate):</b>\n<i>(ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ)</i>',
+    errSpacePrefRoommate: 'እባክዎ የሚፈልጉትን የቤት ጓደኛ ይግለጹ (ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ):',
 
     spaceStepSubcity: '📍 <b>ቤቱ የሚገኝበትን ክፍለ ከተማ ይምረጡ:</b>',
     spaceStepPhotos: '📸 <b>የቤቱን ፎቶዎች ይላኩ:</b>',

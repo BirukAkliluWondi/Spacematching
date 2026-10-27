@@ -34,6 +34,7 @@ export interface RoommateProfileDraft {
   budget_min: number;
   budget_max: number;
   lifestyle_bio: string;
+  preferred_roommate?: string;
   fayda_status: 'unverified' | 'pending' | 'verified' | 'rejected';
   fayda_document_url?: string | null;
   unlock_fee: number;
