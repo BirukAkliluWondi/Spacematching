@@ -20,7 +20,7 @@ export interface VerifyEtResult {
  */
 export async function verifyTelebirrPayment(
   referenceNumber: string,
-  expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '50')
+  expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '300')
 ): Promise<VerifyEtResult> {
   const apiKey = process.env.VERIFY_ET_API_KEY;
   const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';

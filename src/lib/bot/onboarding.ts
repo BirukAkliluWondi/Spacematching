@@ -24,6 +24,7 @@ import {
   escapeHtml,
   setChatMenuButton,
   parseNumericInput,
+  parseBudgetRangeInput,
   deleteMessage,
   type Profile,
 } from '@/lib/telegram';
@@ -210,7 +211,7 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 async function sendBudgetStep(chatId: number) {
   await sendMessage(
     chatId,
-    `💰 <b>Step 3 of 7 — Monthly Budget</b>\n\nWhat is your maximum monthly rent budget in Birr?\n\n<blockquote>Please type your budget amount as a number directly in chat (e.g. <code>8000</code> or <code>12000</code>):</blockquote>`
+    `💰 <b>Step 3 of 7 — Monthly Budget Range</b>\n\nWhat is your monthly rent budget range in Birr?\n\n<blockquote>Please type your budget range directly in chat (e.g. <code>8000 - 15000</code>):</blockquote>`
   );
 }
 
@@ -431,33 +432,19 @@ export async function handleOnboardingMessage(
   // ── Budget text input ─────────────────────────────────────────────────────
   if (step === 'budget') {
     const raw = (message.text || '').trim();
-    const rangeMatch = raw.match(/(\d[\d,]*)[\s\-–—to]+(\d[\d,]*)/);
+    const parsedRange = parseBudgetRangeInput(raw);
 
-    let budgetMin = 0;
-    let budgetMax = 0;
-
-    if (rangeMatch) {
-      budgetMin = parseInt(rangeMatch[1].replace(/,/g, ''), 10);
-      budgetMax = parseInt(rangeMatch[2].replace(/,/g, ''), 10);
-    } else {
-      const parsed = parseNumericInput(raw);
-      if (parsed && parsed > 0) {
-        budgetMax = parsed;
-        budgetMin = 0;
-      }
-    }
-
-    if (budgetMax <= 0 || budgetMax > 1000000) {
+    if (!parsedRange || parsedRange.max <= 0) {
       await sendMessage(
         chatId,
-        `⚠️ <b>Please type a valid numerical monthly budget in ETB:</b>\n<i>(For example: <code>8000</code> or <code>12000</code>)</i>`
+        `⚠️ <b>Please type a valid monthly budget range in ETB:</b>\n<i>(For example: <code>8000 - 15000</code>)</i>`
       );
       return true;
     }
 
     await updateProfile(chatId, {
-      budget_min: budgetMin,
-      budget_max: budgetMax,
+      budget_min: parsedRange.min,
+      budget_max: parsedRange.max,
       onboarding_step: 'move_in',
     });
     await sendMoveInStep(chatId);

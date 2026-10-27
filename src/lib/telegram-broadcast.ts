@@ -71,19 +71,40 @@ export async function broadcastRoommateProfileToChannel(
     }
 
     if (pFromProfiles) {
-      let extractedAge: number = 24;
+      let extractedAge: number = pFromProfiles.age || 24;
       if (pFromProfiles.roommate_traits) {
         const m = pFromProfiles.roommate_traits.match(/Age[:\s]+(\d+)/i);
         if (m) extractedAge = parseInt(m[1], 10);
       }
+
+      let extractedJob = pFromProfiles.job;
+      let extractedReligion = pFromProfiles.religion;
+      let extractedPrefGender = pFromProfiles.preferred_gender || 'Any';
+
+      if (!extractedJob && pFromProfiles.roommate_traits) {
+        const jm = pFromProfiles.roommate_traits.match(/Job[:\s]+([^|;\n]+)/i);
+        if (jm) extractedJob = jm[1].trim();
+      }
+      if (!extractedReligion && pFromProfiles.roommate_traits) {
+        const rm = pFromProfiles.roommate_traits.match(/Religion[:\s]+([^|;\n]+)/i);
+        if (rm) extractedReligion = rm[1].trim();
+      }
+      if (extractedPrefGender === 'Any' && pFromProfiles.roommate_traits) {
+        const pgm = pFromProfiles.roommate_traits.match(/Prefers?[:\s]+(Male|Female|Any)/i);
+        if (pgm) extractedPrefGender = pgm[1].trim();
+      }
+
       dbProfile = {
         id: pFromProfiles.id,
         display_code: pFromProfiles.display_code || cleanCode,
         user_telegram_id: pFromProfiles.telegram_id,
         my_gender: pFromProfiles.gender || 'Member',
         age: extractedAge,
-        preferred_gender: 'Any',
+        job: extractedJob,
+        religion: extractedReligion,
+        preferred_gender: extractedPrefGender,
         preferred_subcity: Array.isArray(pFromProfiles.locations) ? pFromProfiles.locations : [],
+        budget_min: pFromProfiles.budget_min || 0,
         budget_max: pFromProfiles.budget_max || 10000,
         lifestyle_bio: pFromProfiles.roommate_traits || 'Seeking compatible roommate in Addis Ababa.',
         listing_category: pFromProfiles.listing_category || 'seeker',
@@ -92,7 +113,7 @@ export async function broadcastRoommateProfileToChannel(
         space_share: pFromProfiles.space_share,
         space_amenities: pFromProfiles.space_amenities || [],
         space_photos: Array.isArray(pFromProfiles.space_photos) ? pFromProfiles.space_photos : [],
-        unlock_fee: 50,
+        unlock_fee: 300,
         users: {
           first_name: pFromProfiles.full_name || 'Seeker',
           fayda_status: pFromProfiles.kyc_status || 'verified',
@@ -120,7 +141,7 @@ export async function broadcastRoommateProfileToChannel(
             budget_max: dRow.budget_max || 10000,
             lifestyle_bio: dRow.lifestyle_bio || 'Seeking compatible roommate in Addis Ababa.',
             listing_category: 'seeker',
-            unlock_fee: dRow.unlock_fee || 50,
+            unlock_fee: dRow.unlock_fee || 300,
             users: {
               first_name: dRow.user_name || 'Seeker',
               fayda_status: dRow.fayda_status || 'verified',
@@ -154,7 +175,7 @@ export async function broadcastRoommateProfileToChannel(
             space_rent: sRow.price_per_month,
             space_amenities: [],
             space_photos: sRow.photo_url ? [sRow.photo_url] : [],
-            unlock_fee: 50,
+            unlock_fee: 300,
             users: {
               first_name: sRow.homeowner_name || 'Homeowner',
               fayda_status: 'verified',
@@ -190,6 +211,23 @@ export async function broadcastRoommateProfileToChannel(
     }
 
     if (dbProfile) {
+      let extractedJob = dbProfile.job;
+      let extractedReligion = dbProfile.religion;
+      let extractedPrefGender = dbProfile.preferred_gender || 'Any';
+
+      if (!extractedJob && dbProfile.lifestyle_bio) {
+        const jm = dbProfile.lifestyle_bio.match(/Job[:\s]+([^|;\n]+)/i);
+        if (jm) extractedJob = jm[1].trim();
+      }
+      if (!extractedReligion && dbProfile.lifestyle_bio) {
+        const rm = dbProfile.lifestyle_bio.match(/Religion[:\s]+([^|;\n]+)/i);
+        if (rm) extractedReligion = rm[1].trim();
+      }
+      if (extractedPrefGender === 'Any' && dbProfile.lifestyle_bio) {
+        const pgm = dbProfile.lifestyle_bio.match(/Prefers?[:\s]+(Male|Female|Any)/i);
+        if (pgm) extractedPrefGender = pgm[1].trim();
+      }
+
       profile = {
         id: dbProfile.id,
         display_code: dbProfile.display_code || cleanCode,
@@ -197,8 +235,11 @@ export async function broadcastRoommateProfileToChannel(
         user_name: dbProfile.users?.first_name || 'Seeker',
         preferred_subcity: dbProfile.preferred_subcity || [],
         my_gender: dbProfile.my_gender || 'Member',
-        age: dbProfile.age,
-        preferred_gender: dbProfile.preferred_gender || 'Any',
+        age: dbProfile.age || 24,
+        job: extractedJob,
+        religion: extractedReligion,
+        preferred_gender: extractedPrefGender,
+        budget_min: dbProfile.budget_min || 0,
         budget_max: dbProfile.budget_max || 10000,
         lifestyle_bio: dbProfile.lifestyle_bio || 'Seeking compatible roommate in Addis Ababa.',
         listing_category: dbProfile.listing_category || 'seeker',
@@ -207,7 +248,7 @@ export async function broadcastRoommateProfileToChannel(
         space_share: dbProfile.space_share,
         space_amenities: dbProfile.space_amenities || [],
         space_photos: Array.isArray(dbProfile.space_photos) ? dbProfile.space_photos : [],
-        unlock_fee: dbProfile.unlock_fee || 50,
+        unlock_fee: dbProfile.unlock_fee || 300,
         fayda_status: dbProfile.users?.fayda_status || 'verified',
       };
     } else {
@@ -264,7 +305,7 @@ export async function broadcastRoommateProfileToChannel(
               space_share: d.space_share ? Number(d.space_share) : undefined,
               space_amenities: d.space_amenities || [],
               space_photos: d.space_photos || [],
-              unlock_fee: 50,
+              unlock_fee: 300,
               fayda_status: 'verified',
             };
           }
@@ -309,6 +350,20 @@ export async function broadcastRoommateProfileToChannel(
       };
     }
 
+    // Ensure job, religion, and preferred gender are extracted from lifestyle_bio if not already present
+    if (!profile.job && profile.lifestyle_bio) {
+      const jm = profile.lifestyle_bio.match(/Job[:\s]+([^|;\n]+)/i);
+      if (jm) profile.job = jm[1].trim();
+    }
+    if (!profile.religion && profile.lifestyle_bio) {
+      const rm = profile.lifestyle_bio.match(/Religion[:\s]+([^|;\n]+)/i);
+      if (rm) profile.religion = rm[1].trim();
+    }
+    if ((!profile.preferred_gender || profile.preferred_gender === 'Any') && profile.lifestyle_bio) {
+      const pgm = profile.lifestyle_bio.match(/Prefers?[:\s]+(Male|Female|Any)/i);
+      if (pgm) profile.preferred_gender = pgm[1].trim();
+    }
+
     const subcitiesStr = Array.isArray(profile.preferred_subcity) && profile.preferred_subcity.length > 0
       ? profile.preferred_subcity.join(', ')
       : 'Addis Ababa';
@@ -319,10 +374,21 @@ export async function broadcastRoommateProfileToChannel(
 
     const displayCode = profile.display_code || cleanCode;
     const codeTag = `#${displayCode.replace(/^#/, '')}`;
-    const bioContent = (profile.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    let cleanBio = profile.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa.';
+    if (cleanBio.includes(' | ')) {
+      const parts = cleanBio.split(' | ');
+      cleanBio = parts[parts.length - 1];
+    }
+    const bioContent = cleanBio.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     const hasSpace = profile.listing_category === 'space_available' || (profile.space_rent && profile.space_rent > 0);
     const hasPhotos = Array.isArray(profile.space_photos) && profile.space_photos.length > 0;
+
+    const userAge = profile.age || 24;
+    const userJob = profile.job || 'Professional';
+    const userReligion = profile.religion || 'Any';
+    const prefGender = profile.preferred_gender || 'Any';
 
     let text = '';
     if (hasSpace) {
@@ -336,25 +402,41 @@ export async function broadcastRoommateProfileToChannel(
 <b>Roommate available with a Room</b> ${codeTag}
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>${faydaBadge}</b>
 
+• <b>Listing Code:</b> <code>${codeTag}</code>
+• <b>Gender:</b> ${profile.my_gender || 'Member'}
+• <b>Age:</b> ${userAge}
+• <b>Religion:</b> ${userReligion}
+• <b>Job / Occupation:</b> ${userJob}
+• <b>Preferred Gender:</b> ${prefGender}
+• <b>Preferred Locations:</b> <code>${subcitiesStr}</code>
 • <b>Space Type:</b> ${profile.space_type || 'Private Bedroom in Shared Flat'}
 • <b>Total Monthly Rent:</b> <code>${rentStr}</code>
 • <b>Your Share / Split:</b> <code>${shareStr}</code>
-• <b>What I Have / Amenities:</b> ${amenitiesStr}
-• <b>Roommate Preference:</b> ${profile.my_gender || 'Member'} (Prefers: ${profile.preferred_gender || 'Any'})
+• <b>Amenities:</b> ${amenitiesStr}
 
 <blockquote>"${bioContent}"</blockquote>
 
 🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
       `.trim();
     } else {
-      const ageStr = profile.age ? `, ${profile.age} yrs` : '';
+      const budgetMin = Number(profile.budget_min || 0).toLocaleString();
+      const budgetMax = Number(profile.budget_max || 10000).toLocaleString();
+      const budgetDisplay = Number(profile.budget_min || 0) > 0
+        ? `${budgetMin} – ${budgetMax} ETB / month`
+        : `Up to ${budgetMax} ETB / month`;
+
       text = `
 <b>Roommate Available</b> ${codeTag}
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>${faydaBadge}</b>
 
-• <b>Gender & Age:</b> ${profile.my_gender || 'Member'}${ageStr} (Prefers: ${profile.preferred_gender || 'Any'})
-• <b>Budget Cap:</b> <code>Up to ${Number(profile.budget_max).toLocaleString()} ETB / month</code>
-• <b>Target Areas:</b> <code>${subcitiesStr}</code>
+• <b>Listing Code:</b> <code>${codeTag}</code>
+• <b>Gender:</b> ${profile.my_gender || 'Member'}
+• <b>Age:</b> ${userAge}
+• <b>Religion:</b> ${userReligion}
+• <b>Job / Occupation:</b> ${userJob}
+• <b>Preferred Gender:</b> ${prefGender}
+• <b>Preferred Locations:</b> <code>${subcitiesStr}</code>
+• <b>Budget:</b> <code>${budgetDisplay}</code>
 
 <blockquote>"${bioContent}"</blockquote>
 
@@ -546,7 +628,7 @@ export async function broadcastListingToChannel(
           title: draft.title,
           neighborhood: draft.neighborhood,
           price_per_month: draft.price_per_month,
-          unlock_fee: 50,
+          unlock_fee: 300,
           description: draft.description,
         };
         if (draft.photo_url) photoUrl = draft.photo_url;
@@ -568,7 +650,7 @@ export async function broadcastListingToChannel(
 
 • <b>Property:</b> <b>${space.title}</b>
 • <b>Monthly Rent:</b> <code>${Number(space.price_per_month).toLocaleString()} ETB / month</code>
-• <b>Unlock Fee:</b> <code>${space.unlock_fee || 50} ETB</code>
+• <b>Unlock Fee:</b> <code>${space.unlock_fee || 300} ETB</code>
 
 <blockquote>"${descContent}"</blockquote>
 
@@ -878,4 +960,9 @@ export async function closeChannelPost(
     return { success: false, message: `Exception updating channel post: ${msg}` };
   }
 }
+
+/**
+ * Explicit alias to publishRoommateProfileToChannel
+ */
+export const publishRoommateProfileToChannel = broadcastRoommateProfileToChannel;
 

@@ -20,6 +20,10 @@ export interface Profile {
   telegram_id: number;
   display_code: string;
   gender?: string | null;
+  age?: number | null;
+  religion?: string | null;
+  job?: string | null;
+  preferred_gender?: string | null;
   locations?: string[];
   budget_min?: number;
   budget_max?: number;
@@ -257,6 +261,66 @@ export function parseNumericInput(
 }
 
 /**
+ * Safely parses a budget range (min and max) from user text.
+ * Handles inputs like:
+ *   "8000 - 15000", "8,000 - 15,000", "8000–15000", "8000—15000"
+ *   "8000 to 15000", "between 8000 and 15000", "8000 and 15000"
+ *   "8k - 15k", "8k to 12.5k", "8000 15000"
+ *   "12000" (single number fallback -> { min: 0, max: 12000 })
+ */
+export function parseBudgetRangeInput(
+  raw?: string | null,
+  options?: { minLimit?: number; maxLimit?: number }
+): { min: number; max: number } | null {
+  if (!raw) return null;
+  let text = String(raw).trim().toLowerCase();
+
+  // Normalize Amharic thousands notation: ሺ or ሺህ -> k
+  text = text.replace(/(\d+(?:\.\d+)?)\s*(?:ሺህ|ሺ)/g, '$1k');
+  // Normalize Ethiopian Birr symbol 'ብር' -> 'birr'
+  text = text.replace(/ብር/g, 'birr');
+
+  // Strip common words and currency units
+  const cleaned = text
+    .replace(/(?:etb|birr|br|usd|\$|€|£|\/mo|\/month|monthly|budget|rent|about|around|approx)/gi, ' ')
+    .trim();
+
+  const minLimit = options?.minLimit ?? 500;
+  const maxLimit = options?.maxLimit ?? 1000000;
+
+  // 1. Detect range with separator: "8000 - 15000", "8k to 15k", "between 8000 and 15000", "8000 15000"
+  const rangeMatch = cleaned.match(
+    /(?:between\s+)?(\d+(?:[,\.]\d+)?\s*k?)\s*(?:-|–|—|to|and|\s+)\s*(\d+(?:[,\.]\d+)?\s*k?)/i
+  );
+
+  if (rangeMatch) {
+    const p1 = parseNumericInput(rangeMatch[1]);
+    const p2 = parseNumericInput(rangeMatch[2]);
+    if (p1 !== null && p2 !== null && p1 > 0 && p2 > 0) {
+      const lower = Math.min(p1, p2);
+      const upper = Math.max(p1, p2);
+      if (upper >= minLimit && lower <= maxLimit) {
+        return {
+          min: lower,
+          max: upper,
+        };
+      }
+    }
+  }
+
+  // 2. Fallback: single number provided
+  const single = parseNumericInput(cleaned);
+  if (single !== null && single >= minLimit && single <= maxLimit) {
+    return {
+      min: Math.max(0, Math.round(single * 0.7)),
+      max: single,
+    };
+  }
+
+  return null;
+}
+
+/**
  * Get Telegram file metadata by fileId, then download the raw bytes.
  * Returns a Buffer containing the file's content.
  */
@@ -305,24 +369,36 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
 
   const budgetMin = Number(profile.budget_min || 0).toLocaleString();
   const budgetMax = Number(profile.budget_max || 0).toLocaleString();
+  const budgetDisplay = Number(profile.budget_min || 0) > 0
+    ? `${budgetMin} – ${budgetMax} ETB / month`
+    : `Up to ${budgetMax} ETB / month`;
 
-  const moveIn = profile.move_in_date
-    ? escapeHtml(profile.move_in_date)
-    : 'Flexible';
+  const displayCode = profile.display_code ? `#${profile.display_code.replace(/^#/, '')}` : '#RM';
+  const userAge = profile.age || 24;
+  const userJob = profile.job || 'Professional';
+  const userReligion = profile.religion || 'Any';
+  const prefGender = profile.preferred_gender || 'Any';
 
-  const traits = profile.roommate_traits
-    ? escapeHtml(profile.roommate_traits)
-    : 'Open to compatible housemates.';
+  let cleanTraits = profile.roommate_traits || 'Seeking compatible roommate in Addis Ababa.';
+  if (cleanTraits.includes(' | ')) {
+    const parts = cleanTraits.split(' | ');
+    cleanTraits = parts[parts.length - 1];
+  }
 
   const cardText = `
-<b>Roommate Available</b> #${escapeHtml(profile.display_code)}
+<b>Roommate Available</b> ${displayCode}
 📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified ✅</b>
 
-• <b>Gender:</b> ${escapeHtml(profile.gender || 'Not specified')}
-• <b>Budget Cap:</b> <code>${budgetMin} – ${budgetMax} ETB / month</code>
-• <b>Move-in Date:</b> ${moveIn}
+• <b>Listing Code:</b> <code>${displayCode}</code>
+• <b>Gender:</b> ${escapeHtml(profile.gender || 'Member')}
+• <b>Age:</b> ${userAge}
+• <b>Religion:</b> ${escapeHtml(userReligion)}
+• <b>Job / Occupation:</b> ${escapeHtml(userJob)}
+• <b>Preferred Gender:</b> ${escapeHtml(prefGender)}
+• <b>Preferred Locations:</b> <code>${escapeHtml(locations)}</code>
+• <b>Budget:</b> <code>${budgetDisplay}</code>
 
-<blockquote>"${traits}"</blockquote>
+<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>
 
 🔒 <i>Personal identity &amp; direct contact remain sealed until mutual match unlock.</i>
 `.trim();

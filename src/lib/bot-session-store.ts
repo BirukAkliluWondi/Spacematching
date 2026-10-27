@@ -26,9 +26,11 @@ export interface RoommateProfileDraft {
   username: string | null;
   contact_phone?: string;
   age?: number;
+  job?: string;
+  religion?: string;
   preferred_subcity: string[];
-  my_gender: 'Male' | 'Female';
-  preferred_gender: 'Male' | 'Female' | 'Any';
+  my_gender: 'Male' | 'Female' | string;
+  preferred_gender: 'Male' | 'Female' | 'Any' | string;
   budget_min: number;
   budget_max: number;
   lifestyle_bio: string;
@@ -248,7 +250,7 @@ export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<vo
       lifestyle_bio: draft.lifestyle_bio || '',
       fayda_status: draft.fayda_status || 'verified',
       fayda_document_url: draft.fayda_document_url || null,
-      unlock_fee: Number(draft.unlock_fee || 50),
+      unlock_fee: Number(draft.unlock_fee || 300),
       status: draft.status || 'pending_approval',
       updated_at: new Date().toISOString(),
     };
@@ -307,6 +309,8 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
           user_name: d.user_name || dbDraft?.user_name || 'Verified Member',
           username: d.username || dbDraft?.username || null,
           age: d.age || 24,
+          job: d.job || dbDraft?.job,
+          religion: d.religion || dbDraft?.religion,
           my_gender: d.gender || d.my_gender || dbDraft?.my_gender || 'Member',
           preferred_gender: d.preferred_gender || dbDraft?.preferred_gender || 'Any',
           preferred_subcity: d.preferred_subcity || dbDraft?.preferred_subcity || [d.location || 'Addis Ababa'],
@@ -319,7 +323,7 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
           space_share: d.space_share ? Number(d.space_share) : undefined,
           space_amenities: d.space_amenities || [],
           space_photos: d.space_photos || [],
-          unlock_fee: 50,
+          unlock_fee: 300,
           fayda_status: 'verified',
           status: 'pending_approval',
           created_at: dbDraft?.created_at || new Date().toISOString(),

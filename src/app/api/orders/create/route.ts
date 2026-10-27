@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const unlockFeeAmount = Number(space.unlock_fee || '50.00');
+    const unlockFeeAmount = Number(space.unlock_fee || '300.00');
     const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '09XXXXXXXX';
     const tempTxRef = `PENDING_${crypto.randomUUID()}`;
 

@@ -28,6 +28,8 @@ import {
   sendMessage as tgSend,
   updateChannelPostAsMatched,
   parseNumericInput,
+  parseBudgetRangeInput,
+  escapeHtml,
   setChatMenuButton,
   deleteMessage,
 } from '@/lib/telegram';
@@ -39,6 +41,8 @@ import {
   initiateOnboarding,
 } from '@/lib/bot/onboarding';
 import { validateFaydaFan } from '@/lib/fayda-qr-decoder';
+import { verifyFaydaFan } from '@/lib/fayda-verification';
+import { getLanguage, I18N, SupportedLang } from '@/lib/bot-i18n';
 
 const ALL_SUBCITIES = [
   'Bole',
@@ -78,6 +82,9 @@ export async function POST(request: Request) {
     // Helper to send requests to Telegram API
     const sendTelegram = async (method: string, payload: Record<string, any>) => {
       if (!botToken) return null;
+      if (process.env.MOCK_TELEGRAM_API === 'true') {
+        return { ok: true, result: { message_id: 9999 } };
+      }
       try {
         const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
           method: 'POST',
@@ -500,16 +507,20 @@ It has been 24 hours since your roommate contact was unlocked!
       messageIdToEdit?: number,
       errorMsg?: string
     ) => {
-      const header = getDynamicContextHeader(draft);
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
-
-      const text = `${header}${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🎂 <b>What is your age?</b>`.trim();
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+      const header = draft.target_code
+        ? (isAm ? `🤝 <b>ከቤት ጓደኛ #${draft.target_code} ጋር ይገናኙ</b>\n\n` : `🤝 <b>Connect with #${draft.target_code}</b>\n\n`)
+        : '';
+      const question = isAm ? '🎂 <b>ዕድሜዎ ስንት ነው?</b>' : '🎂 <b>What is your age?</b>';
+      const text = `${header}${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${question}`.trim();
 
       const inlineKeyboard = [
         ...(draft.target_code
-          ? [[{ text: '📢 Post to Channel Instead', callback_data: 'post_profile_start' }]]
+          ? [[{ text: isAm ? '📢 ቻናል ላይ መረጃዬን ልለጥፍ ↗️' : '📢 Post to Channel Instead', callback_data: 'post_profile_start' }]]
           : []),
-        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+        [{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }],
       ];
 
       const newMsgId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
@@ -536,24 +547,96 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
-      const text = `👤 <b>Select your gender:</b>`;
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+      const text = isAm ? '👤 <b>ጾታዎን ይምረጡ:</b>' : '👤 <b>Select your gender:</b>';
 
       const inlineKeyboard = [
         [
-          { text: '👨 Male', callback_data: 'dyn_gender:Male' },
-          { text: '👩 Female', callback_data: 'dyn_gender:Female' },
+          { text: isAm ? '👨 ወንድ' : '👨 Male', callback_data: 'dyn_gender:Male' },
+          { text: isAm ? '👩 ሴት' : '👩 Female', callback_data: 'dyn_gender:Female' },
         ],
         [
-          { text: '⬅️ Back', callback_data: 'dyn_back_to_age' },
-          { text: '🏠 Cancel', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_age' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
 
       await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
     };
 
-    // Step 3: Monthly Budget (Open Numeric Input)
-    const sendDynamicCardStep3Budget = async (
+    // Step 3: Religion
+    const sendDynamicCardStep3Religion = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'dyn_card_religion',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+      const text = isAm ? '⛪ <b>እምነትዎን ይምረጡ:</b>' : '⛪ <b>Select your religion:</b>';
+
+      const inlineKeyboard = [
+        [
+          { text: isAm ? '✝️ ኦርቶዶክስ' : '✝️ Orthodox', callback_data: 'dyn_religion:Orthodox' },
+          { text: isAm ? '☪️ ሙስሊም' : '☪️ Muslim', callback_data: 'dyn_religion:Muslim' },
+        ],
+        [
+          { text: isAm ? '⛪ ፕሮቴስታንት' : '⛪ Protestant', callback_data: 'dyn_religion:Protestant' },
+          { text: isAm ? '🌐 ሌላ / ሁሉም' : '🌐 Other / Any', callback_data: 'dyn_religion:Other' },
+        ],
+        [
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_gender' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    // Step 4: Job / Occupation (Text Input)
+    const sendDynamicCardStep4Job = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number,
+      errorMsg?: string
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'dyn_card_job',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+      const promptText = isAm
+        ? '💼 <b>የስራ ሁኔታዎ ወይም ሙያዎ ምንድን ነው?</b>\n<i>(ስራዎን ወይም ሙያዎን በጽሁፍ ይላኩ)</i>'
+        : '💼 <b>What is your job / occupation?</b>\n<i>(Type your job in chat)</i>';
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+
+      const inlineKeyboard = [
+        [
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_religion' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    // Step 5: Monthly Budget Range (Text Input)
+    const sendDynamicCardStep5Budget = async (
       chatId: number,
       draft: Record<string, any>,
       messageIdToEdit?: number,
@@ -568,20 +651,92 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
-      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>What is your monthly budget (ETB)?</b>`.trim();
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+      const promptText = isAm
+        ? '💰 <b>የወርሃዊ የኪራይ በጀትዎ ከስንት እስከ ስንት ነው?</b>\n<i>(የበጀት መጠንዎን ከ-እስከ በብር ይጻፉ፣ ለምሳሌ: <code>8000 - 15000</code>)</i>'
+        : '💰 <b>What is your monthly budget range (ETB)?</b>\n<i>(Type a range of numbers, e.g. <code>8000 - 15000</code>)</i>';
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
         [
-          { text: '⬅️ Back', callback_data: 'dyn_back_to_gender' },
-          { text: '🏠 Cancel', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_job' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
 
       await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
     };
 
-    // Step 4: Sub-cities Multi-Select Grid
-    const sendDynamicCardStep4Subcities = async (
+    // Step 6: Preferred Sex (Gender)
+    const sendDynamicCardStep6PrefGender = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'dyn_card_pref_gender',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+      const text = isAm ? '👥 <b>ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ?</b>' : '👥 <b>Select preferred roommate gender:</b>';
+
+      const inlineKeyboard = [
+        [
+          { text: isAm ? '👨 ወንድ ብቻ' : '👨 Male', callback_data: 'dyn_pref_gender:Male' },
+          { text: isAm ? '👩 ሴት ብቻ' : '👩 Female', callback_data: 'dyn_pref_gender:Female' },
+          { text: isAm ? '👥 ማናቸውም' : '👥 Any', callback_data: 'dyn_pref_gender:Any' },
+        ],
+        [
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_budget' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    // Step 7: Preferred Type of Person / Lifestyle (Text Input)
+    const sendDynamicCardStep7Traits = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number,
+      errorMsg?: string
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'dyn_card_traits',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+      const promptText = isAm
+        ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ጠባይ እና ባህሪ በአጭሩ ይግለጹ:</b>\n<i>(ለምሳሌ: ጸጥታ የሚወድ፣ ንጹህ፣ የማያጨስ፣ ተግባቢ)</i>'
+        : '✨ <b>Describe your preferred type of roommate:</b>\n<i>(e.g. Quiet, tidy, non-smoker, friendly, respectful)</i>';
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+
+      const inlineKeyboard = [
+        [
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_pref_gender' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    // Step 8: Sub-cities Multi-Select Grid
+    const sendDynamicCardStep8Subcities = async (
       chatId: number,
       draft: Record<string, any>,
       messageIdToEdit?: number
@@ -597,12 +752,14 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
       const gridRows: any[] = [];
       gridRows.push([
         {
           text: isAllSelected
-            ? '✅ All Selected (Proceed ➡️)'
-            : '🌐 Select All & Proceed ➡️',
+            ? (isAm ? '✅ ሁሉም ተመርጠዋል (ቀጥል ➡️)' : '✅ All Selected (Proceed ➡️)')
+            : (isAm ? '🌐 ሁሉንም ምረጥ & ቀጥል ➡️' : '🌐 Select All & Proceed ➡️'),
           callback_data: 'dyn_sub_all',
         },
       ]);
@@ -628,20 +785,22 @@ It has been 24 hours since your roommate contact was unlocked!
       }
 
       gridRows.push([
-        { text: '✅ Proceed ➡️', callback_data: 'dyn_sub_proceed' },
+        { text: isAm ? '✅ ቀጥል ➡️' : '✅ Proceed ➡️', callback_data: 'dyn_sub_proceed' },
       ]);
       gridRows.push([
-        { text: '⬅️ Back', callback_data: 'dyn_back_to_budget' },
-        { text: '🏠 Cancel', callback_data: 'nav_start' },
+        { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_traits' },
+        { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
       ]);
 
-      const text = `📍 <b>Select preferred areas:</b>\n<code>${selectedList.join(', ')}</code>`;
+      const text = isAm
+        ? `📍 <b>የሚመርጡትን የመኖሪያ አካባቢዎች ይምረጡ:</b>\n<code>${selectedList.join(', ')}</code>`
+        : `📍 <b>Select preferred areas:</b>\n<code>${selectedList.join(', ')}</code>`;
 
       await sendOrEditCard(chatId, text, gridRows, activeMsgId);
     };
 
-    // Step 5: Fayda FAN Verification (Dual-Mode: Type or Camera Scan)
-    const sendDynamicCardStep5FaydaFan = async (
+    // Step 9: Fayda FAN Verification (Dual-Mode: Type or Camera Scan)
+    const sendDynamicCardStep9FaydaFan = async (
       chatId: number,
       draft: Record<string, any>,
       messageIdToEdit?: number,
@@ -656,18 +815,23 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
-      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🛡️ <b>Enter your Fayda FAN number or scan QR:</b>`.trim();
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+      const promptText = isAm
+        ? '🛡️ <b>የፋይዳ ብሔራዊ መታወቂያ (FAN) ቁጥር ያስገቡ ወይም QR ኮድ ይቃኙ:</b>'
+        : '🛡️ <b>Enter your Fayda FAN number or scan QR:</b>';
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
         [
           {
-            text: '📷 Scan Fayda QR ↗️',
+            text: isAm ? '📷 በካሜራ የፋይዳ QR ኮድ ይቃኙ ↗️' : '📷 Scan Fayda QR ↗️',
             web_app: { url: `${appUrl}?startapp=verify_fayda` },
           },
         ],
         [
-          { text: '⬅️ Back', callback_data: 'dyn_back_to_subs' },
-          { text: '🏠 Cancel', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_subs' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
 
@@ -684,13 +848,25 @@ It has been 24 hours since your roommate contact was unlocked!
         ? profileData.locations.join(', ')
         : 'Addis Ababa';
 
+      const budgetMin = Number(profileData.budget_min || 0).toLocaleString();
+      const budgetMax = Number(profileData.budget_max || 10000).toLocaleString();
+      const budgetDisplay = Number(profileData.budget_min || 0) > 0
+        ? `${budgetMin} – ${budgetMax} ETB / month`
+        : `Up to ${budgetMax} ETB / month`;
+
+      const jobLine = profileData.job ? `• <b>Occupation:</b> ${profileData.job}\n` : '';
+      const religionLine = profileData.religion ? `• <b>Religion:</b> ${profileData.religion}\n` : '';
+      const prefLine = profileData.preferred_gender ? `• <b>Prefers:</b> ${profileData.preferred_gender} Roommate\n` : '';
+      const ageStr = profileData.age ? `, Age ${profileData.age}` : '';
+
       const text = `
 📋 <b>Review Your Channel Post</b>
-📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified</b>
+📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
 
-• <b>Profile:</b> Roommate #${profileData.display_code} (${profileData.gender || 'Member'}, Age ${profileData.age || 24})
-• <b>Budget Cap:</b> <code>Up to ${Number(profileData.budget_max || 10000).toLocaleString()} ETB / month</code>
+• <b>Profile:</b> Roommate #${profileData.display_code} (${profileData.gender || 'Member'}${ageStr})
+${jobLine}${religionLine}${prefLine}• <b>Budget Range:</b> <code>${budgetDisplay}</code>
 • <b>Target Areas:</b> <code>${subcitiesStr}</code>
+${profileData.roommate_traits ? `\n<blockquote>"${escapeHtml(profileData.roommate_traits)}"</blockquote>` : ''}
       `.trim();
 
       const targetIdentifier = profileData.display_code || profileData.id;
@@ -708,6 +884,361 @@ It has been 24 hours since your roommate contact was unlocked!
       ];
 
       await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+    };
+
+    // Helper: Complete seeker onboarding and route to Branch A (connection) or Branch B (channel post)
+    const completeSeekerOnboarding = async (
+      chatId: number,
+      draft: Record<string, any>,
+      activeMsgId?: number,
+      fromUser?: { first_name?: string; last_name?: string; username?: string }
+    ) => {
+      let displayCode = `RM${Date.now().toString().slice(-4)}`;
+      try {
+        const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
+        if (codeRow) displayCode = codeRow;
+      } catch {}
+
+      const preferredSubs = draft.preferred_subcity || ['Bole'];
+      const userAge = draft.age || 24;
+      const userGender = draft.gender || 'Member';
+      const userReligion = draft.religion || 'Any';
+      const userJob = draft.job || 'Professional';
+      const userPrefGender = draft.preferred_gender || 'Any';
+      const userBudgetMin = Number(draft.budget_min || 0);
+      const userBudgetMax = Number(draft.budget_max || 10000);
+      const userTraits = draft.roommate_traits || 'Seeking compatible housemate in Addis Ababa.';
+      const targetId = draft.target_id;
+      const targetCode = draft.target_code;
+
+      const formattedTraits = `Job: ${userJob} | Religion: ${userReligion} | Prefers: ${userPrefGender} | ${userTraits}`;
+      const userFullName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || 'Verified Member';
+
+      // 1. Update user record
+      try {
+        await supabaseAdmin
+          .from('users')
+          .upsert({
+            telegram_id: chatId,
+            first_name: fromUser?.first_name || '',
+            last_name: fromUser?.last_name || '',
+            username: fromUser?.username || null,
+            fayda_status: 'verified',
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'telegram_id' });
+      } catch {}
+
+      // 2. Upsert into profiles (with resilient schema fallback)
+      const profilePayload: Record<string, any> = {
+        telegram_id: chatId,
+        display_code: displayCode,
+        onboarding_step: 'completed',
+        gender: userGender,
+        locations: preferredSubs,
+        budget_min: userBudgetMin,
+        budget_max: userBudgetMax,
+        roommate_traits: formattedTraits,
+        full_name: userFullName,
+        telegram_username: fromUser?.username || null,
+        kyc_status: 'verified',
+        status: 'active',
+        age: userAge,
+        job: userJob,
+        religion: userReligion,
+        preferred_gender: userPrefGender,
+      };
+
+      let savedProfile: any = null;
+      try {
+        const { data, error } = await supabaseAdmin
+          .from('profiles')
+          .upsert(profilePayload, { onConflict: 'telegram_id' })
+          .select('id, display_code, gender, locations, budget_min, budget_max, roommate_traits')
+          .single();
+
+        if (error) {
+          delete profilePayload.age;
+          delete profilePayload.job;
+          delete profilePayload.religion;
+          delete profilePayload.preferred_gender;
+          const { data: fbData } = await supabaseAdmin
+            .from('profiles')
+            .upsert(profilePayload, { onConflict: 'telegram_id' })
+            .select('id, display_code, gender, locations, budget_min, budget_max, roommate_traits')
+            .single();
+          savedProfile = fbData;
+        } else {
+          savedProfile = data;
+        }
+      } catch (profileErr) {
+        console.error('[completeSeekerOnboarding] profiles upsert error:', profileErr);
+      }
+
+      // 3. Upsert into roommate_profiles (with resilient fallback)
+      try {
+        const rmPayload: Record<string, any> = {
+          user_telegram_id: chatId,
+          my_gender: userGender,
+          preferred_gender: userPrefGender,
+          preferred_subcity: preferredSubs,
+          budget_min: userBudgetMin,
+          budget_max: userBudgetMax,
+          lifestyle_bio: formattedTraits,
+          unlock_fee: 300,
+          status: 'approved',
+          age: userAge,
+          job: userJob,
+          religion: userReligion,
+        };
+        const { error: rmErr } = await supabaseAdmin
+          .from('roommate_profiles')
+          .upsert(rmPayload, { onConflict: 'user_telegram_id' });
+        if (rmErr) {
+          delete rmPayload.age;
+          delete rmPayload.job;
+          delete rmPayload.religion;
+          await supabaseAdmin
+            .from('roommate_profiles')
+            .upsert(rmPayload, { onConflict: 'user_telegram_id' });
+        }
+      } catch (rmErr) {
+        console.warn('[completeSeekerOnboarding] roommate_profiles sync warning:', rmErr);
+      }
+
+      // 4. Save roommate draft cache
+      await saveRoommateDraft({
+        id: displayCode,
+        display_code: displayCode,
+        user_telegram_id: chatId,
+        user_name: userFullName,
+        username: fromUser?.username || null,
+        preferred_subcity: preferredSubs,
+        my_gender: userGender,
+        age: userAge,
+        job: userJob,
+        religion: userReligion,
+        preferred_gender: userPrefGender,
+        budget_min: userBudgetMin,
+        budget_max: userBudgetMax,
+        lifestyle_bio: formattedTraits,
+        unlock_fee: 300,
+        fayda_status: 'verified',
+        status: 'pending_approval',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      // ── Branch 1: User requested connection with a channel post target ──
+      if (targetId || targetCode) {
+        let targetProfile: any = null;
+        if (targetId) {
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
+          if (isUuid) {
+            const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('id', targetId).maybeSingle();
+            targetProfile = p;
+          }
+          if (!targetProfile) {
+            const { data: p } = await supabaseAdmin.from('profiles').select('*').ilike('display_code', targetId.replace(/^#/, '')).maybeSingle();
+            targetProfile = p;
+          }
+        }
+        if (!targetProfile && targetCode) {
+          const cleanTargetCode = targetCode.replace(/^#/, '').trim();
+          const { data: p } = await supabaseAdmin.from('profiles').select('*').ilike('display_code', cleanTargetCode).maybeSingle();
+          targetProfile = p;
+        }
+        if (!targetProfile && targetId) {
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
+          if (isUuid) {
+            const { data: rm } = await supabaseAdmin.from('roommate_profiles').select('*').eq('id', targetId).maybeSingle();
+            if (rm) {
+              targetProfile = {
+                telegram_id: rm.user_telegram_id,
+                gender: rm.my_gender,
+                locations: rm.preferred_subcity,
+                budget_min: rm.budget_min,
+                budget_max: rm.budget_max,
+                roommate_traits: rm.lifestyle_bio,
+              };
+            }
+          }
+        }
+
+        if (!targetProfile) {
+          await sendOrEditCard(
+            chatId,
+            `✅ <b>Fayda Verified!</b>\n\nHowever, the roommate listing (#${targetCode || 'RM'}) is no longer active.`,
+            [
+              [{ text: '⚡ Find Other Roommates 🔍', callback_data: 'matchmaker_start' }],
+              [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+            ],
+            activeMsgId
+          );
+          await clearSession(chatId);
+          return;
+        }
+
+        // Ensure target is represented in profiles table with valid UUID
+        if (targetProfile && targetProfile.telegram_id) {
+          const { data: pExisting } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('telegram_id', targetProfile.telegram_id)
+            .maybeSingle();
+
+          if (pExisting) {
+            targetProfile = pExisting;
+          } else {
+            const { data: createdTarget } = await supabaseAdmin
+              .from('profiles')
+              .upsert({
+                telegram_id: targetProfile.telegram_id,
+                display_code: targetProfile.display_code || targetCode || `RM${String(targetProfile.telegram_id).slice(-4)}`,
+                gender: targetProfile.gender || 'Member',
+                locations: targetProfile.locations || targetProfile.preferred_subcity || ['Addis Ababa'],
+                budget_min: targetProfile.budget_min || 0,
+                budget_max: targetProfile.budget_max || 10000,
+                roommate_traits: targetProfile.roommate_traits || 'Channel Roommate Listing',
+                kyc_status: 'verified',
+                status: 'active',
+                onboarding_step: 'completed',
+              }, { onConflict: 'telegram_id' })
+              .select('*')
+              .single();
+            if (createdTarget) targetProfile = createdTarget;
+          }
+        }
+
+        // Self-request check
+        if (String(targetProfile.telegram_id) === String(chatId)) {
+          await sendOrEditCard(
+            chatId,
+            `ℹ️ <b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
+            [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            activeMsgId
+          );
+          await clearSession(chatId);
+          return;
+        }
+
+        let myProfileId = savedProfile?.id;
+        if (!myProfileId) {
+          const { data: myP } = await supabaseAdmin.from('profiles').select('id').eq('telegram_id', chatId).maybeSingle();
+          myProfileId = myP?.id;
+        }
+
+        // Check if match already requested
+        const { data: existingMatch } = await supabaseAdmin
+          .from('matches')
+          .select('id, status')
+          .eq('requester_id', myProfileId)
+          .eq('target_id', targetProfile.id)
+          .maybeSingle();
+
+        if (existingMatch) {
+          await sendOrEditCard(
+            chatId,
+            `ℹ️ You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
+            [[{ text: '🔍 Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            activeMsgId
+          );
+          await clearSession(chatId);
+          return;
+        }
+
+        const { data: newMatch, error: matchError } = await supabaseAdmin
+          .from('matches')
+          .insert({
+            requester_id: myProfileId,
+            target_id: targetProfile.id,
+            status: 'pending_acceptance',
+            payment_status: 'unpaid',
+          })
+          .select('id')
+          .single();
+
+        if (matchError || !newMatch) {
+          console.error('[completeSeekerOnboarding] Match creation error:', matchError);
+          await sendOrEditCard(
+            chatId,
+            `❌ Could not send match request. Please try again.`,
+            [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
+            activeMsgId
+          );
+          await clearSession(chatId);
+          return;
+        }
+
+        // Target user notification DM: Strictly anonymous (NO real name, NO phone, NO username)
+        const reqSubcities = preferredSubs.join(', ');
+        const budgetMinStr = Number(userBudgetMin || 0).toLocaleString();
+        const budgetMaxStr = Number(userBudgetMax || 10000).toLocaleString();
+        const budgetDisplay = userBudgetMin > 0
+          ? `${budgetMinStr} – ${budgetMaxStr} ETB / month`
+          : `Up to ${budgetMaxStr} ETB / month`;
+
+        const targetNotifyText = `
+🤝 <b>SpaceMatch · New Connection Request!</b>
+
+A verified roommate saw your listing and wants to connect!
+
+• <b>Profile:</b> ${userGender}, Age ${userAge}
+• <b>Occupation:</b> ${escapeHtml(userJob)}
+• <b>Religion:</b> ${escapeHtml(userReligion)}
+• <b>Prefers:</b> ${escapeHtml(userPrefGender)} Roommate
+• <b>Budget Range:</b> <code>${budgetDisplay}</code>
+• <b>Target Areas:</b> <code>${escapeHtml(reqSubcities)}</code>
+• <b>Status:</b> 🛡️ <b>Fayda Verified ✅</b>
+
+<blockquote>"${escapeHtml(userTraits)}"</blockquote>
+
+🔒 <i>Personal identity (name, phone number, and Telegram handle) is strictly hidden until mutual agreement and match unlock.</i>
+
+<blockquote>Would you like to connect with this roommate?</blockquote>
+`.trim();
+
+        if (targetProfile.telegram_id) {
+          const sendRes = await tgSend(targetProfile.telegram_id, targetNotifyText, {
+            inline_keyboard: [
+              [
+                { text: '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
+                { text: '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
+              ],
+            ],
+          });
+          console.log('[completeSeekerOnboarding] Anonymous notification to target telegram_id', targetProfile.telegram_id, 'result:', sendRes?.ok ? 'DELIVERED' : sendRes?.description);
+        }
+
+        // Notify requester
+        await sendOrEditCard(
+          chatId,
+          `✅ <b>Fayda Verified & Match Request Sent!</b>\n\nYour request has been delivered to Roommate <b>#${targetProfile.display_code}</b>.\n\n<blockquote>🔔 You will receive an instant notification the moment they accept!</blockquote>`,
+          [
+            [{ text: '⚡ Find Other Roommates 🔍', callback_data: 'matchmaker_start' }],
+            [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+          ],
+          activeMsgId
+        );
+
+        await clearSession(chatId);
+        return;
+      }
+
+      // ── Branch 2: Post to Channel flow ──
+      const profileForReview = savedProfile || {
+        display_code: displayCode,
+        gender: userGender,
+        age: userAge,
+        job: userJob,
+        religion: userReligion,
+        preferred_gender: userPrefGender,
+        budget_min: userBudgetMin,
+        budget_max: userBudgetMax,
+        locations: preferredSubs,
+        roommate_traits: userTraits,
+      };
+
+      await sendChannelPublishPreviewCard(chatId, profileForReview, activeMsgId);
     };
 
     // ── Helper: 2-Branch Selection: "I have a space" vs "We look for space together" ──
@@ -1176,6 +1707,24 @@ Please reply with the description, perks, or notes for this channel post.
     };
 
     // Helper: Send Primary Start / Main Menu Screen
+    const sendLanguageSelectCard = async (chatId: number, messageIdToEdit?: number) => {
+      const text = `
+🌐 <b>Choose your Language / ቋንቋዎን ይምረጡ:</b>
+
+• <b>አማርኛ (Amharic):</b> የተፈጥሮና ቀጥተኛ የአማርኛ ቋንቋ
+• <b>English:</b> Standard English interface
+      `.trim();
+      const keyboard = [
+        [
+          { text: '🇪🇹 አማርኛ (Amharic)', callback_data: 'set_lang:am' },
+          { text: '🇬🇧 English', callback_data: 'set_lang:en' },
+        ],
+        [{ text: '🏠 Cancel / ሰርዝ', callback_data: 'nav_start' }],
+      ];
+      return await sendOrEditCard(chatId, text, keyboard, messageIdToEdit);
+    };
+
+    // Helper: Send Primary Start / Main Menu Screen
     const sendPrimaryWelcomeMenu = async (chatId: number, messageIdToEdit?: number) => {
       // Ensure the menu button in Telegram is reset to commands menu so mobile keyboards are unobstructed
       setChatMenuButton({ type: 'commands' }, chatId).catch(() => {});
@@ -1183,19 +1732,31 @@ Please reply with the description, perks, or notes for this channel post.
       const adminIds = await getAdminIds();
       const isAdmin = adminIds.includes(chatId);
 
-      const welcomeText = `🏠 <b>SpaceMatch Addis</b>`;
+      const session = getSession(chatId);
+      const lang = getLanguage(session.draft_data);
+      const isAm = lang === 'am';
+
+      const welcomeText = isAm
+        ? `🏠 <b>ስፔስማች አዲስ · እንኳን ደህና መጡ!</b>\n\nየተረጋገጡ የቤት ጓደኞችን ወይም የሚከራዩ ክፍሎችን በአዲስ አበባ ውስጥ በታማኝነት የሚያገኙበት መድረክ።`
+        : `🏠 <b>SpaceMatch Addis · Welcome!</b>\n\nAddis Ababa's verified roommate matching network. Find compatible roommates or list shared spaces safely.`;
 
       const inlineKeyboard = [
         [
           {
-            text: '🔍 Search Roommate',
+            text: isAm ? '🔍 የቤት ጓደኛ ፈልግ' : '🔍 Search Roommate',
             callback_data: 'search_roommate_start',
           },
         ],
         [
           {
-            text: '📢 Post Profile to Channel',
+            text: isAm ? '📢 ቻናል ላይ መረጃዬን ልለጥፍ' : '📢 Post Profile to Channel',
             callback_data: 'post_profile_start',
+          },
+        ],
+        [
+          {
+            text: isAm ? '🌐 Switch to English 🇬🇧' : '🌐 ወደ አማርኛ ቀይር 🇪🇹',
+            callback_data: isAm ? 'set_lang:en' : 'set_lang:am',
           },
         ],
         ...(isAdmin
@@ -1214,7 +1775,7 @@ Please reply with the description, perks, or notes for this channel post.
       await saveSession({
         telegram_id: chatId,
         step: 'idle',
-        draft_data: { card_msg_id: activeId },
+        draft_data: { ...session.draft_data, card_msg_id: activeId },
         updated_at: new Date().toISOString(),
       });
     };
@@ -1863,7 +2424,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
           budget_max: p.budget_max || 10000,
           lifestyle_bio: p.lifestyle_bio || 'Looking for compatible roommate in Addis Ababa.',
           fayda_status: p.users?.fayda_status || 'verified',
-          unlock_fee: p.unlock_fee || 50,
+          unlock_fee: p.unlock_fee || 300,
           source: 'DB',
         });
       }
@@ -1883,7 +2444,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
             budget_max: d.budget_max || 10000,
             lifestyle_bio: d.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa.',
             fayda_status: d.fayda_status || 'verified',
-            unlock_fee: d.unlock_fee || 50,
+            unlock_fee: d.unlock_fee || 300,
             source: 'Draft',
           });
         }
@@ -1905,7 +2466,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
             budget_max: p.budget_max || 10000,
             lifestyle_bio: p.roommate_traits || 'Looking for compatible roommate in Addis Ababa.',
             fayda_status: p.kyc_status === 'verified' ? 'verified' : 'unverified',
-            unlock_fee: 50,
+            unlock_fee: 300,
             source: 'Profiles',
           });
         }
@@ -2118,7 +2679,7 @@ We could not find an exact match for your selected filters in those specific sub
         return;
       }
 
-      const unlockFee = 50.00;
+      const unlockFee = 300.00;
 
       let title = 'Roommate Contact Unlock';
       let subcity = 'Addis Ababa';
@@ -2223,20 +2784,37 @@ We could not find an exact match for your selected filters in those specific sub
       });
 
       const cleanBio = bioInfo ? bioInfo.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
-      const paywallText = `
+      const lang = getLanguage(session.draft_data);
+      const isAm = lang === 'am';
+      const paywallText = isAm
+        ? `
+🔒 <b>ስፔስማች አዲስ · የተረጋገጠ የስልክ አድራሻ መክፈቻ</b>
+📍 <code>${subcity}</code> · <b>ተፈላጊ:</b> ${title}
+
+• <b>የስልክ አድራሻ መክፈቻ ክፍያ:</b> <code>300 ብር</code>
+${genderInfo ? `• ${genderInfo}\n` : ''}${budgetInfo ? `• ${budgetInfo}\n` : ''}${cleanBio ? `<blockquote>"${cleanBio}"</blockquote>\n` : ''}
+💳 <b>የክፍያ መመሪያ:</b>
+የ <code>300 ብር</code> ክፍያ ከታች ባሉት የክፍያ አማራጮች ይፈጽሙ:
+
+📱 <b>ቴሌብር:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)
+🏦 <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)
+
+💬 <i>ክፍያውን እንደፈጸሙ የደረሰኝ ቁጥርዎን (ለምሳሌ <code>FT24...</code> ወይም <code>TX...</code>) እዚህ በመላክ ወዲያውኑ ስልክ አድራሻውን ይክፈቱ!</i>
+        `.trim()
+        : `
 🔒 <b>SpaceMatch</b> · <b>Verified Contact Unlock</b>
 📍 <code>${subcity}</code> · <b>Target:</b> ${title}
 
-• <b>Contact Unlock Fee:</b> <code>${unlockFee} ETB</code>
+• <b>Contact Unlock Fee:</b> <code>300 ETB</code>
 ${genderInfo ? `• ${genderInfo}\n` : ''}${budgetInfo ? `• ${budgetInfo}\n` : ''}${cleanBio ? `<blockquote>"${cleanBio}"</blockquote>\n` : ''}
 💳 <b>Instant Payment Instructions:</b>
-Transfer <code>${unlockFee} ETB</code> to either account:
+Transfer <code>300 ETB</code> to either account:
 
 📱 <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)
 🏦 <b>CBE Account:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)
 
 💬 <i>Once transferred, type your Transaction Reference Code (e.g. <code>FT24...</code> or <code>TX...</code>) here to unlock contact details immediately!</i>
-      `.trim();
+        `.trim();
 
       const paywallKeyboard = [
         [
@@ -2500,6 +3078,23 @@ Transfer <code>${unlockFee} ETB</code> to either account:
         sendTelegram('answerCallbackQuery', { callback_query_id: callback.id }).catch(() => {});
       }
 
+      if (callbackData === 'open_lang_select') {
+        await sendLanguageSelectCard(chatId, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'set_lang:am' || callbackData === 'set_lang:en') {
+        const chosenLang = callbackData.split(':')[1];
+        const sess = getSession(chatId);
+        await saveSession({
+          ...sess,
+          draft_data: { ...sess.draft_data, lang: chosenLang },
+          updated_at: new Date().toISOString(),
+        });
+        await sendPrimaryWelcomeMenu(chatId, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
       // Load session from Supabase before any getSession() call
       await preloadSession(chatId);
 
@@ -2641,7 +3236,7 @@ Transfer <code>${unlockFee} ETB</code> to either account:
             budget_min: 0,
             budget_max: budgetNum,
             lifestyle_bio: bioStr,
-            unlock_fee: 50,
+            unlock_fee: 300,
             status: 'approved',
           });
         } catch {}
@@ -2917,7 +3512,7 @@ ${res.message}
           space_amenities: amenities,
           space_photos: photos,
           status: 'pending_approval',
-          unlock_fee: 50,
+          unlock_fee: 300,
           fayda_status: 'verified',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -3031,13 +3626,15 @@ A user has submitted a space offering for channel <code>${targetChannel}</code>:
 
         // 1. Check if requester is Fayda verified and has profile
         const isVerified = await isUserFaydaVerified(chatId);
-        const { data: myProfile } = await supabaseAdmin
-          .from('profiles')
-          .select('*')
-          .eq('telegram_id', chatId)
-          .maybeSingle();
+          const { data: myProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('telegram_id', chatId)
+            .maybeSingle();
 
-        if (!isVerified || !myProfile) {
+          const hasCompleteProfile = myProfile && myProfile.religion && myProfile.job && myProfile.preferred_gender;
+
+          if (!isVerified || !myProfile || !hasCompleteProfile) {
           await sendDynamicCardStep1Age(chatId, { target_id: targetProfileId }, msgId);
           return NextResponse.json({ ok: true });
         }
@@ -3103,7 +3700,7 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
         const gender = callbackData.split(':')[1];
         const session = getSession(chatId);
         const updatedDraft = { ...session.draft_data, gender };
-        await sendDynamicCardStep3Budget(chatId, updatedDraft, msgId);
+        await sendDynamicCardStep3Religion(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3130,14 +3727,19 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
           ...session.draft_data,
           preferred_subcity: newList.length > 0 ? newList : [sub],
         };
-        await sendDynamicCardStep4Subcities(chatId, updatedDraft, msgId);
+        await sendDynamicCardStep8Subcities(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
       if (callbackData === 'dyn_sub_all') {
         const session = getSession(chatId);
         const updatedDraft = { ...session.draft_data, preferred_subcity: [...ALL_SUBCITIES] };
-        await sendDynamicCardStep5FaydaFan(chatId, updatedDraft, msgId);
+        const isVerified = await isUserFaydaVerified(chatId);
+        if (isVerified) {
+          await completeSeekerOnboarding(chatId, updatedDraft, msgId, callback.from);
+        } else {
+          await sendDynamicCardStep9FaydaFan(chatId, updatedDraft, msgId);
+        }
         return NextResponse.json({ ok: true });
       }
 
@@ -3148,19 +3750,64 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
           ...session.draft_data,
           preferred_subcity: currentList.length > 0 ? currentList : ['Bole'],
         };
-        await sendDynamicCardStep5FaydaFan(chatId, updatedDraft, msgId);
+        const isVerified = await isUserFaydaVerified(chatId);
+        if (isVerified) {
+          await completeSeekerOnboarding(chatId, updatedDraft, msgId, callback.from);
+        } else {
+          await sendDynamicCardStep9FaydaFan(chatId, updatedDraft, msgId);
+        }
         return NextResponse.json({ ok: true });
       }
 
       if (callbackData === 'dyn_back_to_budget') {
         const session = getSession(chatId);
-        await sendDynamicCardStep3Budget(chatId, session.draft_data, msgId);
+        await sendDynamicCardStep5Budget(chatId, session.draft_data, msgId);
         return NextResponse.json({ ok: true });
       }
 
       if (callbackData === 'dyn_back_to_subs') {
         const session = getSession(chatId);
-        await sendDynamicCardStep4Subcities(chatId, session.draft_data, msgId);
+        await sendDynamicCardStep8Subcities(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('dyn_religion:')) {
+        const religion = callbackData.split(':')[1];
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, religion };
+        await sendDynamicCardStep4Job(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'dyn_back_to_religion') {
+        const session = getSession(chatId);
+        await sendDynamicCardStep3Religion(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'dyn_back_to_job') {
+        const session = getSession(chatId);
+        await sendDynamicCardStep4Job(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('dyn_pref_gender:')) {
+        const preferred_gender = callbackData.split(':')[1];
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, preferred_gender };
+        await sendDynamicCardStep7Traits(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'dyn_back_to_pref_gender') {
+        const session = getSession(chatId);
+        await sendDynamicCardStep6PrefGender(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'dyn_back_to_traits') {
+        const session = getSession(chatId);
+        await sendDynamicCardStep7Traits(chatId, session.draft_data, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3227,7 +3874,7 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
           budget_min: 0,
           budget_max: budgetNum,
           lifestyle_bio: bioStr,
-          unlock_fee: 50,
+          unlock_fee: 300,
           fayda_status: 'verified',
           status: 'pending_approval',
           created_at: new Date().toISOString(),
@@ -3667,17 +4314,61 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
           ? requesterProfile.locations.join(', ')
           : 'Addis Ababa';
 
-        let reqAge = 24;
-        if (requesterProfile.roommate_traits) {
+        let reqAge = requesterProfile.age;
+        if (!reqAge && requesterProfile.roommate_traits) {
           const m = requesterProfile.roommate_traits.match(/Age[:\s]+(\d+)/i);
           if (m) reqAge = parseInt(m[1], 10);
         }
+        if (!reqAge) reqAge = 24;
 
-        const requesterBudgetStr = requesterProfile.budget_max
-          ? `Up to ${Number(requesterProfile.budget_max).toLocaleString()} ETB / month`
-          : 'Negotiable';
+        let reqJob = requesterProfile.job;
+        if (!reqJob && requesterProfile.roommate_traits) {
+          const m = requesterProfile.roommate_traits.match(/Job[:\s]+([^|]+)/i);
+          if (m) reqJob = m[1].trim();
+        }
 
-        const notifyText = `🤝 <b>SpaceMatch · New Connection Request!</b>\n\nA verified roommate saw your channel listing and wants to connect!\n\n• <b>Profile:</b> ${requesterProfile.gender || 'Member'}, Age ${reqAge}\n• <b>Budget Cap:</b> <code>${requesterBudgetStr}</code>\n• <b>Target Areas:</b> <code>${requesterLocations}</code>\n• <b>Status:</b> 🛡️ <b>Fayda Verified ✅</b>\n\n🔒 <i>Personal identity (name, phone number, and Telegram handle) is strictly hidden until mutual agreement and match unlock.</i>\n\n<blockquote>Would you like to connect with this roommate?</blockquote>`;
+        let reqReligion = requesterProfile.religion;
+        if (!reqReligion && requesterProfile.roommate_traits) {
+          const m = requesterProfile.roommate_traits.match(/Religion[:\s]+([^|]+)/i);
+          if (m) reqReligion = m[1].trim();
+        }
+
+        let reqPrefGender = requesterProfile.preferred_gender;
+        if (!reqPrefGender && requesterProfile.roommate_traits) {
+          const m = requesterProfile.roommate_traits.match(/Prefers[:\s]+([^|]+)/i);
+          if (m) reqPrefGender = m[1].trim();
+        }
+
+        const bMin = Number(requesterProfile.budget_min || 0);
+        const bMax = Number(requesterProfile.budget_max || 10000);
+        const requesterBudgetStr = bMin > 0
+          ? `${bMin.toLocaleString()} – ${bMax.toLocaleString()} ETB / month`
+          : `Up to ${bMax.toLocaleString()} ETB / month`;
+
+        const jobLine = reqJob ? `• <b>Occupation:</b> ${escapeHtml(reqJob)}\n` : '';
+        const religionLine = reqReligion ? `• <b>Religion:</b> ${escapeHtml(reqReligion)}\n` : '';
+        const prefLine = reqPrefGender ? `• <b>Prefers:</b> ${escapeHtml(reqPrefGender)} Roommate\n` : '';
+
+        let cleanTraits = requesterProfile.roommate_traits || '';
+        if (cleanTraits.includes(' | ')) {
+          const parts = cleanTraits.split(' | ');
+          cleanTraits = parts[parts.length - 1];
+        }
+
+        const notifyText = `
+🤝 <b>SpaceMatch · New Connection Request!</b>
+
+A verified roommate saw your listing and wants to connect!
+
+• <b>Profile:</b> ${requesterProfile.gender || 'Member'}, Age ${reqAge}
+${jobLine}${religionLine}${prefLine}• <b>Budget Range:</b> <code>${requesterBudgetStr}</code>
+• <b>Target Areas:</b> <code>${escapeHtml(requesterLocations)}</code>
+• <b>Status:</b> 🛡️ <b>Fayda Verified ✅</b>
+${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>` : ''}
+🔒 <i>Personal identity (name, phone number, and Telegram handle) is strictly hidden until mutual agreement and match unlock.</i>
+
+<blockquote>Would you like to connect with this roommate?</blockquote>
+`.trim();
 
         if (targetProfile.telegram_id) {
           const sendRes = await tgSend(
@@ -4109,7 +4800,7 @@ Your listing <b>#${displayCode}</b> has been marked as matched! 🎉
           budget_max: draftData.budget_max || 10000,
           lifestyle_bio: draftData.lifestyle_bio || 'Looking for compatible roommate in Addis Ababa.',
           fayda_status: 'verified',
-          unlock_fee: 50,
+          unlock_fee: 300,
           status: 'approved',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -4128,7 +4819,7 @@ Your listing <b>#${displayCode}</b> has been marked as matched! 🎉
             budget_min: 0,
             budget_max: roommateDraft.budget_max,
             lifestyle_bio: roommateDraft.lifestyle_bio,
-            unlock_fee: 50,
+            unlock_fee: 300,
             status: 'approved',
           });
         } catch {}
@@ -5014,7 +5705,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
-        const fanResult = validateFaydaFan(text);
+        const fanResult = await verifyFaydaFan(text, chatId);
 
         if (!fanResult.valid || !fanResult.fanNumber) {
           await sendOrEditCard(
@@ -5147,38 +5838,82 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         return NextResponse.json({ ok: true });
       }
 
-      // Step 3 Text Input: Monthly Budget (Open Numeric ETB)
+      // Step 4 Text Input: Job / Occupation
+      if (session.step === 'dyn_card_job') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const jobVal = text.trim();
+        if (!jobVal || jobVal.length < 2 || jobVal.length > 80) {
+          await sendDynamicCardStep4Job(
+            chatId,
+            session.draft_data,
+            activeMsgId,
+            'Please enter a valid job or occupation (e.g. Software Engineer, Accountant, Student):'
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        const updatedDraft = { ...session.draft_data, job: jobVal };
+        await sendDynamicCardStep5Budget(chatId, updatedDraft, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Step 5 Text Input: Monthly Budget Range
       if (session.step === 'dyn_card_budget') {
         if (update.message?.message_id) {
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
-        const budgetVal = parseNumericInput(text);
-        if (!budgetVal || budgetVal < 500 || budgetVal > 1000000) {
-          await sendDynamicCardStep3Budget(
+        const budgetRange = parseBudgetRangeInput(text);
+        if (!budgetRange || budgetRange.max < 500 || budgetRange.max > 1000000) {
+          await sendDynamicCardStep5Budget(
             chatId,
             session.draft_data,
             activeMsgId,
-            'Please enter a valid monthly budget in ETB (e.g. 12000):'
+            'Please enter a valid monthly budget range in ETB (e.g. 8000 - 15000):'
           );
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, budget_max: budgetVal };
-        await sendDynamicCardStep4Subcities(chatId, updatedDraft, activeMsgId);
+        const updatedDraft = { ...session.draft_data, budget_min: budgetRange.min, budget_max: budgetRange.max };
+        await sendDynamicCardStep6PrefGender(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
 
-      // Step 5 Text Input: Fayda FAN Verification
+      // Step 7 Text Input: Preferred Roommate Traits / Lifestyle
+      if (session.step === 'dyn_card_traits') {
+        if (update.message?.message_id) {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const traitsVal = text.trim();
+        if (!traitsVal || traitsVal.length < 3 || traitsVal.length > 500) {
+          await sendDynamicCardStep7Traits(
+            chatId,
+            session.draft_data,
+            activeMsgId,
+            'Please describe your preferred roommate traits (e.g. Quiet, tidy, non-smoker):'
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        const updatedDraft = { ...session.draft_data, roommate_traits: traitsVal };
+        await sendDynamicCardStep8Subcities(chatId, updatedDraft, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Step 9 Text Input: Fayda FAN Verification
       if (session.step === 'dyn_card_fayda_fan') {
         if (update.message?.message_id) {
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
-        const fanResult = validateFaydaFan(text);
+        const fanResult = await verifyFaydaFan(text, chatId);
 
         if (!fanResult.valid || !fanResult.fanNumber) {
-          await sendDynamicCardStep5FaydaFan(
+          await sendDynamicCardStep9FaydaFan(
             chatId,
             session.draft_data,
             activeMsgId,
@@ -5187,297 +5922,9 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           return NextResponse.json({ ok: true });
         }
 
-        // Check if FAN number is already bound to another account
-        const { data: existingUser } = await supabaseAdmin
-          .from('users')
-          .select('id, telegram_id')
-          .eq('fayda_id_number', fanResult.fanNumber)
-          .neq('telegram_id', chatId)
-          .maybeSingle();
-
-        if (existingUser) {
-          await sendDynamicCardStep5FaydaFan(
-            chatId,
-            session.draft_data,
-            activeMsgId,
-            'This Fayda National ID is already registered to another account.'
-          );
-          return NextResponse.json({ ok: true });
-        }
-
-        // Generate or retrieve display code
-        let displayCode = `RM${Date.now().toString().slice(-4)}`;
-        try {
-          const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
-          if (codeRow) displayCode = codeRow;
-        } catch {}
-
-        // 1. Update user record
-        const userFullName = [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ') || 'Verified Member';
-        await supabaseAdmin
-          .from('users')
-          .upsert({
-            telegram_id: chatId,
-            first_name: message.from?.first_name || '',
-            last_name: message.from?.last_name || '',
-            username: message.from?.username || null,
-            fayda_status: 'verified',
-            fayda_id_number: fanResult.fanNumber,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'telegram_id' });
-
-        // 2. Upsert seeker profile
-        const preferredSubs = session.draft_data.preferred_subcity || ['Bole'];
-        const userAge = session.draft_data.age || 24;
-        const userGender = session.draft_data.gender || 'Any';
-        const userBudget = session.draft_data.budget_max || 10000;
-        const targetId = session.draft_data.target_id;
-        const targetCode = session.draft_data.target_code;
-
-        const { data: savedProfile, error: profileErr } = await supabaseAdmin
-          .from('profiles')
-          .upsert({
-            telegram_id: chatId,
-            display_code: displayCode,
-            onboarding_step: 'completed',
-            gender: userGender,
-            locations: preferredSubs,
-            budget_min: 0,
-            budget_max: userBudget,
-            roommate_traits: `Age ${userAge} · Seeking roommate in ${preferredSubs.join(', ')}.`,
-            full_name: userFullName,
-            telegram_username: message.from?.username || null,
-            kyc_status: 'verified',
-            status: 'active',
-          }, { onConflict: 'telegram_id' })
-          .select('id, display_code, gender, locations, budget_max, roommate_traits')
-          .single();
-
-        if (profileErr) {
-          console.error('[webhook] profiles upsert error in dyn_card_fayda_fan:', profileErr);
-        }
-
-        try {
-          await supabaseAdmin
-            .from('roommate_profiles')
-            .upsert({
-              user_telegram_id: chatId,
-              my_gender: userGender,
-              preferred_gender: 'Any',
-              preferred_subcity: preferredSubs,
-              budget_min: 0,
-              budget_max: userBudget,
-              lifestyle_bio: `Age ${userAge} · Seeking roommate in ${preferredSubs.join(', ')}.`,
-              unlock_fee: 50,
-              status: 'approved',
-            }, { onConflict: 'user_telegram_id' });
-        } catch (rmErr) {
-          console.warn('[webhook] roommate_profiles sync warning:', rmErr);
-        }
-
-        await saveRoommateDraft({
-          id: displayCode,
-          display_code: displayCode,
-          user_telegram_id: chatId,
-          user_name: userFullName,
-          username: message.from?.username || null,
-          preferred_subcity: preferredSubs,
-          my_gender: userGender,
-          age: userAge,
-          preferred_gender: 'Any',
-          budget_min: 0,
-          budget_max: userBudget,
-          lifestyle_bio: `Age ${userAge} · Seeking roommate in ${preferredSubs.join(', ')}.`,
-          unlock_fee: 50,
-          fayda_status: 'verified',
-          status: 'pending_approval',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-
-        // Branch 1: User requested connection with a channel post target
-        if (targetId || targetCode) {
-          let targetProfile: any = null;
-          if (targetId) {
-            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
-            if (isUuid) {
-              const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('id', targetId).maybeSingle();
-              targetProfile = p;
-            }
-            if (!targetProfile) {
-              const { data: p } = await supabaseAdmin.from('profiles').select('*').ilike('display_code', targetId.replace(/^#/, '')).maybeSingle();
-              targetProfile = p;
-            }
-          }
-          if (!targetProfile && targetCode) {
-            const cleanTargetCode = targetCode.replace(/^#/, '').trim();
-            const { data: p } = await supabaseAdmin.from('profiles').select('*').ilike('display_code', cleanTargetCode).maybeSingle();
-            targetProfile = p;
-          }
-          if (!targetProfile && targetId) {
-            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
-            if (isUuid) {
-              const { data: rm } = await supabaseAdmin.from('roommate_profiles').select('*').eq('id', targetId).maybeSingle();
-              if (rm) {
-                targetProfile = {
-                  telegram_id: rm.user_telegram_id,
-                  gender: rm.my_gender,
-                  locations: rm.preferred_subcity,
-                  budget_max: rm.budget_max,
-                  roommate_traits: rm.lifestyle_bio,
-                };
-              }
-            }
-          }
-
-          if (!targetProfile) {
-            await sendOrEditCard(
-              chatId,
-              `✅ <b>Fayda Verified!</b>\n\nHowever, the roommate listing (#${targetCode || 'RM'}) is no longer active.`,
-              [
-                [{ text: '⚡ Find Other Roommates 🔍', callback_data: 'matchmaker_start' }],
-                [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
-              ],
-              activeMsgId
-            );
-            await clearSession(chatId);
-            return NextResponse.json({ ok: true });
-          }
-
-          // Ensure target is represented in profiles table with valid UUID for foreign key constraint
-          if (targetProfile && targetProfile.telegram_id) {
-            const { data: pExisting } = await supabaseAdmin
-              .from('profiles')
-              .select('*')
-              .eq('telegram_id', targetProfile.telegram_id)
-              .maybeSingle();
-
-            if (pExisting) {
-              targetProfile = pExisting;
-            } else {
-              const { data: createdTarget } = await supabaseAdmin
-                .from('profiles')
-                .upsert({
-                  telegram_id: targetProfile.telegram_id,
-                  display_code: targetProfile.display_code || targetCode || `RM${String(targetProfile.telegram_id).slice(-4)}`,
-                  gender: targetProfile.gender || 'Member',
-                  locations: targetProfile.locations || targetProfile.preferred_subcity || ['Addis Ababa'],
-                  budget_min: targetProfile.budget_min || 0,
-                  budget_max: targetProfile.budget_max || 10000,
-                  roommate_traits: targetProfile.roommate_traits || 'Channel Roommate Listing',
-                  kyc_status: 'verified',
-                  status: 'active',
-                  onboarding_step: 'completed',
-                }, { onConflict: 'telegram_id' })
-                .select('*')
-                .single();
-              if (createdTarget) targetProfile = createdTarget;
-            }
-          }
-
-          // Check if self-request
-          if (String(targetProfile.telegram_id) === String(chatId)) {
-            await sendOrEditCard(
-              chatId,
-              `ℹ️ <b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
-              [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
-              activeMsgId
-            );
-            await clearSession(chatId);
-            return NextResponse.json({ ok: true });
-          }
-
-          let myProfileId = savedProfile?.id;
-          if (!myProfileId) {
-            const { data: myP } = await supabaseAdmin.from('profiles').select('id').eq('telegram_id', chatId).maybeSingle();
-            myProfileId = myP?.id;
-          }
-
-          // Check if match already requested
-          const { data: existingMatch } = await supabaseAdmin
-            .from('matches')
-            .select('id, status')
-            .eq('requester_id', myProfileId)
-            .eq('target_id', targetProfile.id)
-            .maybeSingle();
-
-          if (existingMatch) {
-            await sendOrEditCard(
-              chatId,
-              `ℹ️ You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
-              [[{ text: '🔍 Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
-              activeMsgId
-            );
-            await clearSession(chatId);
-            return NextResponse.json({ ok: true });
-          }
-
-          const { data: newMatch, error: matchError } = await supabaseAdmin
-            .from('matches')
-            .insert({
-              requester_id: myProfileId,
-              target_id: targetProfile.id,
-              status: 'pending_acceptance',
-              payment_status: 'unpaid',
-            })
-            .select('id')
-            .single();
-
-          if (matchError || !newMatch) {
-            console.error('[webhook] Match creation error in dyn_card_fayda_fan:', matchError);
-            await sendOrEditCard(
-              chatId,
-              `❌ Could not send match request. Please try again.`,
-              [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]],
-              activeMsgId
-            );
-            await clearSession(chatId);
-            return NextResponse.json({ ok: true });
-          }
-
-          // Notify Target User with strictly anonymous compatibility details (NO name, NO phone, NO username)
-          const reqSubcities = preferredSubs.join(', ');
-          const targetNotifyText = `🤝 <b>SpaceMatch · New Connection Request!</b>\n\nA verified roommate saw your listing and wants to connect!\n\n• <b>Profile:</b> ${userGender}, Age ${userAge}\n• <b>Budget Cap:</b> <code>Up to ${Number(userBudget).toLocaleString()} ETB / month</code>\n• <b>Target Areas:</b> <code>${reqSubcities}</code>\n• <b>Status:</b> 🛡️ <b>Fayda Verified ✅</b>\n\n🔒 <i>Personal identity (name, phone number, and Telegram handle) is strictly hidden until mutual agreement and match unlock.</i>\n\n<blockquote>Would you like to connect with this roommate?</blockquote>`;
-
-          if (targetProfile.telegram_id) {
-            const sendRes = await tgSend(targetProfile.telegram_id, targetNotifyText, {
-              inline_keyboard: [
-                [
-                  { text: '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
-                  { text: '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
-                ],
-              ],
-            });
-            console.log('[match-request] Anonymous notification to target telegram_id', targetProfile.telegram_id, 'result:', sendRes?.ok ? 'DELIVERED' : sendRes?.description);
-          }
-
-          // Notify Requester
-          await sendOrEditCard(
-            chatId,
-            `✅ <b>Fayda Verified & Match Request Sent!</b>\n\nYour request has been delivered to Roommate <b>#${targetProfile.display_code}</b>.\n\n<blockquote>🔔 You will receive an instant notification the moment they accept!</blockquote>`,
-            [
-              [{ text: '⚡ Find Other Roommates 🔍', callback_data: 'matchmaker_start' }],
-              [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
-            ],
-            activeMsgId
-          );
-
-          await clearSession(chatId);
-          return NextResponse.json({ ok: true });
-        }
-
-        // Branch 2: Post to Channel flow
-        const profileForReview = savedProfile || {
-          display_code: displayCode,
-          gender: userGender,
-          age: userAge,
-          locations: preferredSubs,
-          budget_max: userBudget,
-          roommate_traits: `Age ${userAge} · Seeking roommate in ${preferredSubs.join(', ')}.`,
-        };
-
-        await sendChannelPublishPreviewCard(chatId, profileForReview, activeMsgId);
+        await completeSeekerOnboarding(chatId, session.draft_data, activeMsgId, message.from);
         return NextResponse.json({ ok: true });
+
       }
 
       // Target User Verification before accepting match
@@ -5487,7 +5934,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
         }
         const activeMsgId = session.draft_data?.card_msg_id;
-        const fanResult = validateFaydaFan(text);
+        const fanResult = await verifyFaydaFan(text, chatId);
 
         if (!fanResult.valid || !fanResult.fanNumber) {
           const errMsg = fanResult.error || 'Invalid Fayda FAN number. Please check the digits and try again.';
@@ -5667,6 +6114,25 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       }
 
       // Handle Slash Commands
+      if (text === '/lang' || text === '/language') {
+        await sendLanguageSelectCard(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/amharic') {
+        const sess = getSession(chatId);
+        await saveSession({ ...sess, draft_data: { ...sess.draft_data, lang: 'am' }, updated_at: new Date().toISOString() });
+        await sendPrimaryWelcomeMenu(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (text === '/english') {
+        const sess = getSession(chatId);
+        await saveSession({ ...sess, draft_data: { ...sess.draft_data, lang: 'en' }, updated_at: new Date().toISOString() });
+        await sendPrimaryWelcomeMenu(chatId);
+        return NextResponse.json({ ok: true });
+      }
+
       if (text.startsWith('/start') || text === '/start') {
         await clearSession(chatId);
 
@@ -5858,7 +6324,9 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 
           const myCode = myProfile.display_code || 'Verified Member';
           const myLocations = Array.isArray(myProfile.locations) ? myProfile.locations.join(', ') : 'Addis Ababa';
-          const myBudgetStr = myProfile.budget_max ? `Up to ${Number(myProfile.budget_max).toLocaleString()} ETB` : 'Flexible';
+          const bMin = Number(myProfile.budget_min || 0);
+          const bMax = Number(myProfile.budget_max || 10000);
+          const myBudgetStr = bMin > 0 ? `${bMin.toLocaleString()} – ${bMax.toLocaleString()} ETB` : `Up to ${bMax.toLocaleString()} ETB`;
           const myGenderStr = myProfile.gender || 'Member';
           const myAgeStr = myProfile.age ? `, ${myProfile.age} yrs` : '';
 
@@ -5867,8 +6335,11 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 
 • <b>Target:</b> #${targetProfile.display_code || lookupCode} (📍 <code>${targetLocations}</code>)
 • <b>Your Profile:</b> #${myCode} (${myGenderStr}${myAgeStr})
+• <b>Occupation:</b> ${escapeHtml(myProfile.job || 'Professional')}
+• <b>Religion:</b> ${escapeHtml(myProfile.religion || 'Any')}
+• <b>Prefers:</b> ${escapeHtml(myProfile.preferred_gender || 'Any')} Roommate
 • <b>Your Budget:</b> <code>${myBudgetStr}</code>
-• <b>Your Areas:</b> <code>${myLocations}</code>
+• <b>Your Areas:</b> <code>${escapeHtml(myLocations)}</code>
           `.trim();
 
           await sendOrEditCard(
