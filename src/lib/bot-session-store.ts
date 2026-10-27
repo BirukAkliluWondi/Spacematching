@@ -153,6 +153,9 @@ export async function saveSession(session: BotSession): Promise<void> {
 export async function clearSession(telegramId: number): Promise<void> {
   const current = getSession(telegramId);
   const preservedDraft: Record<string, any> = {};
+  if (current?.draft_data?.lang) {
+    preservedDraft.lang = current.draft_data.lang;
+  }
   if (current?.draft_data?.checkin_scheduled) {
     preservedDraft.checkin_scheduled = true;
     preservedDraft.checkin_due = current.draft_data.checkin_due;

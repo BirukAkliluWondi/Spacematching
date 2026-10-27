@@ -513,7 +513,7 @@ It has been 24 hours since your roommate contact was unlocked!
       const header = draft.target_code
         ? (isAm ? `🤝 <b>ከቤት ጓደኛ #${draft.target_code} ጋር ይገናኙ</b>\n\n` : `🤝 <b>Connect with #${draft.target_code}</b>\n\n`)
         : '';
-      const question = isAm ? '🎂 <b>ዕድሜዎ ስንት ነው?</b>' : '🎂 <b>What is your age?</b>';
+      const question = isAm ? '🎂 <b>ዕድሜዎ ስንት ነው?</b> (ምሳሌ: 24)' : '🎂 <b>What is your age?</b> (e.g. 24)';
       const text = `${header}${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${question}`.trim();
 
       const inlineKeyboard = [
@@ -621,8 +621,8 @@ It has been 24 hours since your roommate contact was unlocked!
       const lang = getLanguage(draft);
       const isAm = lang === 'am';
       const promptText = isAm
-        ? '💼 <b>የስራ ሁኔታዎ ወይም ሙያዎ ምንድን ነው?</b>\n<i>(ስራዎን ወይም ሙያዎን በጽሁፍ ይላኩ)</i>'
-        : '💼 <b>What is your job / occupation?</b>\n<i>(Type your job in chat)</i>';
+        ? '💼 <b>የስራ ሁኔታዎ ወይም ሙያዎ ምንድን ነው?</b> (ምሳሌ: አካውንታንት)'
+        : '💼 <b>What is your job / occupation?</b> (e.g. Accountant)';
       const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
@@ -654,8 +654,8 @@ It has been 24 hours since your roommate contact was unlocked!
       const lang = getLanguage(draft);
       const isAm = lang === 'am';
       const promptText = isAm
-        ? '💰 <b>የወርሃዊ የኪራይ በጀትዎ ከስንት እስከ ስንት ነው?</b>\n<i>(የበጀት መጠንዎን ከ-እስከ በብር ይጻፉ፣ ለምሳሌ: <code>8000 - 15000</code>)</i>'
-        : '💰 <b>What is your monthly budget range (ETB)?</b>\n<i>(Type a range of numbers, e.g. <code>8000 - 15000</code>)</i>';
+        ? '💰 <b>የወርሃዊ የኪራይ በጀትዎ ከስንት እስከ ስንት ነው?</b> (ምሳሌ: 8000 - 15000)'
+        : '💰 <b>What is your monthly budget range in ETB?</b> (e.g. 8000 - 15000)';
       const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
@@ -685,7 +685,7 @@ It has been 24 hours since your roommate contact was unlocked!
 
       const lang = getLanguage(draft);
       const isAm = lang === 'am';
-      const text = isAm ? '👥 <b>ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ?</b>' : '👥 <b>Select preferred roommate gender:</b>';
+      const text = isAm ? '👥 <b>ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ?</b>' : '👥 <b>Who do you prefer to live with?</b>';
 
       const inlineKeyboard = [
         [
@@ -721,8 +721,8 @@ It has been 24 hours since your roommate contact was unlocked!
       const lang = getLanguage(draft);
       const isAm = lang === 'am';
       const promptText = isAm
-        ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ጠባይ እና ባህሪ በአጭሩ ይግለጹ:</b>\n<i>(ለምሳሌ: ጸጥታ የሚወድ፣ ንጹህ፣ የማያጨስ፣ ተግባቢ)</i>'
-        : '✨ <b>Describe your preferred type of roommate:</b>\n<i>(e.g. Quiet, tidy, non-smoker, friendly, respectful)</i>';
+        ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ጠባይ በአጭሩ ይግለጹ:</b> (ምሳሌ: ጸጥታ የሚወድ እና ተግባቢ)'
+        : '✨ <b>Describe your preferred type of roommate:</b> (e.g. Quiet and respectful)';
       const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
@@ -818,8 +818,8 @@ It has been 24 hours since your roommate contact was unlocked!
       const lang = getLanguage(draft);
       const isAm = lang === 'am';
       const promptText = isAm
-        ? '🛡️ <b>የፋይዳ ብሔራዊ መታወቂያ (FAN) ቁጥር ያስገቡ ወይም QR ኮድ ይቃኙ:</b>'
-        : '🛡️ <b>Enter your Fayda FAN number or scan QR:</b>';
+        ? '🛡️ <b>የፋይዳ FAN ቁጥር ያስገቡ ወይም QR ኮድ ይቃኙ:</b> (ምሳሌ: 1234 5678 9012)'
+        : '🛡️ <b>Enter your Fayda FAN number or scan QR:</b> (e.g. 1234 5678 9012)';
       const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
@@ -1243,31 +1243,41 @@ A verified roommate saw your listing and wants to connect!
 
     // ── Helper: 2-Branch Selection: "I have a space" vs "We look for space together" ──
     const sendPostProfileBranchPrompt = async (chatId: number, messageIdToEdit?: number) => {
+      const session = getSession(chatId);
+      const lang = getLanguage(session.draft_data);
+      const isAm = lang === 'am';
+
       await saveSession({
         telegram_id: chatId,
         step: 'post_profile_branch_select',
-        draft_data: { card_msg_id: messageIdToEdit },
+        draft_data: { ...session.draft_data, card_msg_id: messageIdToEdit },
         updated_at: new Date().toISOString(),
       });
 
-      const text = `📢 <b>Select listing type:</b>`;
+      const text = isAm
+        ? `📢 <b>የመረጃዎን አይነት ይምረጡ:</b>`
+        : `📢 <b>Select your listing type:</b>`;
 
       const inlineKeyboard = [
         [
           {
-            text: '🏠 I have a space',
+            text: isAm
+              ? '🏠 የሚከራይ ክፍል አለኝ እና የቤት ጓደኛ እፈልጋለሁ'
+              : '🏠 I have a space and want a roommate',
             callback_data: 'post_branch_space',
           },
         ],
         [
           {
-            text: '👥 Look for space together',
+            text: isAm
+              ? '👥 የቤት ጓደኛ እፈልጋለሁ አብረን ቤት እንፈልጋለን'
+              : '👥 I want a roommate and we look for space together',
             callback_data: 'post_branch_seeker',
           },
         ],
         [
           {
-            text: '🏠 Main Menu',
+            text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu',
             callback_data: 'nav_start',
           },
         ],
@@ -1284,6 +1294,9 @@ A verified roommate saw your listing and wants to connect!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+
       await saveSession({
         telegram_id: chatId,
         step: 'space_input_type',
@@ -1291,11 +1304,14 @@ A verified roommate saw your listing and wants to connect!
         updated_at: new Date().toISOString(),
       });
 
-      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🛏️ <b>What type of space are you offering?</b>`.trim();
+      const promptText = isAm
+        ? '🛏️ <b>የሚከራየው ክፍል ምን አይነት ነው?</b> (ምሳሌ: ዋና መኝታ ቤት)'
+        : '🛏️ <b>What type of space are you offering?</b> (e.g. Master Bedroom)';
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
-        [{ text: '⬅️ Back to Options', callback_data: 'post_profile_start' }],
-        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+        [{ text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'post_profile_start' }],
+        [{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }],
       ];
 
       return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
@@ -1308,6 +1324,9 @@ A verified roommate saw your listing and wants to connect!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+
       await saveSession({
         telegram_id: chatId,
         step: 'space_input_rent',
@@ -1315,12 +1334,15 @@ A verified roommate saw your listing and wants to connect!
         updated_at: new Date().toISOString(),
       });
 
-      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Total monthly rent (ETB):</b>`.trim();
+      const promptText = isAm
+        ? '💰 <b>የቤቱ ጠቅላላ ወርሃዊ ኪራይ በብር:</b> (ምሳሌ: 12000)'
+        : '💰 <b>Total monthly rent for the space in ETB:</b> (e.g. 12000)';
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
         [
-          { text: '⬅️ Back to Space Type', callback_data: 'post_branch_space' },
-          { text: '🏠 Cancel', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'post_branch_space' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
 
@@ -1334,6 +1356,9 @@ A verified roommate saw your listing and wants to connect!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+
       await saveSession({
         telegram_id: chatId,
         step: 'space_input_share',
@@ -1344,15 +1369,20 @@ A verified roommate saw your listing and wants to connect!
       const rentNum = draft.space_rent || 10000;
       const halfRent = Math.round(rentNum / 2);
 
-      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}🤝 <b>Roommate's share / split (ETB):</b>`.trim();
+      const promptText = isAm
+        ? '🤝 <b>የቤት ጓደኛው የሚከፍለው ድርሻ በብር:</b> (ምሳሌ: 6000)'
+        : '🤝 <b>Roommate\'s share / split in ETB:</b> (e.g. 6000)';
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+
+      const splitText = isAm ? `⚖️ 50% እኩል ክፍፍል (${halfRent.toLocaleString()} ብር)` : `⚖️ Quick 50% Split (${halfRent.toLocaleString()} ETB)`;
 
       const inlineKeyboard = [
         [
-          { text: `⚖️ Quick 50% Split (${halfRent.toLocaleString()} ETB)`, callback_data: `space_share:${halfRent}` },
+          { text: splitText, callback_data: `space_share:${halfRent}` },
         ],
         [
-          { text: '⬅️ Back to Total Rent', callback_data: 'space_back_to_rent' },
-          { text: '🏠 Cancel', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_rent' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
 
@@ -1366,6 +1396,8 @@ A verified roommate saw your listing and wants to connect!
       errorMsg?: string
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
@@ -1374,12 +1406,15 @@ A verified roommate saw your listing and wants to connect!
         updated_at: new Date().toISOString(),
       });
 
-      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}✨ <b>Amenities included with the space:</b>`.trim();
+      const promptText = isAm
+        ? '✨ <b>ቤቱ የሚያካትታቸው ግልጋሎቶች ምንድን ናቸው?</b> (ምሳሌ: ዋይፋይ፣ ወጥ ቤት፣ የውሃ ታንከር)'
+        : '✨ <b>What amenities are included with the space?</b> (e.g. WiFi, Kitchen, Water tanker)';
+      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
         [
-          { text: '⬅️ Back to Roommate Share', callback_data: 'space_back_to_share' },
-          { text: '🏠 Cancel', callback_data: 'nav_start' },
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_share' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
 
@@ -1392,6 +1427,9 @@ A verified roommate saw your listing and wants to connect!
       messageIdToEdit?: number
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
+
       await saveSession({
         telegram_id: chatId,
         step: 'space_subcity_select',
@@ -1412,11 +1450,13 @@ A verified roommate saw your listing and wants to connect!
       }
 
       gridRows.push([
-        { text: '⬅️ Back to Amenities', callback_data: 'space_back_to_amenities' },
-        { text: '🏠 Cancel', callback_data: 'nav_start' },
+        { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_amenities' },
+        { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
       ]);
 
-      const text = `📍 <b>Select sub-city where the space is located:</b>`;
+      const text = isAm
+        ? '📍 <b>ቤቱ የሚገኝበትን ክፍለ ከተማ ይምረጡ:</b>'
+        : '📍 <b>Select sub-city where the space is located:</b>';
 
       return await sendOrEditCard(chatId, text, gridRows, activeMsgId);
     };
@@ -1428,6 +1468,8 @@ A verified roommate saw your listing and wants to connect!
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
       const photos: string[] = draft.space_photos || [];
+      const lang = getLanguage(draft);
+      const isAm = lang === 'am';
 
       await saveSession({
         telegram_id: chatId,
@@ -1436,15 +1478,20 @@ A verified roommate saw your listing and wants to connect!
         updated_at: new Date().toISOString(),
       });
 
-      const text = `${photos.length > 0 ? `✅ <b>${photos.length} photo(s) uploaded!</b>\n\n` : ''}📸 <b>Upload photos of the space:</b>`.trim();
+      const uploadedNotice = isAm ? `✅ <b>${photos.length} ፎቶዎች ገብተዋል!</b>\n\n` : `✅ <b>${photos.length} photo(s) uploaded!</b>\n\n`;
+      const promptText = isAm ? '📸 <b>የቤቱን ፎቶዎች ይላኩ:</b>' : '📸 <b>Upload photos of the space:</b>';
+      const text = `${photos.length > 0 ? uploadedNotice : ''}${promptText}`.trim();
+
+      const proceedText = isAm ? `➡️ ቀጥል (${photos.length} ፎቶ) 🚀` : `➡️ Proceed with ${photos.length} Photo(s) 🚀`;
+      const skipText = isAm ? '⏭️ ፎቶዎችን ይለፉ' : '⏭️ Skip Photos';
 
       const inlineKeyboard = [
         ...(photos.length > 0
-          ? [[{ text: `➡️ Proceed with ${photos.length} Photo(s) 🚀`, callback_data: 'space_photos_done' }]]
+          ? [[{ text: proceedText, callback_data: 'space_photos_done' }]]
           : []),
-        [{ text: '⏭️ Skip Photos (Text-Only Post)', callback_data: 'space_photos_skip' }],
-        [{ text: '⬅️ Back to Subcity', callback_data: 'space_back_to_subcity' }],
-        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+        [{ text: skipText, callback_data: 'space_photos_skip' }],
+        [{ text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'space_back_to_subcity' }],
+        [{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }],
       ];
 
       return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
