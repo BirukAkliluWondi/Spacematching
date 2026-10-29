@@ -373,8 +373,8 @@ export async function broadcastRoommateProfileToChannel(
       ? 'VERIFIED ✅ 🛡️'
       : 'UNVERIFIED ⚠️';
 
-    const displayCode = profile.display_code || cleanCode;
-    const codeTag = `#${displayCode.replace(/^#/, '')}`;
+    const displayCode = profile.display_code || cleanCode || 'SPMARBR';
+    const codeTag = '#SPMARBR';
 
     let cleanBio = profile.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa.';
     if (cleanBio.includes(' | ')) {
@@ -681,7 +681,7 @@ export async function broadcastListingToChannel(
 
     const descContent = (space.description || 'Verified space available for rent in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const cleanSpaceCode = (space.id || '').replace(/^#/, '');
-    const codeTag = `#${cleanSpaceCode}`;
+    const codeTag = '#SPMARBR';
     const rentFormatted = Number(space.price_per_month || 0).toLocaleString();
 
     const captionText = `

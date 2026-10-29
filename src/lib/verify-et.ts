@@ -12,8 +12,8 @@ export interface VerifyEtResult {
  * Validates Telebirr or CBE (Commercial Bank of Ethiopia) transaction receipts using the verify.et API
  * 
  * Supported Accounts:
- * - Telebirr: process.env.TELEBIRR_RECEIVER_PHONE || '0987310978'
- * - CBE Bank: process.env.CBE_ACCOUNT_NUMBER || '1000054066094'
+ * - Telebirr: process.env.TELEBIRR_RECEIVER_PHONE || '0987310978' (Wahid)
+ * - CBE Bank: process.env.CBE_ACCOUNT_NUMBER || '1000054066094' (Lula Yesuf)
  * 
  * Endpoint: POST https://verify.et/api/verify?waitMs=5000
  * Headers: x-api-key: process.env.VERIFY_ET_API_KEY

@@ -313,7 +313,10 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                 <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
                   <span className="text-[11px] text-slate-400 font-bold uppercase">📱 Telebirr Merchant Phone</span>
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-base font-black text-emerald-400">{receiverPhone}</span>
+                    <div className="flex items-baseline gap-1.5 font-mono text-base font-black text-emerald-400">
+                      <span>{receiverPhone}</span>
+                      <span className="text-xs text-emerald-300 font-sans font-medium">(Wahid)</span>
+                    </div>
                     <button
                       onClick={copyPhone}
                       className="px-3 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white flex items-center gap-1 transition-colors"
@@ -328,7 +331,10 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                 <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
                   <span className="text-[11px] text-slate-400 font-bold uppercase">🏦 Commercial Bank of Ethiopia (CBE)</span>
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-base font-black text-amber-400">{cbeAccount}</span>
+                    <div className="flex items-baseline gap-1.5 font-mono text-base font-black text-amber-400">
+                      <span>{cbeAccount}</span>
+                      <span className="text-xs text-amber-300 font-sans font-medium">(Lula Yesuf)</span>
+                    </div>
                     <button
                       onClick={copyCbe}
                       className="px-3 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white flex items-center gap-1 transition-colors"
@@ -336,6 +342,18 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                       {copiedCbe ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                       <span>{copiedCbe ? 'Copied' : 'Copy'}</span>
                     </button>
+                  </div>
+                </div>
+
+                {/* Payment Receipt Reference Guide */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">🧾 Receipt Reference Guide (where to find FT...)</span>
+                  <div className="rounded-2xl overflow-hidden border border-white/10 bg-slate-950/50 shadow-inner">
+                    <img
+                      src="https://plusmfmlzzumzsqtlixb.supabase.co/storage/v1/object/public/spaces-public/payment_receipt_guide.png"
+                      alt="CBE Receipt and SMS Reference Guide"
+                      className="w-full h-auto object-cover"
+                    />
                   </div>
                 </div>
 

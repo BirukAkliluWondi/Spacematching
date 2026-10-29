@@ -523,6 +523,10 @@ It has been 24 hours since your roommate contact was unlocked!
         if (editRes?.ok || editRes?.description?.includes('message is not modified')) {
           return messageIdToEdit;
         }
+        // If edit failed (e.g. messageIdToEdit was a photo card), delete it to cleanly show the new card
+        try {
+          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit });
+        } catch {}
       }
 
       const sendRes = await sendTelegram('sendMessage', {
@@ -951,8 +955,8 @@ It has been 24 hours since your roommate contact was unlocked!
     ) => {
       const lang = getLanguage(profileData, chatId);
       const isAm = lang === 'am';
-      const cleanCode = (profileData.display_code || `RM${chatId.toString().slice(-4)}`).replace(/^#/, '');
-      const codeTag = `#${cleanCode}`;
+      const cleanCode = (profileData.display_code || 'SPMARBR').replace(/^#/, '');
+      const codeTag = '#SPMARBR';
 
       const subcitiesStr = Array.isArray(profileData.locations) && profileData.locations.length > 0
         ? profileData.locations.join(', ')
@@ -1841,8 +1845,8 @@ A verified roommate saw your listing and wants to connect!
         ? draft.space_amenities.join(', ')
         : (isAm ? 'ዋይፋይ፣ ወጥ ቤት፣ ውሃ' : 'WiFi, Kitchen, Water supply');
       const photosCount = draft.space_photos?.length || 0;
-      const displayCode = draft.display_code || `SP${chatId.toString().slice(-4)}`;
-      const codeTag = `#${displayCode.replace(/^#/, '')}`;
+      const displayCode = draft.display_code || 'SPMARBR';
+      const codeTag = '#SPMARBR';
 
       const rawGender = (draft.gender || draft.my_gender || '').toLowerCase();
       const isFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
@@ -2043,17 +2047,48 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Please reply with the 
       });
 
       const text = `
-📢 <b>SpaceMatch Admin · Step 4: Gender Preference</b>
-<i>Select gender preference for this listing:</i>
+📢 <b>SpaceMatch Admin · Step 4: Candidate Sex</b>
+<i>Select the sex/gender of the person who is listing:</i>
       `.trim();
 
       const inlineKeyboard = [
         [
-          { text: '👨 Male', callback_data: 'admin_post_gender:Male' },
-          { text: '👩 Female', callback_data: 'admin_post_gender:Female' },
-          { text: '🤝 Any / No Pref', callback_data: 'admin_post_gender:Any' },
+          { text: '👨 Male Candidate', callback_data: 'admin_post_gender:Male' },
+          { text: '👩 Female Candidate', callback_data: 'admin_post_gender:Female' },
         ],
+        [{ text: '🤝 Any / Unspecified', callback_data: 'admin_post_gender:Any' }],
         [{ text: '⬅️ Back to Price', callback_data: 'admin_post_back_to_budget' }],
+        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+      ];
+
+      await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    const sendAdminPostPrefGenderStep = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      await saveSession({
+        telegram_id: chatId,
+        step: 'admin_post_pref_gender',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const text = `
+📢 <b>SpaceMatch Admin · Step 5: Preferred Roommate Sex</b>
+<i>Select which sex is accepted/preferred to connect with this roommate:</i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [
+          { text: '👩 Female Only', callback_data: 'admin_post_pref_gender:Female' },
+          { text: '👨 Male Only', callback_data: 'admin_post_pref_gender:Male' },
+        ],
+        [{ text: '🤝 Any Gender Accepted', callback_data: 'admin_post_pref_gender:Any' }],
+        [{ text: '⬅️ Back to Candidate Sex', callback_data: 'admin_post_back_to_gender' }],
         [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
       ];
 
@@ -2074,7 +2109,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Please reply with the 
       });
 
       const text = `
-📢 <b>SpaceMatch Admin · Step 5: Listing Description</b>
+📢 <b>SpaceMatch Admin · Step 6: Listing Description</b>
 
 Please reply with the description, perks, or notes for this channel post.
 <i>(Or reply with <code>default</code> to use standard description)</i>
@@ -2082,6 +2117,7 @@ Please reply with the description, perks, or notes for this channel post.
 
       const inlineKeyboard = [
         [{ text: '⚡ Use Standard Description', callback_data: 'admin_post_use_default_bio' }],
+        [{ text: '⬅️ Back to Preferred Sex', callback_data: 'admin_post_back_to_pref_gender' }],
         [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
       ];
 
@@ -2099,18 +2135,21 @@ Please reply with the description, perks, or notes for this channel post.
         : 'Addis Ababa';
       const budgetNum = draft.budget || 10000;
       const genderStr = draft.gender || 'Any';
+      const prefGender = draft.preferred_gender || 'Any';
+      const prefGenderFormatted = prefGender === 'Female' ? 'Female Only' : prefGender === 'Male' ? 'Male Only' : 'Any Gender';
       const bioStr = draft.details || 'Seeking compatible roommate in Addis Ababa.';
       const catTitle = draft.category === 'entire' ? 'Property Listing' : 'Roommate Listing';
 
       const previewText = `
 📋 <b>SpaceMatch Admin · Review Channel Post</b>
-<i>This listing will be saved to Supabase first, then published to @roommate_addis with tracking buttons:</i>
+<i>This listing will be saved to Supabase first, then published with tracking buttons:</i>
 
 ━━━━━━━━━━━━━━━━━━━━━
-✨ <b>SpaceMatch · ${catTitle} #RM...</b>
+✨ <b>SpaceMatch · ${catTitle} #SPMARBR</b>
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
 
-• <b>Gender:</b> ${genderStr}
+• <b>Candidate Sex:</b> ${genderStr}
+• <b>Preferred Sex:</b> ${prefGenderFormatted}
 • <b>Budget Cap / Rent:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
 
 <blockquote>"${bioStr}"</blockquote>
@@ -3319,7 +3358,11 @@ We could not find an exact match for your selected filters in those specific sub
         updated_at: new Date().toISOString(),
       });
 
-      const cleanBio = bioInfo ? bioInfo.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+      const cleanBio = bioInfo
+        ? (bioInfo.length > 180 ? bioInfo.slice(0, 180) + '...' : bioInfo).replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        : '';
+      const receiptGuideImg = 'https://plusmfmlzzumzsqtlixb.supabase.co/storage/v1/object/public/spaces-public/payment_receipt_guide.png';
+
       const paywallText = isAm
         ? `
 🔒 <b>ስፔስማች አዲስ · የተረጋገጠ የስልክ አድራሻ መክፈቻ</b>
@@ -3330,10 +3373,10 @@ ${genderInfo ? `• ${genderInfo}\n` : ''}${budgetInfo ? `• ${budgetInfo}\n` :
 💳 <b>የክፍያ መመሪያ:</b>
 የ <code>300 ብር</code> ክፍያ ከታች ባሉት የክፍያ አማራጮች ይፈጽሙ:
 
-📱 <b>ቴሌብር:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)
-🏦 <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)
+📱 <b>ቴሌብር:</b> <code>${receiverPhone}</code> (Wahid)
+🏦 <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (Lula Yesuf)
 
-💬 <i>ክፍያውን እንደፈጸሙ የደረሰኝ ቁጥርዎን (ለምሳሌ <code>FT24...</code> ወይም <code>TX...</code>) እዚህ በመላክ ወዲያውኑ ስልክ አድራሻውን ይክፈቱ!</i>
+💬 <i>ክፍያውን እንደፈጸሙ ከላይ በምስሉ ላይ እንደተመለከተው የደረሰኝ ቁጥርዎን (ለምሳሌ <code>FT24...</code> ወይም <code>TX...</code>) እዚህ በመላክ ወዲያውኑ ስልክ አድራሻውን ይክፈቱ!</i>
         `.trim()
         : `
 🔒 <b>SpaceMatch</b> · <b>Verified Contact Unlock</b>
@@ -3344,10 +3387,10 @@ ${genderInfo ? `• ${genderInfo}\n` : ''}${budgetInfo ? `• ${budgetInfo}\n` :
 💳 <b>Instant Payment Instructions:</b>
 Transfer <code>300 ETB</code> to either account:
 
-📱 <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)
-🏦 <b>CBE Account:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)
+📱 <b>Telebirr:</b> <code>${receiverPhone}</code> (Wahid)
+🏦 <b>CBE Account:</b> <code>${cbeAccount}</code> (Lula Yesuf)
 
-💬 <i>Once transferred, type your Transaction Reference Code (e.g. <code>FT24...</code> or <code>TX...</code>) here to unlock contact details immediately!</i>
+💬 <i>Once transferred, send your Transaction Reference Code (e.g. <code>FT24...</code> or <code>TX...</code>, shown in the guide above) here to unlock contact details immediately!</i>
         `.trim();
 
       const paywallKeyboard = [
@@ -3357,7 +3400,49 @@ Transfer <code>300 ETB</code> to either account:
         ],
       ];
 
-      await sendOrEditCard(chatId, paywallText, paywallKeyboard, targetMsgId);
+      let cardMessageId: number | undefined;
+
+      // Send with visual payment receipt guide photo
+      try {
+        if (targetMsgId) {
+          try {
+            await sendTelegram('deleteMessage', { chat_id: chatId, message_id: targetMsgId });
+          } catch {}
+        }
+        const photoRes = await sendTelegram('sendPhoto', {
+          chat_id: chatId,
+          photo: receiptGuideImg,
+          caption: paywallText.slice(0, 1024),
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: paywallKeyboard },
+        });
+        if (photoRes?.ok && photoRes.result?.message_id) {
+          cardMessageId = photoRes.result.message_id;
+        }
+      } catch (err) {
+        console.warn('sendPhoto failed for unlock paywall card:', err);
+      }
+
+      // Fallback to text card if sendPhoto failed
+      if (!cardMessageId) {
+        cardMessageId = await sendOrEditCard(chatId, paywallText, paywallKeyboard, targetMsgId);
+      }
+
+      if (cardMessageId && cardMessageId !== targetMsgId) {
+        await saveSession({
+          telegram_id: chatId,
+          step: `awaiting_payment_for_unlock:${orderId}`,
+          draft_data: {
+            ...session.draft_data,
+            lang,
+            order_id: orderId,
+            target_id: targetId,
+            target_type: targetType,
+            card_msg_id: cardMessageId,
+          },
+          updated_at: new Date().toISOString(),
+        });
+      }
     };
 
     // Helper: Homeowner Space Prompts
@@ -3702,7 +3787,27 @@ Transfer <code>300 ETB</code> to either account:
         const gender = callbackData.split(':')[1];
         const session = getSession(chatId);
         const updatedDraft = { ...session.draft_data, gender };
+        await sendAdminPostPrefGenderStep(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData.startsWith('admin_post_pref_gender:')) {
+        const preferred_gender = callbackData.split(':')[1];
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, preferred_gender };
         await sendAdminPostBioStep(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'admin_post_back_to_gender') {
+        const session = getSession(chatId);
+        await sendAdminPostGenderStep(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'admin_post_back_to_pref_gender') {
+        const session = getSession(chatId);
+        await sendAdminPostPrefGenderStep(chatId, session.draft_data, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -3726,17 +3831,36 @@ Transfer <code>300 ETB</code> to either account:
         const session = getSession(chatId);
         const draft = session.draft_data || {};
 
-        let displayCode = `RM${Date.now().toString().slice(-4)}`;
-        try {
-          const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
-          if (codeRow) displayCode = codeRow;
-        } catch {}
+        let displayCode = 'SPMARBR';
+        const { data: existingProf } = await supabaseAdmin
+          .from('profiles')
+          .select('id, telegram_id')
+          .eq('display_code', displayCode)
+          .maybeSingle();
+
+        if (existingProf && Number(existingProf.telegram_id) > 0) {
+          let counter = 2;
+          displayCode = `SPMARBR${counter}`;
+          while (true) {
+            const { data: taken } = await supabaseAdmin
+              .from('profiles')
+              .select('id')
+              .eq('display_code', displayCode)
+              .maybeSingle();
+            if (!taken) break;
+            counter++;
+            displayCode = `SPMARBR${counter}`;
+          }
+        }
 
         const subcities = draft.locations || ['Bole'];
         const subcitiesStr = subcities.join(', ');
         const budgetNum = draft.budget || 10000;
         const genderStr = draft.gender || 'Any';
-        const bioStr = draft.details || 'Seeking compatible roommate in Addis Ababa.';
+        const prefGenderStr = draft.preferred_gender || 'Any';
+        const prefGenderFormatted = prefGenderStr === 'Female' ? 'Female Only' : prefGenderStr === 'Male' ? 'Male Only' : 'Any Gender';
+        const rawBio = draft.details || 'Seeking compatible roommate in Addis Ababa.';
+        const bioStr = `Prefers: ${prefGenderFormatted} | ${rawBio}`;
 
         const codeDigits = parseInt(displayCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
         const syntheticTgId = - (1000000000 + codeDigits);
@@ -3775,7 +3899,7 @@ Transfer <code>300 ETB</code> to either account:
           username: `admin_${chatId}`,
           age: 24,
           my_gender: genderStr,
-          preferred_gender: 'Any',
+          preferred_gender: prefGenderStr,
           preferred_subcity: subcities,
           budget_min: 0,
           budget_max: budgetNum,
@@ -3794,40 +3918,40 @@ Transfer <code>300 ETB</code> to either account:
         const postCardText = isEntire
           ? `
 <b>SpaceMatch Addis</b>
-<b>#${displayCode}</b>
+<b>#SPMARBR</b>
 
 🏠 <b>SPACE AVAILABLE</b>
 
-We have a verified Space Host looking for a compatible roommate!
+We have a ${genderStr === 'Female' ? 'female' : genderStr === 'Male' ? 'male' : 'verified'} Space Host looking for a ${prefGenderStr === 'Female' ? 'female' : prefGenderStr === 'Male' ? 'male' : 'compatible'} roommate!
 
 📍 <b>Location:</b> ${subcitiesStr}
 💰 <b>Total Rent:</b> ${Number(budgetNum).toLocaleString()} ETB / month
 👤 <b>Space Host:</b> ${genderStr === 'Female' ? 'Female' : genderStr === 'Male' ? 'Male' : 'Verified Homeowner'}
-👥 <b>Preferred Gender:</b> Any Gender
-🤝 <b>Preferred Roommate:</b> ${bioStr}
+👥 <b>Preferred Gender:</b> ${prefGenderFormatted}
+🤝 <b>Preferred Roommate:</b> ${rawBio}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
           `.trim()
           : `
 <b>SpaceMatch Addis</b>
-<b>#${displayCode}</b>
+<b>#SPMARBR</b>
 
 🏠 <b>ROOMMATE SEARCH</b>
 
-We have a ${genderStr === 'Female' ? 'female' : genderStr === 'Male' ? 'male' : 'verified'} Space Seeker looking for a roommate to team up with and find a place together!
+We have a ${genderStr === 'Female' ? 'female' : genderStr === 'Male' ? 'male' : 'verified'} Space Seeker looking for a ${prefGenderStr === 'Female' ? 'female' : prefGenderStr === 'Male' ? 'male' : 'compatible'} roommate to team up with and find a place together!
 
 📍 <b>Preferred Locations:</b> ${subcitiesStr}
 💰 <b>Budget:</b> Up to ${Number(budgetNum).toLocaleString()} ETB per person
 👤 <b>Space Seeker:</b> ${genderStr === 'Female' ? 'Female' : genderStr === 'Male' ? 'Male' : 'Verified Roommate'}
-👥 <b>Preferred Gender:</b> Any Gender
-🤝 <b>Preferred Roommate:</b> ${bioStr}
+👥 <b>Preferred Gender:</b> ${prefGenderFormatted}
+🤝 <b>Preferred Roommate:</b> ${rawBio}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
           `.trim();
 
         const channelButtons = {
           inline_keyboard: [
-            [{ text: isEntire ? `⚡ Contact with Host #${displayCode} ↗️` : `⚡ Contact with Roommate #${displayCode} ↗️`, url: `https://t.me/${botUsername}?start=req_${displayCode}` }],
+            [{ text: isEntire ? `⚡ Contact with Host #SPMARBR ↗️` : `⚡ Contact with Roommate #SPMARBR ↗️`, url: `https://t.me/${botUsername}?start=req_${displayCode}` }],
             [{ text: '📢 Post My Profile ↗️', url: `https://t.me/${botUsername}?start=post_profile` }],
             [{ text: '🔍 Search Roommate for Me ↗️', url: `https://t.me/${botUsername}?start=search_roommate` }],
           ],
@@ -5139,8 +5263,8 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
         const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
 
         const getPaymentInstructions = (isAmUser: boolean) => isAmUser
-          ? `🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>\n\nየእርስ በእርስ ስልክ አድራሻን ለመክፈት እያንዳንዱ ወገን የ <b>300 ብር</b> የአገልግሎት ክፍያ ይከፍላል።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ ስልክ እና አድራሻ ወዲያውኑ ይገለጻል። አንደኛው ወገን ክፍያ ካልፈጸመ የከፈሉት ሙሉ በሙሉ ይመለሳል።</i>\n\nክፍያ ከፈጸሙ በኋላ የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REFERENCE</code>\nወይም\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
-          : `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>300 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>After both parties have paid, contact information will be revealed to both of you. If one party refuses to pay, your payment will be fully refunded.</i>\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
+          ? `🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>\n\nየእርስ በእርስ ስልክ አድራሻን ለመክፈት እያንዳንዱ ወገን የ <b>300 ብር</b> የአገልግሎት ክፍያ ይከፍላል።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>${receiverPhone}</code> (Wahid)\n• <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (Lula Yesuf)\n\nℹ️ <i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ ስልክ እና አድራሻ ወዲያውኑ ይገለጻል። አንደኛው ወገን ክፍያ ካልፈጸመ የከፈሉት ሙሉ በሙሉ ይመለሳል።</i>\n\n💡 <i>የደረሰኝ ቁጥርዎን (FT...) በሞባይል ባንኪንግ ደረሰኝ ወይም በደረሰዎት የSMS መልዕክት ላይ ማግኘት ይችላሉ።</i>\n\nክፍያ ከፈጸሙ በኋላ የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REFERENCE</code>\nወይም\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
+          : `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>300 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (Wahid)\n• <b>CBE:</b> <code>${cbeAccount}</code> (Lula Yesuf)\n\nℹ️ <i>After both parties have paid, contact information will be revealed to both of you. If one party refuses to pay, your payment will be fully refunded.</i>\n\n💡 <i>You can find your transaction reference code (FT...) at the top of your mobile banking receipt or in your CBE SMS confirmation message.</i>\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
 
         // Send to both users
         const requesterTgId = (match.requester as any)?.telegram_id;
@@ -6990,8 +7114,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
 
         const paymentInstructions = isAm
-          ? `🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>\n\nየእርስ በእርስ ስልክ አድራሻን ለመክፈት እያንዳንዱ ወገን የ <b>300 ብር</b> የአገልግሎት ክፍያ ይከፍላል።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ ስልክ እና አድራሻ ወዲያውኑ ይገለጻል። አንደኛው ወገን ክፍያ ካልፈጸመ የከፈሉት ሙሉ በሙሉ ይመለሳል።</i>\n\nክፍያ ከፈጸሙ በኋላ የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REFERENCE</code>\nወይም\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
-          : `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>300 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>After both parties have paid, contact information will be revealed to both of you. If one party refuses to pay, your payment will be fully refunded.</i>\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
+          ? `🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>\n\nየእርስ በእርስ ስልክ አድራሻን ለመክፈት እያንዳንዱ ወገን የ <b>300 ብር</b> የአገልግሎት ክፍያ ይከፍላል።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>${receiverPhone}</code> (Wahid)\n• <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (Lula Yesuf)\n\nℹ️ <i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ ስልክ እና አድራሻ ወዲያውኑ ይገለጻል። አንደኛው ወገን ክፍያ ካልፈጸመ የከፈሉት ሙሉ በሙሉ ይመለሳል።</i>\n\n💡 <i>የደረሰኝ ቁጥርዎን (FT...) በሞባይል ባንኪንግ ደረሰኝ ወይም በደረሰዎት የSMS መልዕክት ላይ ማግኘት ይችላሉ።</i>\n\nክፍያ ከፈጸሙ በኋላ የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REFERENCE</code>\nወይም\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
+          : `🎉 <b>You Both Want to Connect!</b>\n\nTo unlock contact details, each person must pay a matching fee of <b>300 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code> (Wahid)\n• <b>CBE:</b> <code>${cbeAccount}</code> (Lula Yesuf)\n\nℹ️ <i>After both parties have paid, contact information will be revealed to both of you. If one party refuses to pay, your payment will be fully refunded.</i>\n\n💡 <i>You can find your transaction reference code (FT...) at the top of your mobile banking receipt or in your CBE SMS confirmation message.</i>\n\nOnce transferred, submit your reference code:\n<code>/verify telebirr YOUR_REFERENCE</code>\nor\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>Example: /verify telebirr FT260920042</i>`;
 
         await sendOrEditCard(chatId, isAm ? `✅ <b>የፋይዳ ማረጋገጫ ተሳክቷል!</b>\n\nየግንኙነት ጥያቄውን ተቀብለዋል።\n\n${paymentInstructions}` : `✅ <b>Fayda Verified Successfully!</b>\n\nYou have accepted the connection request.\n\n${paymentInstructions}`, [], activeMsgId);
 
@@ -7000,7 +7124,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           const reqLang = getUserLanguage(requesterTgId);
           const reqIsAm = reqLang === 'am';
           const requesterInstructions = reqIsAm
-            ? `🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>\n\nየእርስ በእርስ ስልክ አድራሻን ለመክፈት እያንዳንዱ ወገን የ <b>300 ብር</b> የአገልግሎት ክፍያ ይከፍላል።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>${receiverPhone}</code> (SpaceMatch Addis)\n• <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (SpaceMatch Addis)\n\nℹ️ <i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ ስልክ እና አድራሻ ወዲያውኑ ይገለጻል። አንደኛው ወገን ክፍያ ካልፈጸመ የከፈሉት ሙሉ በሙሉ ይመለሳል።</i>\n\nክፍያ ከፈጸሙ በኋላ የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REFERENCE</code>\nወይም\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
+            ? `🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>\n\nየእርስ በእርስ ስልክ አድራሻን ለመክፈት እያንዳንዱ ወገን የ <b>300 ብር</b> የአገልግሎት ክፍያ ይከፍላል።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>${receiverPhone}</code> (Wahid)\n• <b>ንግድ ባንክ:</b> <code>${cbeAccount}</code> (Lula Yesuf)\n\nℹ️ <i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ ስልክ እና አድራሻ ወዲያውኑ ይገለጻል። አንደኛው ወገን ክፍያ ካልፈጸመ የከፈሉት ሙሉ በሙሉ ይመለሳል።</i>\n\n💡 <i>የደረሰኝ ቁጥርዎን (FT...) በሞባይል ባንኪንግ ደረሰኝ ወይም በደረሰዎት የSMS መልዕክት ላይ ማግኘት ይችላሉ።</i>\n\nክፍያ ከፈጸሙ በኋላ የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REFERENCE</code>\nወይም\n<code>/verify cbe YOUR_REFERENCE</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
             : paymentInstructions;
           await tgSend(requesterTgId, requesterInstructions);
         }
@@ -7233,9 +7357,30 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             }
           }
 
-          // Check by channel_message_id if lookupCode has a number or starts with post_ / RM
+          // Check if RM105 alias resolves to SPMARBR or vice versa
+          if (!targetProfile && lookupCode.toUpperCase() === 'RM105') {
+            const { data: pSpm } = await supabaseAdmin
+              .from('profiles')
+              .select('*')
+              .eq('display_code', 'SPMARBR')
+              .maybeSingle();
+            if (pSpm) targetProfile = pSpm;
+          }
+
+          if (!targetProfile && lookupCode.toUpperCase() === 'SPMARBR') {
+            const { data: pLatestSpm } = await supabaseAdmin
+              .from('profiles')
+              .select('*')
+              .ilike('display_code', 'SPMARBR%')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (pLatestSpm) targetProfile = pLatestSpm;
+          }
+
+          // Check by channel_message_id if lookupCode has a number or starts with post_ / SPMARBR / RM
           if (!targetProfile) {
-            const numPart = lookupCode.replace(/^post_/i, '').replace(/^RM/i, '');
+            const numPart = lookupCode.replace(/^post_/i, '').replace(/^SPMARBR/i, '').replace(/^RM/i, '').replace(/^SP/i, '');
             const channelMsgId = parseInt(numPart, 10);
             if (!isNaN(channelMsgId) && channelMsgId > 0) {
               const { data: pByMsg } = await supabaseAdmin
@@ -7249,8 +7394,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             }
           }
 
-          // Fallback: If still not found and it starts with post_ or RM / SP, create active profile placeholder
-          if (!targetProfile && (lookupCode.toLowerCase().startsWith('post_') || /^[A-Z]{2}\d+$/i.test(lookupCode))) {
+          // Fallback: If still not found and it starts with post_ or SPMARBR / RM / SP, create active profile placeholder
+          if (!targetProfile && (lookupCode.toLowerCase().startsWith('post_') || /^SPMARBR/i.test(lookupCode) || /^[A-Z]{2,10}\d*$/i.test(lookupCode))) {
             const adminIds = await getAdminIds();
             const primaryAdmin = adminIds[0] || 800701176;
             const codeDigits = parseInt(lookupCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);

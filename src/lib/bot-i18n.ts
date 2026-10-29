@@ -124,7 +124,7 @@ export const I18N = {
     connectTitle: '🤝 <b>Connect with Roommate</b>',
     matchRequestSent: '✅ <b>Match Request Delivered!</b>\n\nYour request has been sent to the roommate. You will be notified the moment they accept!',
     bothConnectedTitle: '🎉 <b>You Both Want to Connect!</b>',
-    paymentInstructions: `To unlock contact details, each person must pay a matching fee of <b>300 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>0987310978</code> (SpaceMatch Addis)\n• <b>CBE:</b> <code>1000054066094</code> (SpaceMatch Addis)\n\n<i>After both parties have paid, contact details are unlocked instantly.</i>\n\nOnce transferred, send your transaction reference:\n<code>/verify telebirr YOUR_REF</code>\nor\n<code>/verify cbe YOUR_REF</code>`,
+    paymentInstructions: `To unlock contact details, each person must pay a matching fee of <b>300 ETB</b>.\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>0987310978</code> (Wahid)\n• <b>CBE:</b> <code>1000054066094</code> (Lula Yesuf)\n\n<i>After both parties have paid, contact details are unlocked instantly.</i>\n\nOnce transferred, send your transaction reference:\n<code>/verify telebirr YOUR_REF</code>\nor\n<code>/verify cbe YOUR_REF</code>`,
     privacyShieldNote: '🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>',
   },
 
@@ -226,7 +226,7 @@ export const I18N = {
     connectTitle: '🤝 <b>ከቤት ጓደኛ ጋር ይገናኙ</b>',
     matchRequestSent: '✅ <b>የግንኙነት ጥያቄዎ በተሳካ ሁኔታ ደርሷል!</b>\n\nጥያቄዎ ለተጠቃሚው ተልኳል። ጥያቄዎን እንደተቀበሉ ወዲያውኑ መልዕክት ይደርስዎታል!',
     bothConnectedTitle: '🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>',
-    paymentInstructions: `የስልክ አድራሻዎችን ለመለዋወጥ እያንዳንዱ ሰው የ<b>300 ብር</b> ክፍያ መፈጸም አለበት።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>0987310978</code> (SpaceMatch Addis)\n• <b>ንግድ ባንክ:</b> <code>1000054066094</code> (SpaceMatch Addis)\n\n<i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ የስልክ አድራሻዎች ወዲያውኑ ይገለጣሉ።</i>\n\nክፍያውን እንደፈጸሙ የደረሰኝ ቁጥርዎን እንደሚከተለው ይላኩ:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\nወይም\n<code>/verify cbe የደረሰኝ_ቁጥር</code>`,
+    paymentInstructions: `የስልክ አድራሻዎችን ለመለዋወጥ እያንዳንዱ ሰው የ<b>300 ብር</b> ክፍያ መፈጸም አለበት።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>0987310978</code> (Wahid)\n• <b>ንግድ ባንክ:</b> <code>1000054066094</code> (Lula Yesuf)\n\n<i>ሁለቱም ወገኖች ክፍያ ሲፈጽሙ የስልክ አድራሻዎች ወዲያውኑ ይገለጣሉ።</i>\n\nክፍያውን እንደፈጸሙ የደረሰኝ ቁጥርዎን እንደሚከተለው ይላኩ:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\nወይም\n<code>/verify cbe የደረሰኝ_ቁጥር</code>`,
     privacyShieldNote: '🔒 <i>የእርስዎ ትክክለኛ ስም እና ስልክ ቁጥር በሙሉ ሚስጥራዊነቱ የተጠበቀ ነው።</i>',
   },
 } as const;
