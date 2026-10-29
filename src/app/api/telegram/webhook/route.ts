@@ -1943,15 +1943,20 @@ ${genderEmoji} <b>Space Host:</b> ${escapeHtml(hostGenderEn)}
         updated_at: new Date().toISOString(),
       });
 
+      const targetChannel = await getPrimaryChannel();
       const text = `
 📢 <b>SpaceMatch Admin · Publish Listing to Channel</b>
-<i>Select the category of the post to broadcast to @roommate_addis:</i>
+<i>Select the category of the post to broadcast to ${targetChannel}:</i>
+
+• <b>Roommate Seeker:</b> Looking for a room or roommate to team up with.
+• <b>Have a Room, Seeks Roommate:</b> Has an available room and seeks a roommate to move in.
+• <b>Entire Property:</b> Full house or apartment for rent.
       `.trim();
 
       const inlineKeyboard = [
-        [{ text: '👥 Roommate Seeker (#RM...)', callback_data: 'admin_post_cat:roommate' }],
-        [{ text: '🏠 Room Available in Shared Flat (#RM...)', callback_data: 'admin_post_cat:room_avail' }],
-        [{ text: '🏢 Entire House / Property (#SP...)', callback_data: 'admin_post_cat:entire' }],
+        [{ text: '🔍 Roommate Seeker (Needs a Room / Looking to Share)', callback_data: 'admin_post_cat:roommate' }],
+        [{ text: '🏠 Have a Room, Seeking Roommate (Space Available)', callback_data: 'admin_post_cat:room_avail' }],
+        [{ text: '🏢 Entire Property / House for Rent', callback_data: 'admin_post_cat:entire' }],
         [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
       ];
 
