@@ -2151,6 +2151,8 @@ Please reply with the description, perks, or notes for this channel post.
       const genderStr = draft.gender || 'Any';
       const prefGender = draft.preferred_gender || 'Any';
       const prefGenderFormatted = prefGender === 'Female' ? 'Female Only' : prefGender === 'Male' ? 'Male Only' : 'Any Gender';
+      const candidateSexPreview = genderStr === 'Female' ? 'Female (ሴት)' : genderStr === 'Male' ? 'Male (ወንድ)' : genderStr;
+      const prefSexPreview = prefGender === 'Female' ? 'Female Only (ሴት ብቻ)' : prefGender === 'Male' ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
       const bioStr = draft.details || 'Seeking compatible roommate in Addis Ababa.';
       const catTitle = draft.category === 'entire' ? 'Property Listing' : 'Roommate Listing';
 
@@ -2162,11 +2164,11 @@ Please reply with the description, perks, or notes for this channel post.
 ✨ <b>SpaceMatch · ${catTitle} #SPMARBR</b>
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
 
-• <b>Candidate Sex:</b> ${genderStr}
-• <b>Preferred Sex:</b> ${prefGenderFormatted}
+• <b>Sex:</b> ${candidateSexPreview}
+• <b>Preferred Sex:</b> ${prefSexPreview}
 • <b>Budget Cap / Rent:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
-
-<blockquote>"${bioStr}"</blockquote>
+• <b>Description:</b> ${bioStr}
+• <b>Preferred Roommate:</b> ${prefSexPreview}, clean and compatible roommate.
 
 🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
 ━━━━━━━━━━━━━━━━━━━━━
@@ -3925,6 +3927,11 @@ Transfer <code>300 ETB</code> to either account:
         // 3. Broadcast to channel with the 3 mandatory buttons
         const targetChannel = await getPrimaryChannel();
         const isEntire = draft.category === 'entire';
+        const candidateSexDisplay = genderStr === 'Female' ? 'Female (ሴት)' : genderStr === 'Male' ? 'Male (ወንድ)' : 'Any Gender';
+        const preferredSexDisplay = prefGenderStr === 'Female' ? 'Female Only (ሴት ብቻ)' : prefGenderStr === 'Male' ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
+        const cleanBio = rawBio.trim();
+        const preferredRoommateLine = `${preferredSexDisplay}, clean and compatible roommate.`;
+
         const postCardText = isEntire
           ? `
 <b>SpaceMatch Addis</b>
@@ -3936,9 +3943,10 @@ We have a ${genderStr === 'Female' ? 'female' : genderStr === 'Male' ? 'male' : 
 
 📍 <b>Location:</b> ${subcitiesStr}
 💰 <b>Total Rent:</b> ${Number(budgetNum).toLocaleString()} ETB / month
-👤 <b>Space Host:</b> ${genderStr === 'Female' ? 'Female' : genderStr === 'Male' ? 'Male' : 'Verified Homeowner'}
-👥 <b>Preferred Gender:</b> ${prefGenderFormatted}
-🤝 <b>Preferred Roommate:</b> ${rawBio}
+👤 <b>Sex:</b> ${candidateSexDisplay}
+👥 <b>Preferred Sex:</b> ${preferredSexDisplay}
+📝 <b>Description:</b> ${cleanBio}
+🤝 <b>Preferred Roommate:</b> ${preferredRoommateLine}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
           `.trim()
@@ -3952,9 +3960,10 @@ We have a ${genderStr === 'Female' ? 'female' : genderStr === 'Male' ? 'male' : 
 
 📍 <b>Preferred Locations:</b> ${subcitiesStr}
 💰 <b>Budget:</b> Up to ${Number(budgetNum).toLocaleString()} ETB per person
-👤 <b>Space Seeker:</b> ${genderStr === 'Female' ? 'Female' : genderStr === 'Male' ? 'Male' : 'Verified Roommate'}
-👥 <b>Preferred Gender:</b> ${prefGenderFormatted}
-🤝 <b>Preferred Roommate:</b> ${rawBio}
+👤 <b>Sex:</b> ${candidateSexDisplay}
+👥 <b>Preferred Sex:</b> ${preferredSexDisplay}
+📝 <b>Description:</b> ${cleanBio}
+🤝 <b>Preferred Roommate:</b> ${preferredRoommateLine}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
           `.trim();
@@ -4307,7 +4316,10 @@ A user has submitted a space offering for channel <code>${targetChannel}</code>:
 • <b>Roommate Share:</b> <code>${shareNum.toLocaleString()} ETB / mo</code>
 • <b>Location:</b> <code>${subcity}</code>
 • <b>Photos:</b> ${photos.length} photo(s) attached
-• <b>Resident:</b> ${draft.gender || 'Member'}, Age ${draft.age || 24} (🛡️ Fayda Verified)
+• <b>Sex:</b> ${draft.owner_gender || draft.gender || 'Any'}
+• <b>Preferred Sex:</b> ${draft.preferred_tenant_gender || draft.preferred_gender || 'Any'}
+• <b>Description:</b> ${draft.description || draft.preferred_roommate || 'Shared space in Addis Ababa.'}
+• <b>Resident:</b> Age ${draft.age || 24} (🛡️ Fayda Verified)
 
 <i>Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)</i>
           `.trim();
@@ -4590,6 +4602,8 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
         const subcitiesStr = subcities.join(', ');
         const budgetNum = prof?.budget_max || draft.budget_max || 10000;
         const genderStr = prof?.gender || draft.gender || 'Member';
+        const prefGenderStr = prof?.preferred_gender || draft.preferred_gender || 'Any';
+        const prefGenderFormatted = prefGenderStr === 'Female' ? 'Female Only' : prefGenderStr === 'Male' ? 'Male Only' : 'Any Gender';
         const userAge = draft.age || 24;
         const bioStr = prof?.roommate_traits || draft.roommate_traits || draft.lifestyle_bio || `Age ${userAge} · Seeking roommate in ${subcitiesStr}.`;
         const ageStr = `${userAge} yrs`;
@@ -4608,6 +4622,7 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
             kyc_status: 'verified',
             status: 'paused',
             onboarding_step: 'completed',
+            preferred_gender: prefGenderStr,
           }, { onConflict: 'telegram_id' });
 
         await saveRoommateDraft({
@@ -4619,7 +4634,7 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
           preferred_subcity: subcities,
           my_gender: genderStr,
           age: userAge,
-          preferred_gender: 'Any',
+          preferred_gender: prefGenderStr,
           budget_min: 0,
           budget_max: budgetNum,
           lifestyle_bio: bioStr,
@@ -4684,9 +4699,12 @@ Your anonymous roommate listing (<code>#${displayCode}</code>) has been submitte
 A user has requested to post their profile to the channel <code>${targetChannel}</code>:
 
 • <b>Seeker Code:</b> <b>#${displayCode}</b>
-• <b>Gender & Age:</b> ${genderStr}, Age ${ageStr}
+• <b>Sex:</b> ${genderStr}
+• <b>Preferred Sex:</b> ${prefGenderFormatted}
+• <b>Age:</b> ${ageStr}
 • <b>Budget Cap:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
 • <b>Target Areas:</b> <code>${subcitiesStr}</code>
+• <b>Description:</b> ${bioStr}
 • <b>Fayda Status:</b> 🛡️ Verified Resident ✅
 
 <blockquote>"${bioStr}"</blockquote>

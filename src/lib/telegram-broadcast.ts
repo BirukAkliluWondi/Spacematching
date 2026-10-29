@@ -404,6 +404,9 @@ export async function broadcastRoommateProfileToChannel(
     const prefGenderWord = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
     const prefGenderFormatted = isPrefFemale ? 'Female Only' : isPrefMale ? 'Male Only' : 'Any Gender';
 
+    const sexDisplay = isFemale ? 'Female (ሴት)' : isMale ? 'Male (ወንድ)' : (profile.my_gender || 'Any Gender');
+    const prefSexDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
+
     // Construct Preferred Roommate line matching reference layout
     let preferredRoommateDetails = (profile.preferred_roommate || cleanBio).trim();
     if (preferredRoommateDetails.includes(' | ')) {
@@ -449,8 +452,9 @@ We have a ${hostGenderWord} Space Host looking for a ${prefGenderWord} roommate 
 
 📍 <b>Location:</b> ${subcitiesStr}
 💰 <b>Total Rent:</b> ${rentStr} (${shareStr} per person)
-${genderEmoji} <b>Space Host:</b> ${hostGender}
-👥 <b>Preferred Gender:</b> ${prefGenderFormatted}
+👤 <b>Sex:</b> ${sexDisplay}
+👥 <b>Preferred Sex:</b> ${prefSexDisplay}
+📝 <b>Description:</b> ${bioContent}
 🤝 <b>Preferred Roommate:</b> ${preferredRoommateDetails}
 ✨ <b>Amenities:</b> ${amenitiesStr}
 
@@ -473,8 +477,9 @@ We have a ${seekerGenderWord} Space Seeker looking for a ${prefGenderWord} roomm
 
 📍 <b>Preferred Locations:</b> ${subcitiesStr}
 💰 <b>Budget:</b> ${budgetDisplay}
-${genderEmoji} <b>Space Seeker:</b> ${seekerGender}
-👥 <b>Preferred Gender:</b> ${prefGenderFormatted}
+👤 <b>Sex:</b> ${sexDisplay}
+👥 <b>Preferred Sex:</b> ${prefSexDisplay}
+📝 <b>Description:</b> ${bioContent}
 🤝 <b>Preferred Roommate:</b> ${preferredRoommateDetails}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
@@ -684,19 +689,31 @@ export async function broadcastListingToChannel(
     const codeTag = '#SPMARBR';
     const rentFormatted = Number(space.price_per_month || 0).toLocaleString();
 
-    const captionText = `
-SpaceMatch Addis
-${codeTag}
+    const rawOwnerGender = (space.owner_gender || '').toLowerCase();
+    const isOwnerFemale = rawOwnerGender.includes('female') || rawOwnerGender.includes('ሴት');
+    const isOwnerMale = rawOwnerGender.includes('male') || rawOwnerGender.includes('ወንድ');
+    const ownerSexDisplay = isOwnerFemale ? 'Female (ሴት)' : isOwnerMale ? 'Male (ወንድ)' : (space.owner_gender || 'Any Gender');
 
-🏠 SPACE AVAILABLE
+    const rawPrefTenant = (space.preferred_tenant_gender || '').toLowerCase();
+    const isPrefFemale = rawPrefTenant.includes('female') || rawPrefTenant.includes('ሴት');
+    const isPrefMale = rawPrefTenant.includes('male') || rawPrefTenant.includes('ወንድ');
+    const prefTenantDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
+
+    const captionText = `
+<b>SpaceMatch Addis</b>
+<b>${codeTag}</b>
+
+🏠 <b>SPACE AVAILABLE</b>
 
 We have a verified Space Host offering a place for rent in Addis Ababa!
 
-📍 Location: ${space.neighborhood || 'Addis Ababa'}
-💰 Monthly Rent: ${rentFormatted} ETB
-✨ Details: ${descContent}
+📍 <b>Location:</b> ${space.neighborhood || 'Addis Ababa'}
+💰 <b>Monthly Rent:</b> ${rentFormatted} ETB
+👤 <b>Sex:</b> ${ownerSexDisplay}
+👥 <b>Preferred Sex:</b> ${prefTenantDisplay}
+📝 <b>Description:</b> ${descContent}
 
-🔑 SpaceMatchAddis — Find your roommate first, then find your space together!
+🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
     `.trim();
 
     const inlineKeyboard = {
