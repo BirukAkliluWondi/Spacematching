@@ -160,7 +160,10 @@ export async function preloadSession(telegramId: number): Promise<BotSession> {
   }
 }
 
-export async function saveSession(session: BotSession): Promise<void> {
+// Per-user write queue to guarantee database persistence ordering without blocking webhook responses
+const _sessionWriteQueues: Record<string, Promise<any>> = {};
+
+export async function saveSession(session: BotSession, awaitDb = false): Promise<void> {
   // Ensure draft_data is an object and retains language
   session.draft_data = session.draft_data ?? {};
   const activeLang = session.draft_data.lang || _userLanguageCache[String(session.telegram_id)];
@@ -169,25 +172,40 @@ export async function saveSession(session: BotSession): Promise<void> {
     _userLanguageCache[String(session.telegram_id)] = activeLang;
   }
 
-  // Update cache immediately so subsequent getSession() calls in the same
-  // request see the new state, then persist to Supabase and await.
+  // 1. In-memory cache is updated IMMEDIATELY (0ms latency for subsequent gets)
   _sessionCache[String(session.telegram_id)] = session;
 
-  try {
-    const { error } = await supabase
-      .from('bot_sessions')
-      .upsert(
-        {
-          telegram_id: String(session.telegram_id),
-          step: session.step,
-          draft_data: session.draft_data,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'telegram_id' }
-      );
-    if (error) console.error('saveSession error:', error.message);
-  } catch (err) {
-    console.error('saveSession exception:', err);
+  // 2. Database write is queued in background to avoid blocking the webhook lifecycle
+  const persistTask = async () => {
+    try {
+      const { error } = await supabase
+        .from('bot_sessions')
+        .upsert(
+          {
+            telegram_id: String(session.telegram_id),
+            step: session.step,
+            draft_data: session.draft_data,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'telegram_id' }
+        );
+      if (error) console.error('saveSession error:', error.message);
+    } catch (err) {
+      console.error('saveSession exception:', err);
+    }
+  };
+
+  const idStr = String(session.telegram_id);
+  const prev = _sessionWriteQueues[idStr] || Promise.resolve();
+  const next = prev.then(persistTask, persistTask).finally(() => {
+    if (_sessionWriteQueues[idStr] === next) {
+      delete _sessionWriteQueues[idStr];
+    }
+  });
+  _sessionWriteQueues[idStr] = next;
+
+  if (awaitDb) {
+    await next;
   }
 }
 
@@ -329,56 +347,81 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
     if (data) dbDraft = data;
   } catch {}
 
-  // 3. Check bot_sessions fallback to find space photos, space type, and metadata
+  // 3. Check in-memory session cache first, then single-row DB fallback
   try {
     const last4 = cleanId.replace(/^rm/i, '');
-    const { data: sessions } = await supabase.from('bot_sessions').select('*');
-    if (sessions && Array.isArray(sessions)) {
-      const match = sessions.find((s: any) => {
-        const d = s.draft_data || {};
-        const code = (d.display_code || '').toLowerCase();
-        const tgStr = String(s.telegram_id || '');
-        return (
-          code === cleanId ||
-          code === `rm${last4}` ||
-          tgStr === cleanId ||
-          (last4.length >= 3 && tgStr.endsWith(last4))
-        );
-      });
+    let match: any = null;
 
-      if (match && match.draft_data) {
-        const d = match.draft_data;
-        const mergedDraft: RoommateProfileDraft = {
-          id: d.display_code || dbDraft?.id || draftId,
-          display_code: d.display_code || dbDraft?.id || draftId,
-          user_telegram_id: Number(match.telegram_id || dbDraft?.user_telegram_id),
-          user_name: d.user_name || dbDraft?.user_name || 'Verified Member',
-          username: d.username || dbDraft?.username || null,
-          age: d.age || 24,
-          job: d.job || dbDraft?.job,
-          religion: d.religion || dbDraft?.religion,
-          my_gender: d.gender || d.my_gender || dbDraft?.my_gender || 'Member',
-          preferred_gender: d.preferred_gender || dbDraft?.preferred_gender || 'Any',
-          preferred_subcity: d.preferred_subcity || dbDraft?.preferred_subcity || [d.location || 'Addis Ababa'],
-          budget_min: Number(d.space_share || d.budget_min || dbDraft?.budget_min || 0),
-          budget_max: Number(d.space_rent || d.budget_max || dbDraft?.budget_max || 10000),
-          lifestyle_bio: d.roommate_traits || d.lifestyle_bio || dbDraft?.lifestyle_bio || 'Roommate listing in Addis Ababa.',
-          listing_category: d.listing_category || (d.space_rent ? 'space_available' : 'seeker'),
-          space_type: d.space_type || 'Private Bedroom in Shared Flat',
-          space_rent: d.space_rent ? Number(d.space_rent) : undefined,
-          space_share: d.space_share ? Number(d.space_share) : undefined,
-          space_amenities: d.space_amenities || [],
-          space_photos: d.space_photos || [],
-          unlock_fee: 300,
-          fayda_status: 'verified',
-          status: 'pending_approval',
-          created_at: dbDraft?.created_at || new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        _roommateDraftsCache.set(cleanId, mergedDraft);
-        return mergedDraft;
+    // Fast check inside in-memory _sessionCache (0ms)
+    for (const s of Object.values(_sessionCache)) {
+      const d = s.draft_data || {};
+      const code = (d.display_code || '').toLowerCase();
+      const tgStr = String(s.telegram_id || '');
+      if (
+        code === cleanId ||
+        code === `rm${last4}` ||
+        tgStr === cleanId ||
+        (last4.length >= 3 && tgStr.endsWith(last4))
+      ) {
+        match = s;
+        break;
       }
+    }
+
+    // Targeted single-row lookup instead of full table scan
+    if (!match) {
+      const tgNum = Number(cleanId);
+      if (!isNaN(tgNum) && tgNum > 0) {
+        const { data: s } = await supabase
+          .from('bot_sessions')
+          .select('*')
+          .eq('telegram_id', tgNum)
+          .maybeSingle();
+        if (s) match = s;
+      }
+      if (!match) {
+        const { data: s } = await supabase
+          .from('bot_sessions')
+          .select('*')
+          .filter('draft_data->>display_code', 'ilike', cleanId)
+          .limit(1)
+          .maybeSingle();
+        if (s) match = s;
+      }
+    }
+
+    if (match && match.draft_data) {
+      const d = match.draft_data;
+      const mergedDraft: RoommateProfileDraft = {
+        id: d.display_code || dbDraft?.id || draftId,
+        display_code: d.display_code || dbDraft?.id || draftId,
+        user_telegram_id: Number(match.telegram_id || dbDraft?.user_telegram_id),
+        user_name: d.user_name || dbDraft?.user_name || 'Verified Member',
+        username: d.username || dbDraft?.username || null,
+        age: d.age || 24,
+        job: d.job || dbDraft?.job,
+        religion: d.religion || dbDraft?.religion,
+        my_gender: d.gender || d.my_gender || dbDraft?.my_gender || 'Member',
+        preferred_gender: d.preferred_gender || dbDraft?.preferred_gender || 'Any',
+        preferred_subcity: d.preferred_subcity || dbDraft?.preferred_subcity || [d.location || 'Addis Ababa'],
+        budget_min: Number(d.space_share || d.budget_min || dbDraft?.budget_min || 0),
+        budget_max: Number(d.space_rent || d.budget_max || dbDraft?.budget_max || 10000),
+        lifestyle_bio: d.roommate_traits || d.lifestyle_bio || dbDraft?.lifestyle_bio || 'Roommate listing in Addis Ababa.',
+        listing_category: d.listing_category || (d.space_rent ? 'space_available' : 'seeker'),
+        space_type: d.space_type || 'Private Bedroom in Shared Flat',
+        space_rent: d.space_rent ? Number(d.space_rent) : undefined,
+        space_share: d.space_share ? Number(d.space_share) : undefined,
+        space_amenities: d.space_amenities || [],
+        space_photos: d.space_photos || [],
+        unlock_fee: 300,
+        fayda_status: 'verified',
+        status: 'pending_approval',
+        created_at: dbDraft?.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      _roommateDraftsCache.set(cleanId, mergedDraft);
+      return mergedDraft;
     }
   } catch (err) {
     console.warn('[getRoommateDraft] bot_sessions fallback error:', err);
@@ -433,7 +476,7 @@ let managedChannelsCacheTime = 0;
 
 export async function getManagedChannels(): Promise<ManagedChannel[]> {
   const now = Date.now();
-  if (cachedManagedChannels && now - managedChannelsCacheTime < 60000) {
+  if (cachedManagedChannels && now - managedChannelsCacheTime < 15 * 60 * 1000) {
     return cachedManagedChannels;
   }
 

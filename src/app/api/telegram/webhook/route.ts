@@ -70,6 +70,16 @@ export function invalidateAdminCache() {
   cachedAdminIds = null;
 }
 
+// Module-level cache for Fayda verification status to eliminate repeated database round-trips
+const _faydaStatusCache = new Map<number, { isVerified: boolean; expiresAt: number }>();
+export function setFaydaStatusCache(chatId: number, isVerified: boolean) {
+  const ttl = isVerified ? 60 * 60 * 1000 : 30 * 1000;
+  _faydaStatusCache.set(chatId, { isVerified, expiresAt: Date.now() + ttl });
+}
+export function invalidateFaydaStatusCache(chatId: number) {
+  _faydaStatusCache.delete(chatId);
+}
+
 export async function POST(request: Request) {
   try {
     const update = await request.json();
@@ -81,7 +91,7 @@ export async function POST(request: Request) {
     const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
     const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
 
-    // Helper to send requests to Telegram API
+    // Helper to send requests to Telegram API with keep-alive and network timeout guard
     const sendTelegram = async (method: string, payload: Record<string, any>) => {
       if (!botToken) return null;
       if (process.env.MOCK_TELEGRAM_API === 'true') {
@@ -92,6 +102,7 @@ export async function POST(request: Request) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(10000),
         });
         return await res.json();
       } catch (err) {
@@ -115,33 +126,31 @@ export async function POST(request: Request) {
 
       const adminSet = new Set<number>([...defaultAdminIds, ...envAdmins]);
 
-      // 1. Fetch from Supabase users where role = 'admin' (fast DB query)
       try {
-        const { data } = await supabaseAdmin.from('users').select('telegram_id').eq('role', 'admin');
-        if (data && data.length > 0) {
-          for (const u of data) {
+        // Parallelized DB queries for ultra-fast admin resolution
+        const [usersRes, channels] = await Promise.all([
+          supabaseAdmin.from('users').select('telegram_id').eq('role', 'admin'),
+          getManagedChannels(),
+        ]);
+
+        if (usersRes?.data && usersRes.data.length > 0) {
+          for (const u of usersRes.data) {
             const id = Number(u.telegram_id);
             if (id) adminSet.add(id);
           }
         }
-      } catch (err) {
-        console.error('Error fetching DB admins:', err);
-      }
 
-      // 2. Fetch channel added_by admins from managed channels table (fast DB query, no external HTTP calls)
-      try {
-        const channels = await getManagedChannels();
         for (const ch of channels) {
           if (ch.is_active && ch.added_by && Number(ch.added_by) > 0) {
             adminSet.add(Number(ch.added_by));
           }
         }
       } catch (err) {
-        console.error('Error fetching channel added_by:', err);
+        console.error('Error fetching admins:', err);
       }
 
       const result = Array.from(adminSet);
-      cachedAdminIds = { ids: result, expiresAt: now + 15 * 60 * 1000 };
+      cachedAdminIds = { ids: result, expiresAt: now + 60 * 60 * 1000 };
       return result;
     };
 
@@ -523,10 +532,8 @@ It has been 24 hours since your roommate contact was unlocked!
         if (editRes?.ok || editRes?.description?.includes('message is not modified')) {
           return messageIdToEdit;
         }
-        // If edit failed (e.g. messageIdToEdit was a photo card), delete it to cleanly show the new card
-        try {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit });
-        } catch {}
+        // If edit failed (e.g. messageIdToEdit was a photo card), delete it asynchronously without blocking
+        sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
       }
 
       const sendRes = await sendTelegram('sendMessage', {
@@ -540,22 +547,29 @@ It has been 24 hours since your roommate contact was unlocked!
 
     // Helper to check if a user is verified via Fayda (offline Verhoeff QR or admin approved)
     const isUserFaydaVerified = async (chatId: number): Promise<boolean> => {
+      const now = Date.now();
+      const cached = _faydaStatusCache.get(chatId);
+      if (cached && cached.expiresAt > now) {
+        return cached.isVerified;
+      }
+
+      // Check current in-memory session draft_data before hitting Supabase
+      const session = getSession(chatId);
+      if (session.draft_data?.fayda_status === 'verified') {
+        setFaydaStatusCache(chatId, true);
+        return true;
+      }
+
       try {
-        const { data: user } = await supabaseAdmin
-          .from('users')
-          .select('fayda_status')
-          .eq('telegram_id', chatId)
-          .maybeSingle();
+        // Query users and profiles in parallel for maximum speed
+        const [userRes, profileRes] = await Promise.all([
+          supabaseAdmin.from('users').select('fayda_status').eq('telegram_id', chatId).maybeSingle(),
+          supabaseAdmin.from('profiles').select('kyc_status').eq('telegram_id', chatId).maybeSingle(),
+        ]);
 
-        if (user?.fayda_status === 'verified') return true;
-
-        const { data: profile } = await supabaseAdmin
-          .from('profiles')
-          .select('kyc_status')
-          .eq('telegram_id', chatId)
-          .maybeSingle();
-
-        if (profile?.kyc_status === 'verified') return true;
+        const isVerified = userRes.data?.fayda_status === 'verified' || profileRes.data?.kyc_status === 'verified';
+        setFaydaStatusCache(chatId, isVerified);
+        return isVerified;
       } catch (err) {
         console.error('Error checking Fayda verification status:', err);
       }
@@ -3405,9 +3419,7 @@ Transfer <code>300 ETB</code> to either account:
       // Send with visual payment receipt guide photo
       try {
         if (targetMsgId) {
-          try {
-            await sendTelegram('deleteMessage', { chat_id: chatId, message_id: targetMsgId });
-          } catch {}
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: targetMsgId }).catch(() => {});
         }
         const photoRes = await sendTelegram('sendPhoto', {
           chat_id: chatId,
@@ -3832,23 +3844,21 @@ Transfer <code>300 ETB</code> to either account:
         const draft = session.draft_data || {};
 
         let displayCode = 'SPMARBR';
-        const { data: existingProf } = await supabaseAdmin
+        const { data: spmProfiles } = await supabaseAdmin
           .from('profiles')
-          .select('id, telegram_id')
-          .eq('display_code', displayCode)
-          .maybeSingle();
+          .select('display_code, telegram_id')
+          .ilike('display_code', 'SPMARBR%');
 
-        if (existingProf && Number(existingProf.telegram_id) > 0) {
-          let counter = 2;
-          displayCode = `SPMARBR${counter}`;
-          while (true) {
-            const { data: taken } = await supabaseAdmin
-              .from('profiles')
-              .select('id')
-              .eq('display_code', displayCode)
-              .maybeSingle();
-            if (!taken) break;
-            counter++;
+        if (spmProfiles && spmProfiles.length > 0) {
+          const existingCodes = new Set(spmProfiles.map((p) => (p.display_code || '').toUpperCase()));
+          const hasBaseActive = spmProfiles.some(
+            (p) => (p.display_code || '').toUpperCase() === 'SPMARBR' && Number(p.telegram_id) > 0
+          );
+          if (hasBaseActive) {
+            let counter = 2;
+            while (existingCodes.has(`SPMARBR${counter}`)) {
+              counter++;
+            }
             displayCode = `SPMARBR${counter}`;
           }
         }
@@ -6519,7 +6529,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Space Type Text Input
       if (session.step === 'space_input_type') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -6544,7 +6554,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Space Rent Text Input
       if (session.step === 'space_input_rent') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -6569,7 +6579,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Space Roommate Share Text Input
       if (session.step === 'space_input_share') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -6594,7 +6604,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Space Amenities Text Input
       if (session.step === 'space_input_amenities') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -6631,7 +6641,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Space Preferred Roommate Text Input
       if (session.step === 'space_input_pref_roommate') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -6663,7 +6673,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Standalone Fayda FAN Input (from /fayda or gate cards)
       if (session.step === 'awaiting_standalone_fayda_fan') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -6718,6 +6728,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           .update({ kyc_status: 'verified', status: 'active' })
           .eq('telegram_id', chatId);
 
+        setFaydaStatusCache(chatId, true);
+
         await clearSession(chatId);
 
         const verifiedText = isAm
@@ -6758,7 +6770,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // ── ADMIN: ADD ADMINISTRATOR BY USERNAME INPUT ──────────────────────
       if (session.step === 'admin_awaiting_username') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const adminIds = await getAdminIds();
@@ -6862,7 +6874,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Admin Post Wizard: Budget/Rent Text Input
       if (session.step === 'admin_post_budget') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const budgetVal = parseNumericInput(text);
@@ -6884,7 +6896,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Admin Post Wizard: Bio / Description Text Input
       if (session.step === 'admin_post_bio') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const bioText = text.toLowerCase() === 'default' || text.toLowerCase() === 'skip'
@@ -6900,7 +6912,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Step 1 Text Input: Age
       if (session.step === 'dyn_card_age') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -6926,7 +6938,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Step 4 Text Input: Job / Occupation
       if (session.step === 'dyn_card_job') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -6952,7 +6964,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Step 5 Text Input: Monthly Budget Range
       if (session.step === 'dyn_card_budget') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -6978,7 +6990,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Step 7 Text Input: Preferred Roommate Traits / Lifestyle
       if (session.step === 'dyn_card_traits') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -7009,7 +7021,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Step 9 Text Input: Fayda FAN Verification
       if (session.step === 'dyn_card_fayda_fan') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -7034,7 +7046,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       if (session.step && session.step.startsWith('awaiting_target_fayda_fan:')) {
         const matchId = session.step.split(':')[1];
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -7092,6 +7104,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           })
           .eq('telegram_id', chatId);
 
+        setFaydaStatusCache(chatId, true);
+
         await clearSession(chatId);
 
         const { data: match } = await supabaseAdmin
@@ -7135,7 +7149,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Matchmaker Wizard: Age Text Input
       if (session.step === 'awaiting_match_identity' || session.step === 'awaiting_match_age') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const targetMsgId = session.draft_data.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -7159,7 +7173,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Matchmaker Wizard: Budget Text Input
       if (session.step === 'awaiting_match_prefs' || session.step === 'awaiting_match_budget_input') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const targetMsgId = session.draft_data.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -7183,7 +7197,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Seeker Wizard: Age Text Input
       if (session.step === 'awaiting_seeker_age') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const targetMsgId = session.draft_data.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -7207,7 +7221,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Seeker Wizard: Budget Text Input
       if (session.step === 'awaiting_seeker_budget_text') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const targetMsgId = session.draft_data.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -7231,7 +7245,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Seeker Wizard: Bio Text Input
       if (session.step === 'awaiting_seeker_bio_text') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const targetMsgId = session.draft_data.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -7245,7 +7259,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
       // Seeker Wizard: Phone Text Input
       if (session.step === 'awaiting_seeker_phone') {
         if (update.message?.message_id) {
-          await sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id });
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
         }
         const targetMsgId = session.draft_data.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
@@ -7297,15 +7311,28 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 
           // Lookup target profile from profiles or roommate_profiles
           let targetProfile: any = null;
-          const { data: pCode } = await supabaseAdmin
-            .from('profiles')
-            .select('*')
-            .ilike('display_code', lookupCode)
-            .maybeSingle();
 
-          if (pCode) {
-            targetProfile = pCode;
-          } else {
+          // Fast direct check for SPMARBR / RM105
+          if (lookupCode.toUpperCase().startsWith('SPMARBR') || lookupCode.toUpperCase() === 'RM105') {
+            const { data: pSpm } = await supabaseAdmin
+              .from('profiles')
+              .select('*')
+              .ilike('display_code', 'SPMARBR%')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (pSpm) targetProfile = pSpm;
+          }
+
+          if (!targetProfile) {
+            const { data: pCode } = await supabaseAdmin
+              .from('profiles')
+              .select('*')
+              .ilike('display_code', lookupCode)
+              .maybeSingle();
+            if (pCode) {
+              targetProfile = pCode;
+            } else {
             const { data: pId } = await supabaseAdmin
               .from('profiles')
               .select('*')
@@ -7338,6 +7365,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
               }
             }
           }
+        }
 
           // Check pending roommate drafts cache
           if (!targetProfile) {
@@ -7480,13 +7508,12 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             ? `${Number(targetProfile.budget_max).toLocaleString()} ETB/mo`
             : '';
 
-          // Check if requesting user is already Fayda verified and has a completed profile
-          const isVerified = await isUserFaydaVerified(chatId);
-          const { data: myProfile } = await supabaseAdmin
-            .from('profiles')
-            .select('*')
-            .eq('telegram_id', chatId)
-            .maybeSingle();
+          // Check if requesting user is already Fayda verified and has a completed profile in parallel
+          const [isVerified, profileRes] = await Promise.all([
+            isUserFaydaVerified(chatId),
+            supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle(),
+          ]);
+          const myProfile = profileRes.data;
 
           if (!isVerified || !myProfile) {
             // Unverified or new user: automatically lock target and launch dynamic card onboarding
