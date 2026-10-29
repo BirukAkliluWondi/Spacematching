@@ -368,47 +368,72 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
       : 'Addis Ababa';
 
   const budgetMin = Number(profile.budget_min || 0).toLocaleString();
-  const budgetMax = Number(profile.budget_max || 0).toLocaleString();
+  const budgetMax = Number(profile.budget_max || 10000).toLocaleString();
   const budgetDisplay = Number(profile.budget_min || 0) > 0
-    ? `${budgetMin} – ${budgetMax} ETB / month`
-    : `Up to ${budgetMax} ETB / month`;
+    ? `${budgetMin}–${budgetMax} ETB per person`
+    : `Up to ${budgetMax} ETB per person`;
 
-  const displayCode = profile.display_code ? `#${profile.display_code.replace(/^#/, '')}` : '#RM';
+  const codeTag = '#SPMARBR';
+  const cleanCode = (profile.display_code || 'SPMARBR').replace(/^#/, '');
   const userAge = profile.age || 24;
-  const userJob = profile.job || 'Professional';
-  const userReligion = profile.religion || 'Any';
-  const prefGender = profile.preferred_gender || 'Any';
 
-  let cleanTraits = profile.roommate_traits || 'Seeking compatible roommate in Addis Ababa.';
-  if (cleanTraits.includes(' | ')) {
-    const parts = cleanTraits.split(' | ');
-    cleanTraits = parts[parts.length - 1];
+  let prefGender = profile.preferred_gender || 'Any';
+  if ((!prefGender || prefGender === 'Any') && profile.roommate_traits) {
+    const pgm = profile.roommate_traits.match(/Prefers?[:\s]+(Male|Female|Any)/i);
+    if (pgm) prefGender = pgm[1].trim();
   }
 
+  const rawGender = (profile.gender || '').toLowerCase();
+  const isFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
+  const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
+  const seekerGenderWord = isFemale ? 'female' : isMale ? 'male' : 'verified';
+  const sexDisplay = isFemale ? 'Female (ሴት)' : isMale ? 'Male (ወንድ)' : (profile.gender || 'Any Gender');
+
+  const rawPrefGender = (prefGender || '').toLowerCase();
+  const isPrefFemale = rawPrefGender.includes('female') || rawPrefGender.includes('ሴት');
+  const isPrefMale = rawPrefGender.includes('male') || rawPrefGender.includes('ወንድ');
+  const prefGenderWord = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
+  const prefSexDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
+
+  let cleanTraits = profile.roommate_traits || '';
+  if (cleanTraits.includes(' | ')) {
+    const parts = cleanTraits.split(' | ');
+    const nonMeta = parts.filter(
+      (p) => !/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]/i.test(p.trim())
+    );
+    cleanTraits = nonMeta.length > 0 ? nonMeta.join(' | ').trim() : parts[parts.length - 1].trim();
+  }
+  cleanTraits = cleanTraits.replace(/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]+[^|;\n]+(\||\n|$)/i, '').trim();
+  if (!cleanTraits) {
+    cleanTraits = 'Seeking compatible roommate in Addis Ababa.';
+  }
+
+  const preferredRoommateLine = `${prefSexDisplay}, clean and compatible roommate.`;
+
   const cardText = `
-<b>Roommate Available</b> ${displayCode}
-📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified ✅</b>
+<b>SpaceMatch Addis</b>
+<b>${codeTag}</b>
 
-• <b>Listing Code:</b> <code>${displayCode}</code>
-• <b>Gender:</b> ${escapeHtml(profile.gender || 'Member')}
-• <b>Age:</b> ${userAge}
-• <b>Religion:</b> ${escapeHtml(userReligion)}
-• <b>Job / Occupation:</b> ${escapeHtml(userJob)}
-• <b>Preferred Gender:</b> ${escapeHtml(prefGender)}
-• <b>Preferred Locations:</b> <code>${escapeHtml(locations)}</code>
-• <b>Budget:</b> <code>${budgetDisplay}</code>
+🏠 <b>ROOMMATE SEARCH</b>
 
-<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>
+We have a ${seekerGenderWord} Space Seeker looking for a ${prefGenderWord} roommate to team up with and find a place together!
 
-🔒 <i>Personal identity &amp; direct contact remain sealed until mutual match unlock.</i>
+📍 <b>Preferred Locations:</b> ${escapeHtml(locations)}
+💰 <b>Budget:</b> ${budgetDisplay}
+👤 <b>Sex:</b> ${sexDisplay}
+👥 <b>Preferred Sex:</b> ${prefSexDisplay}
+📝 <b>Description:</b> ${escapeHtml(cleanTraits)}
+🤝 <b>Preferred Roommate:</b> ${preferredRoommateLine}
+
+🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
 `.trim();
 
   const replyMarkup: InlineKeyboard = {
     inline_keyboard: [
       [
         {
-          text: `⚡ Contact with Roommate #${profile.display_code} ↗️`,
-          url: `https://t.me/${botUsername}?start=req_${profile.display_code}`,
+          text: `⚡ Contact with Roommate ${codeTag} ↗️`,
+          url: `https://t.me/${botUsername}?start=req_${cleanCode}`,
         },
       ],
       [

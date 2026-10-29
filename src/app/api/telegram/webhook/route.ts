@@ -25,6 +25,7 @@ import {
   broadcastListingToChannel,
   broadcastRoommateProfileToChannel,
   closeChannelPost,
+  extractUserDescription,
 } from '@/lib/telegram-broadcast';
 import {
   sendMessage as tgSend,
@@ -1100,7 +1101,7 @@ ${genderEmoji} <b>Space Seeker:</b> ${escapeHtml(seekerGenderEn)}
       const userPrefGender = draft.preferred_gender || 'Any';
       const userBudgetMin = Number(draft.budget_min || 0);
       const userBudgetMax = Number(draft.budget_max || 10000);
-      const userTraits = draft.roommate_traits || 'Seeking compatible housemate in Addis Ababa.';
+      const userTraits = draft.description || draft.details || draft.roommate_traits || draft.lifestyle_bio || 'Seeking compatible housemate in Addis Ababa.';
       const targetId = draft.target_id;
       const targetCode = draft.target_code;
 
@@ -2144,17 +2145,31 @@ Please reply with the description, perks, or notes for this channel post.
       messageIdToEdit?: number
     ) => {
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      await saveSession({
+        telegram_id: chatId,
+        step: 'admin_post_preview',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
       const subcitiesStr = Array.isArray(draft.locations) && draft.locations.length > 0
         ? draft.locations.join(', ')
         : 'Addis Ababa';
       const budgetNum = draft.budget || 10000;
-      const genderStr = draft.gender || 'Any';
+      const rawCandidate = (draft.gender && draft.gender !== 'Member' ? draft.gender : draft.my_gender) || draft.gender || 'Any';
+      const rawGender = rawCandidate.toLowerCase();
+      const isCandidateFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
+      const isCandidateMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
+      const candidateSexPreview = isCandidateFemale ? 'Female (ሴት)' : isCandidateMale ? 'Male (ወንድ)' : (rawCandidate || 'Any Gender');
+
       const prefGender = draft.preferred_gender || 'Any';
-      const prefGenderFormatted = prefGender === 'Female' ? 'Female Only' : prefGender === 'Male' ? 'Male Only' : 'Any Gender';
-      const candidateSexPreview = genderStr === 'Female' ? 'Female (ሴት)' : genderStr === 'Male' ? 'Male (ወንድ)' : genderStr;
-      const prefSexPreview = prefGender === 'Female' ? 'Female Only (ሴት ብቻ)' : prefGender === 'Male' ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
-      const bioStr = draft.details || 'Seeking compatible roommate in Addis Ababa.';
-      const catTitle = draft.category === 'entire' ? 'Property Listing' : 'Roommate Listing';
+      const rawPrefGender = prefGender.toLowerCase();
+      const isPrefFemale = rawPrefGender.includes('female') || rawPrefGender.includes('ሴት');
+      const isPrefMale = rawPrefGender.includes('male') || rawPrefGender.includes('ወንድ');
+      const prefSexPreview = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
+
+      const bioStr = (draft.details || draft.description || draft.roommate_traits || draft.lifestyle_bio || '').trim() || 'Seeking compatible roommate in Addis Ababa.';
+      const isSpace = draft.category === 'entire' || draft.category === 'room_avail';
+      const catTitle = isSpace ? 'Space Available' : 'Roommate Search';
 
       const previewText = `
 📋 <b>SpaceMatch Admin · Review Channel Post</b>
@@ -2166,7 +2181,7 @@ Please reply with the description, perks, or notes for this channel post.
 
 • <b>Sex:</b> ${candidateSexPreview}
 • <b>Preferred Sex:</b> ${prefSexPreview}
-• <b>Budget Cap / Rent:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
+• <b>${isSpace ? 'Total Rent:' : 'Budget Cap / Rent:'}</b> <code>${isSpace ? '' : 'Up to '}${Number(budgetNum).toLocaleString()} ETB / month</code>
 • <b>Description:</b> ${bioStr}
 • <b>Preferred Roommate:</b> ${prefSexPreview}, clean and compatible roommate.
 
@@ -3836,7 +3851,16 @@ Transfer <code>300 ETB</code> to either account:
         const updatedDraft = {
           ...session.draft_data,
           details: 'Seeking compatible roommate in Addis Ababa.',
+          description: 'Seeking compatible roommate in Addis Ababa.',
+          lifestyle_bio: 'Seeking compatible roommate in Addis Ababa.',
+          roommate_traits: 'Seeking compatible roommate in Addis Ababa.',
         };
+        await saveSession({
+          telegram_id: chatId,
+          step: 'admin_post_preview',
+          draft_data: { ...updatedDraft, card_msg_id: msgId },
+          updated_at: new Date().toISOString(),
+        });
         await sendAdminPostPreviewCard(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
@@ -3868,14 +3892,30 @@ Transfer <code>300 ETB</code> to either account:
         const subcities = draft.locations || ['Bole'];
         const subcitiesStr = subcities.join(', ');
         const budgetNum = draft.budget || 10000;
-        const genderStr = draft.gender || 'Any';
+
+        const rawCandidate = (draft.gender && draft.gender !== 'Member' ? draft.gender : draft.my_gender) || draft.gender || 'Any';
+        const rawGender = rawCandidate.toLowerCase();
+        const isCandidateFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
+        const isCandidateMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
+        const candidateSexDisplay = isCandidateFemale ? 'Female (ሴት)' : isCandidateMale ? 'Male (ወንድ)' : (rawCandidate || 'Any Gender');
+        const candidateGenderWord = isCandidateFemale ? 'female' : isCandidateMale ? 'male' : 'verified';
+
         const prefGenderStr = draft.preferred_gender || 'Any';
-        const prefGenderFormatted = prefGenderStr === 'Female' ? 'Female Only' : prefGenderStr === 'Male' ? 'Male Only' : 'Any Gender';
-        const rawBio = draft.details || 'Seeking compatible roommate in Addis Ababa.';
+        const rawPrefGender = prefGenderStr.toLowerCase();
+        const isPrefFemale = rawPrefGender.includes('female') || rawPrefGender.includes('ሴት');
+        const isPrefMale = rawPrefGender.includes('male') || rawPrefGender.includes('ወንድ');
+        const prefGenderFormatted = isPrefFemale ? 'Female Only' : isPrefMale ? 'Male Only' : 'Any Gender';
+        const preferredSexDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
+        const prefGenderWord = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
+
+        const rawBio = (draft.details || draft.description || draft.roommate_traits || draft.lifestyle_bio || '').trim() || 'Seeking compatible roommate in Addis Ababa.';
+        const cleanBio = rawBio.trim();
         const bioStr = `Prefers: ${prefGenderFormatted} | ${rawBio}`;
+        const preferredRoommateLine = `${preferredSexDisplay}, clean and compatible roommate.`;
 
         const codeDigits = parseInt(displayCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
         const syntheticTgId = - (1000000000 + codeDigits);
+        const isSpace = draft.category === 'entire' || draft.category === 'room_avail';
 
         // 1. Save to Supabase profiles with unique synthetic ID and admin tracking
         const { data: savedProfile, error: saveErr } = await supabaseAdmin
@@ -3883,7 +3923,8 @@ Transfer <code>300 ETB</code> to either account:
           .upsert({
             telegram_id: syntheticTgId,
             display_code: displayCode,
-            gender: genderStr,
+            gender: draft.gender || 'Any',
+            preferred_gender: prefGenderStr,
             locations: subcities,
             budget_min: 0,
             budget_max: budgetNum,
@@ -3910,13 +3951,13 @@ Transfer <code>300 ETB</code> to either account:
           user_name: 'Verified Channel Listing',
           username: `admin_${chatId}`,
           age: 24,
-          my_gender: genderStr,
+          my_gender: draft.gender || 'Any',
           preferred_gender: prefGenderStr,
           preferred_subcity: subcities,
           budget_min: 0,
           budget_max: budgetNum,
           lifestyle_bio: bioStr,
-          listing_category: draft.category === 'entire' ? 'space_available' : 'seeker',
+          listing_category: isSpace ? 'space_available' : 'seeker',
           status: 'approved',
           unlock_fee: 300,
           fayda_status: 'verified',
@@ -3926,20 +3967,15 @@ Transfer <code>300 ETB</code> to either account:
 
         // 3. Broadcast to channel with the 3 mandatory buttons
         const targetChannel = await getPrimaryChannel();
-        const isEntire = draft.category === 'entire';
-        const candidateSexDisplay = genderStr === 'Female' ? 'Female (ሴት)' : genderStr === 'Male' ? 'Male (ወንድ)' : 'Any Gender';
-        const preferredSexDisplay = prefGenderStr === 'Female' ? 'Female Only (ሴት ብቻ)' : prefGenderStr === 'Male' ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
-        const cleanBio = rawBio.trim();
-        const preferredRoommateLine = `${preferredSexDisplay}, clean and compatible roommate.`;
 
-        const postCardText = isEntire
+        const postCardText = isSpace
           ? `
 <b>SpaceMatch Addis</b>
 <b>#SPMARBR</b>
 
 🏠 <b>SPACE AVAILABLE</b>
 
-We have a ${genderStr === 'Female' ? 'female' : genderStr === 'Male' ? 'male' : 'verified'} Space Host looking for a ${prefGenderStr === 'Female' ? 'female' : prefGenderStr === 'Male' ? 'male' : 'compatible'} roommate!
+We have a ${candidateGenderWord} Space Host looking for a ${prefGenderWord} roommate!
 
 📍 <b>Location:</b> ${subcitiesStr}
 💰 <b>Total Rent:</b> ${Number(budgetNum).toLocaleString()} ETB / month
@@ -3956,7 +3992,7 @@ We have a ${genderStr === 'Female' ? 'female' : genderStr === 'Male' ? 'male' : 
 
 🏠 <b>ROOMMATE SEARCH</b>
 
-We have a ${genderStr === 'Female' ? 'female' : genderStr === 'Male' ? 'male' : 'verified'} Space Seeker looking for a ${prefGenderStr === 'Female' ? 'female' : prefGenderStr === 'Male' ? 'male' : 'compatible'} roommate to team up with and find a place together!
+We have a ${candidateGenderWord} Space Seeker looking for a ${prefGenderWord} roommate to team up with and find a place together!
 
 📍 <b>Preferred Locations:</b> ${subcitiesStr}
 💰 <b>Budget:</b> Up to ${Number(budgetNum).toLocaleString()} ETB per person
@@ -3970,7 +4006,7 @@ We have a ${genderStr === 'Female' ? 'female' : genderStr === 'Male' ? 'male' : 
 
         const channelButtons = {
           inline_keyboard: [
-            [{ text: isEntire ? `⚡ Contact with Host #SPMARBR ↗️` : `⚡ Contact with Roommate #SPMARBR ↗️`, url: `https://t.me/${botUsername}?start=req_${displayCode}` }],
+            [{ text: isSpace ? `⚡ Contact with Host #SPMARBR ↗️` : `⚡ Contact with Roommate #SPMARBR ↗️`, url: `https://t.me/${botUsername}?start=req_${displayCode}` }],
             [{ text: '📢 Post My Profile ↗️', url: `https://t.me/${botUsername}?start=post_profile` }],
             [{ text: '🔍 Search Roommate for Me ↗️', url: `https://t.me/${botUsername}?start=search_roommate` }],
           ],
@@ -4601,11 +4637,13 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
           : (Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity : ['Addis Ababa']);
         const subcitiesStr = subcities.join(', ');
         const budgetNum = prof?.budget_max || draft.budget_max || 10000;
-        const genderStr = prof?.gender || draft.gender || 'Member';
+        const rawCandidate = (prof?.gender && prof?.gender !== 'Member' ? prof?.gender : draft.gender) || prof?.gender || 'Member';
+        const genderStr = rawCandidate;
         const prefGenderStr = prof?.preferred_gender || draft.preferred_gender || 'Any';
         const prefGenderFormatted = prefGenderStr === 'Female' ? 'Female Only' : prefGenderStr === 'Male' ? 'Male Only' : 'Any Gender';
-        const userAge = draft.age || 24;
-        const bioStr = prof?.roommate_traits || draft.roommate_traits || draft.lifestyle_bio || `Age ${userAge} · Seeking roommate in ${subcitiesStr}.`;
+        const userAge = draft.age || prof?.age || 24;
+        const rawBio = prof?.description || draft.description || draft.details || prof?.roommate_traits || draft.roommate_traits || draft.lifestyle_bio || '';
+        const bioStr = extractUserDescription(rawBio) || rawBio || `Age ${userAge} · Seeking roommate in ${subcitiesStr}.`;
         const ageStr = `${userAge} yrs`;
 
         // 1. Mark status as paused (valid enum for pending approval) and save to profiles
@@ -5653,7 +5691,7 @@ Your listing <b>#${displayCode}</b> has been marked as matched! 🎉
           preferred_gender: draftData.preferred_gender || 'Any',
           budget_min: 0,
           budget_max: draftData.budget_max || 10000,
-          lifestyle_bio: draftData.lifestyle_bio || 'Looking for compatible roommate in Addis Ababa.',
+          lifestyle_bio: draftData.description || draftData.details || draftData.lifestyle_bio || draftData.roommate_traits || 'Looking for compatible roommate in Addis Ababa.',
           fayda_status: 'verified',
           unlock_fee: 300,
           status: 'approved',
@@ -6919,8 +6957,20 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const activeMsgId = session.draft_data?.card_msg_id;
         const bioText = text.toLowerCase() === 'default' || text.toLowerCase() === 'skip'
           ? 'Seeking compatible roommate in Addis Ababa.'
-          : text;
-        const updatedDraft = { ...session.draft_data, details: bioText };
+          : text.trim();
+        const updatedDraft = {
+          ...session.draft_data,
+          details: bioText,
+          description: bioText,
+          lifestyle_bio: bioText,
+          roommate_traits: bioText,
+        };
+        await saveSession({
+          telegram_id: chatId,
+          step: 'admin_post_preview',
+          draft_data: { ...updatedDraft, card_msg_id: activeMsgId },
+          updated_at: new Date().toISOString(),
+        });
         await sendAdminPostPreviewCard(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -7030,6 +7080,9 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           ...session.draft_data,
           roommate_traits: traitsVal,
           preferred_roommate: traitsVal,
+          description: traitsVal,
+          lifestyle_bio: traitsVal,
+          details: traitsVal,
           lang,
         };
         await sendDynamicCardStep8Subcities(chatId, updatedDraft, activeMsgId);

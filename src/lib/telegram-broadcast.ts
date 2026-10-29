@@ -8,6 +8,33 @@ export interface BroadcastResult {
 }
 
 /**
+ * Safely extracts the user's or admin's custom description/notes,
+ * cleanly stripping off any prefixed metadata tags like 'Job:', 'Religion:', 'Prefers:', etc.
+ */
+export function extractUserDescription(rawText?: string | null): string {
+  if (!rawText) return '';
+  let cleaned = rawText.trim();
+
+  // If separated by pipes: Job: ... | Religion: ... | Prefers: ... | <user_description>
+  if (cleaned.includes(' | ')) {
+    const parts = cleaned.split(' | ');
+    const nonMetaParts = parts.filter(
+      (p) => !/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]/i.test(p.trim())
+    );
+    if (nonMetaParts.length > 0) {
+      cleaned = nonMetaParts.join(' | ').trim();
+    } else {
+      cleaned = parts[parts.length - 1].trim();
+    }
+  }
+
+  // Remove any remaining leading metadata prefix
+  cleaned = cleaned.replace(/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]+[^|;\n]+(\||\n|$)/i, '').trim();
+
+  return cleaned;
+}
+
+/**
  * Broadcasts a verified Roommate Seeker profile (#ROOMMATE_SEEKER) to a public Telegram Channel.
  */
 export async function broadcastRoommateProfileToChannel(
@@ -376,12 +403,19 @@ export async function broadcastRoommateProfileToChannel(
     const displayCode = profile.display_code || cleanCode || 'SPMARBR';
     const codeTag = '#SPMARBR';
 
-    let cleanBio = profile.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa.';
-    if (cleanBio.includes(' | ')) {
-      const parts = cleanBio.split(' | ');
-      cleanBio = parts[parts.length - 1];
+    let rawBio = (
+      profile.description ||
+      profile.details ||
+      profile.lifestyle_bio ||
+      profile.roommate_traits ||
+      ''
+    ).trim();
+
+    let userDescription = extractUserDescription(rawBio);
+    if (!userDescription) {
+      userDescription = 'Seeking compatible roommate in Addis Ababa.';
     }
-    const bioContent = cleanBio.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const bioContent = userDescription.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     const hasSpace = profile.listing_category === 'space_available' || (profile.space_rent && profile.space_rent > 0);
     const hasPhotos = Array.isArray(profile.space_photos) && profile.space_photos.length > 0;
@@ -389,9 +423,14 @@ export async function broadcastRoommateProfileToChannel(
     const userAge = profile.age || 24;
     const userJob = profile.job || 'Professional';
     const userReligion = profile.religion || 'Any';
-    const prefGender = profile.preferred_gender || 'Any';
+    let prefGender = profile.preferred_gender || 'Any';
+    if ((!prefGender || prefGender === 'Any') && (profile.lifestyle_bio || profile.roommate_traits)) {
+      const pgm = (profile.lifestyle_bio || profile.roommate_traits || '').match(/Prefers?[:\s]+(Male|Female|Any)/i);
+      if (pgm) prefGender = pgm[1].trim();
+    }
 
-    const rawGender = (profile.my_gender || profile.gender || '').toLowerCase();
+    const candidateGender = (profile.my_gender && profile.my_gender !== 'Member' ? profile.my_gender : profile.gender) || profile.my_gender || '';
+    const rawGender = candidateGender.toLowerCase();
     const isFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
     const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
     const seekerGenderWord = isFemale ? 'female' : isMale ? 'male' : 'verified';
@@ -404,32 +443,33 @@ export async function broadcastRoommateProfileToChannel(
     const prefGenderWord = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
     const prefGenderFormatted = isPrefFemale ? 'Female Only' : isPrefMale ? 'Male Only' : 'Any Gender';
 
-    const sexDisplay = isFemale ? 'Female (ሴት)' : isMale ? 'Male (ወንድ)' : (profile.my_gender || 'Any Gender');
+    const sexDisplay = isFemale ? 'Female (ሴት)' : isMale ? 'Male (ወንድ)' : (candidateGender && candidateGender !== 'Member' ? candidateGender : 'Any Gender');
     const prefSexDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
 
     // Construct Preferred Roommate line matching reference layout
-    let preferredRoommateDetails = (profile.preferred_roommate || cleanBio).trim();
+    let preferredRoommateDetails = (profile.preferred_roommate || '').trim();
     if (preferredRoommateDetails.includes(' | ')) {
       const parts = preferredRoommateDetails.split(' | ');
       preferredRoommateDetails = parts[parts.length - 1].trim();
     }
     const isGenericBio = !preferredRoommateDetails ||
+      preferredRoommateDetails === userDescription ||
       preferredRoommateDetails.toLowerCase().includes('seeking a compatible') ||
       preferredRoommateDetails.toLowerCase().includes('seeking compatible housemate') ||
+      preferredRoommateDetails.toLowerCase().includes('seeking compatible') ||
       preferredRoommateDetails.toLowerCase().includes('roommate available with a room');
 
     if (isGenericBio) {
-      preferredRoommateDetails = isPrefFemale ? 'Female, compatible and clean roommate.' : isPrefMale ? 'Male, compatible and clean roommate.' : 'Compatible and clean roommate.';
+      preferredRoommateDetails = isPrefFemale ? 'Female Only (ሴት ብቻ), clean and compatible roommate.' : isPrefMale ? 'Male Only (ወንድ ብቻ), clean and compatible roommate.' : 'Any Gender (ማንኛውም ጾታ), clean and compatible roommate.';
     } else {
-      if (isPrefFemale && !/\bfemale\b/i.test(preferredRoommateDetails)) {
-        preferredRoommateDetails = `Female, ${preferredRoommateDetails}`;
-      } else if (isPrefMale && !/\bmale\b/i.test(preferredRoommateDetails)) {
-        preferredRoommateDetails = `Male, ${preferredRoommateDetails}`;
+      if (isPrefFemale && !/\bfemale\b/i.test(preferredRoommateDetails) && !/ሴት/.test(preferredRoommateDetails)) {
+        preferredRoommateDetails = `Female Only (ሴት ብቻ), ${preferredRoommateDetails}`;
+      } else if (isPrefMale && !/\bmale\b/i.test(preferredRoommateDetails) && !/ወንድ/.test(preferredRoommateDetails)) {
+        preferredRoommateDetails = `Male Only (ወንድ ብቻ), ${preferredRoommateDetails}`;
       }
-    }
-
-    if (!/[.!?]$/.test(preferredRoommateDetails)) {
-      preferredRoommateDetails += '.';
+      if (!/[.!?]$/.test(preferredRoommateDetails)) {
+        preferredRoommateDetails += '.';
+      }
     }
 
     let text = '';
@@ -684,14 +724,16 @@ export async function broadcastListingToChannel(
       };
     }
 
-    const descContent = (space.description || 'Verified space available for rent in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const rawDesc = space.description || 'Verified space available for rent in Addis Ababa.';
+    const cleanDesc = extractUserDescription(rawDesc) || rawDesc;
+    const descContent = cleanDesc.replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const cleanSpaceCode = (space.id || '').replace(/^#/, '');
     const codeTag = '#SPMARBR';
     const rentFormatted = Number(space.price_per_month || 0).toLocaleString();
 
     const rawOwnerGender = (space.owner_gender || '').toLowerCase();
-    const isOwnerFemale = rawOwnerGender.includes('female') || rawOwnerGender.includes('ሴት');
-    const isOwnerMale = rawOwnerGender.includes('male') || rawOwnerGender.includes('ወንድ');
+    const isOwnerFemale = rawOwnerGender.includes('female') || rawOwnerGender.includes('ሴት') || rawOwnerGender === 'f';
+    const isOwnerMale = rawOwnerGender.includes('male') || rawOwnerGender.includes('ወንድ') || rawOwnerGender === 'm';
     const ownerSexDisplay = isOwnerFemale ? 'Female (ሴት)' : isOwnerMale ? 'Male (ወንድ)' : (space.owner_gender || 'Any Gender');
 
     const rawPrefTenant = (space.preferred_tenant_gender || '').toLowerCase();
@@ -705,13 +747,14 @@ export async function broadcastListingToChannel(
 
 🏠 <b>SPACE AVAILABLE</b>
 
-We have a verified Space Host offering a place for rent in Addis Ababa!
+We have a ${isOwnerFemale ? 'female' : isOwnerMale ? 'male' : 'verified'} Space Host offering a place for rent in Addis Ababa!
 
 📍 <b>Location:</b> ${space.neighborhood || 'Addis Ababa'}
 💰 <b>Monthly Rent:</b> ${rentFormatted} ETB
 👤 <b>Sex:</b> ${ownerSexDisplay}
 👥 <b>Preferred Sex:</b> ${prefTenantDisplay}
 📝 <b>Description:</b> ${descContent}
+🤝 <b>Preferred Roommate:</b> ${prefTenantDisplay}, clean and compatible roommate.
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
     `.trim();
@@ -720,8 +763,8 @@ We have a verified Space Host offering a place for rent in Addis Ababa!
       inline_keyboard: [
         [
           {
-            text: '🔑 View & Connect with Host ↗️',
-            url: `https://t.me/${botUsername}?start=order_${space.id}`,
+            text: `⚡ Contact with Host ${codeTag} ↗️`,
+            url: `https://t.me/${botUsername}?start=order_${cleanSpaceCode}`,
           },
         ],
         [
@@ -732,8 +775,8 @@ We have a verified Space Host offering a place for rent in Addis Ababa!
         ],
         [
           {
-            text: '📱 View in Mini App ↗️',
-            url: `https://t.me/${botUsername}/${appName}?startapp=listing_${space.id}`,
+            text: '🔍 Search Roommate for Me ↗️',
+            url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
       ],
