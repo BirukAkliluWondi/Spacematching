@@ -401,7 +401,8 @@ export async function broadcastRoommateProfileToChannel(
       : 'UNVERIFIED ⚠️';
 
     const displayCode = profile.display_code || cleanCode || 'SPMARBR';
-    const codeTag = '#SPMARBR';
+    const cleanDisplayCode = displayCode.replace(/^#/, '');
+    const codeTag = `#${cleanDisplayCode}`;
 
     let rawBio = (
       profile.description ||
@@ -446,30 +447,29 @@ export async function broadcastRoommateProfileToChannel(
     const sexDisplay = isFemale ? 'Female (ሴት)' : isMale ? 'Male (ወንድ)' : (candidateGender && candidateGender !== 'Member' ? candidateGender : 'Any Gender');
     const prefSexDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
 
-    // Construct Preferred Roommate line matching reference layout
-    let preferredRoommateDetails = (profile.preferred_roommate || '').trim();
-    if (preferredRoommateDetails.includes(' | ')) {
-      const parts = preferredRoommateDetails.split(' | ');
-      preferredRoommateDetails = parts[parts.length - 1].trim();
+    // Construct Ideal Match / Housemate line (clean, non-redundant)
+    let idealMatchDetails = (profile.preferred_roommate || '').trim();
+    if (idealMatchDetails.includes(' | ')) {
+      const parts = idealMatchDetails.split(' | ');
+      const nonMeta = parts.filter(
+        (p: string) => !/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]/i.test(p.trim())
+      );
+      idealMatchDetails = nonMeta.length > 0 ? nonMeta.join(' | ').trim() : parts[parts.length - 1].trim();
     }
-    const isGenericBio = !preferredRoommateDetails ||
-      preferredRoommateDetails === userDescription ||
-      preferredRoommateDetails.toLowerCase().includes('seeking a compatible') ||
-      preferredRoommateDetails.toLowerCase().includes('seeking compatible housemate') ||
-      preferredRoommateDetails.toLowerCase().includes('seeking compatible') ||
-      preferredRoommateDetails.toLowerCase().includes('roommate available with a room');
+    // Remove leading redundant gender prefix
+    idealMatchDetails = idealMatchDetails.replace(/^(Female|Male|Any Gender|Female Only|Male Only|ሴት|ሴት ብቻ|ወንድ|ወንድ ብቻ)[^,;:\n]*[,;:]\s*/i, '').trim();
 
-    if (isGenericBio) {
-      preferredRoommateDetails = isPrefFemale ? 'Female Only (ሴት ብቻ), clean and compatible roommate.' : isPrefMale ? 'Male Only (ወንድ ብቻ), clean and compatible roommate.' : 'Any Gender (ማንኛውም ጾታ), clean and compatible roommate.';
-    } else {
-      if (isPrefFemale && !/\bfemale\b/i.test(preferredRoommateDetails) && !/ሴት/.test(preferredRoommateDetails)) {
-        preferredRoommateDetails = `Female Only (ሴት ብቻ), ${preferredRoommateDetails}`;
-      } else if (isPrefMale && !/\bmale\b/i.test(preferredRoommateDetails) && !/ወንድ/.test(preferredRoommateDetails)) {
-        preferredRoommateDetails = `Male Only (ወንድ ብቻ), ${preferredRoommateDetails}`;
-      }
-      if (!/[.!?]$/.test(preferredRoommateDetails)) {
-        preferredRoommateDetails += '.';
-      }
+    const isGenericMatch = !idealMatchDetails ||
+      idealMatchDetails === userDescription ||
+      idealMatchDetails.toLowerCase().includes('seeking a compatible') ||
+      idealMatchDetails.toLowerCase().includes('seeking compatible housemate') ||
+      idealMatchDetails.toLowerCase().includes('seeking compatible') ||
+      idealMatchDetails.toLowerCase().includes('roommate available with a room');
+
+    if (isGenericMatch) {
+      idealMatchDetails = 'Clean, respectful, and compatible housemate.';
+    } else if (!/[.!?]$/.test(idealMatchDetails)) {
+      idealMatchDetails += '.';
     }
 
     let text = '';
@@ -495,7 +495,7 @@ We have a ${hostGenderWord} Space Host looking for a ${prefGenderWord} roommate 
 👤 <b>Sex:</b> ${sexDisplay}
 👥 <b>Preferred Sex:</b> ${prefSexDisplay}
 📝 <b>Description:</b> ${bioContent}
-🤝 <b>Preferred Roommate:</b> ${preferredRoommateDetails}
+🤝 <b>Ideal Match / Housemate:</b> ${idealMatchDetails}
 ✨ <b>Amenities:</b> ${amenitiesStr}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
@@ -520,7 +520,7 @@ We have a ${seekerGenderWord} Space Seeker looking for a ${prefGenderWord} roomm
 👤 <b>Sex:</b> ${sexDisplay}
 👥 <b>Preferred Sex:</b> ${prefSexDisplay}
 📝 <b>Description:</b> ${bioContent}
-🤝 <b>Preferred Roommate:</b> ${preferredRoommateDetails}
+🤝 <b>Ideal Match / Housemate:</b> ${idealMatchDetails}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
       `.trim();
@@ -531,7 +531,7 @@ We have a ${seekerGenderWord} Space Seeker looking for a ${prefGenderWord} roomm
         [
           {
             text: hasSpace ? `⚡ Contact with Host ${codeTag} ↗️` : `⚡ Contact with Roommate ${codeTag} ↗️`,
-            url: hasSpace ? `https://t.me/${botUsername}?start=order_${cleanCode}` : `https://t.me/${botUsername}?start=req_${cleanCode}`,
+            url: hasSpace ? `https://t.me/${botUsername}?start=order_${cleanDisplayCode}` : `https://t.me/${botUsername}?start=req_${cleanDisplayCode}`,
           },
         ],
         [
@@ -727,8 +727,9 @@ export async function broadcastListingToChannel(
     const rawDesc = space.description || 'Verified space available for rent in Addis Ababa.';
     const cleanDesc = extractUserDescription(rawDesc) || rawDesc;
     const descContent = cleanDesc.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const cleanSpaceCode = (space.id || '').replace(/^#/, '');
-    const codeTag = '#SPMARBR';
+    const rawDisplayCode = space.display_code || space.id || 'SPMARBR101';
+    const cleanSpaceCode = String(rawDisplayCode).replace(/^#/, '').trim();
+    const codeTag = `#${cleanSpaceCode}`;
     const rentFormatted = Number(space.price_per_month || 0).toLocaleString();
 
     const rawOwnerGender = (space.owner_gender || '').toLowerCase();
@@ -754,7 +755,7 @@ We have a ${isOwnerFemale ? 'female' : isOwnerMale ? 'male' : 'verified'} Space 
 👤 <b>Sex:</b> ${ownerSexDisplay}
 👥 <b>Preferred Sex:</b> ${prefTenantDisplay}
 📝 <b>Description:</b> ${descContent}
-🤝 <b>Preferred Roommate:</b> ${prefTenantDisplay}, clean and compatible roommate.
+🤝 <b>Ideal Match / Housemate:</b> Clean, respectful, and compatible housemate.
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
     `.trim();

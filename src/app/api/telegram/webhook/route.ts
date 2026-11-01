@@ -19,6 +19,7 @@ import {
   saveManagedChannel,
   removeManagedChannel,
   ManagedChannel,
+  getNextSpmarbrCode,
 } from '@/lib/bot-session-store';
 import { verifyTelebirrPayment } from '@/lib/verify-et';
 import {
@@ -386,6 +387,144 @@ export async function POST(request: Request) {
       }
     };
 
+    // Helper: Admin Search Post by Code (#SPMARBR...)
+    const executeAdminPostSearch = async (
+      chatId: number,
+      rawQuery: string,
+      messageIdToEdit?: number
+    ) => {
+      const clean = rawQuery.trim().replace(/^#/, '');
+      const candidates: string[] = [clean.toUpperCase()];
+      if (/^\d+$/.test(clean)) {
+        candidates.unshift(`SPMARBR${clean}`);
+      }
+      if (!clean.toUpperCase().startsWith('SPMARBR')) {
+        candidates.push(`SPMARBR${clean.toUpperCase()}`);
+      }
+
+      let targetProfile: any = null;
+      for (const code of candidates) {
+        const { data } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .ilike('display_code', code)
+          .maybeSingle();
+        if (data) {
+          targetProfile = data;
+          break;
+        }
+      }
+
+      if (!targetProfile) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean);
+        if (isUuid) {
+          const { data } = await supabaseAdmin.from('profiles').select('*').eq('id', clean).maybeSingle();
+          if (data) targetProfile = data;
+        }
+      }
+
+      if (!targetProfile) {
+        const num = parseInt(clean.replace(/\D/g, ''), 10);
+        if (!isNaN(num) && num > 0) {
+          const { data } = await supabaseAdmin.from('profiles').select('*').eq('channel_message_id', num).maybeSingle();
+          if (data) targetProfile = data;
+        }
+      }
+
+      if (!targetProfile) {
+        for (const code of candidates) {
+          const draft = await getRoommateDraft(code);
+          if (draft) {
+            targetProfile = {
+              display_code: draft.display_code || code,
+              status: draft.status || 'pending_approval',
+              gender: draft.my_gender,
+              preferred_gender: draft.preferred_gender,
+              budget_max: draft.budget_max,
+              locations: draft.preferred_subcity,
+              roommate_traits: draft.lifestyle_bio,
+              full_name: draft.user_name,
+              telegram_username: draft.username,
+              phone_number: draft.contact_phone,
+            };
+            break;
+          }
+        }
+      }
+
+      if (!targetProfile) {
+        await sendOrEditCard(
+          chatId,
+          `⚠️ <b>Post Not Found</b>\n\nNo active or historical post was found matching code <code>${escapeHtml(rawQuery)}</code>.\n\nPlease check the code (e.g. <code>SPMARBR5</code>, <code>SPMARBR101</code>, or <code>5</code>) and try again.`,
+          [
+            [{ text: '🔍 Search Another Code', callback_data: 'admin_search_code_prompt' }],
+            [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+          ],
+          messageIdToEdit
+        );
+        return;
+      }
+
+      const code = (targetProfile.display_code || clean).toUpperCase().replace(/^#/, '');
+      const isClosed = targetProfile.status === 'closed' || targetProfile.status === 'matched';
+      const isPending = targetProfile.status === 'pending_approval' || targetProfile.status === 'paused';
+      const statusBadge = isClosed ? '🔴 Closed / Matched' : isPending ? '⏳ Pending Review' : '🟢 Active & Published';
+      const numPart = parseInt(code.replace(/\D/g, ''), 10);
+      const isSpace = targetProfile.listing_category === 'space_available' || targetProfile.space_rent || (!isNaN(numPart) && numPart >= 100);
+      const listingType = isSpace ? '🏠 Space Available (Have a Room)' : '👥 Roommate Search';
+
+      const targetChannel = await getPrimaryChannel();
+      const channelHandle = String(targetChannel).replace('@', '');
+      const postLink = targetProfile.channel_message_id ? `https://t.me/${channelHandle}/${targetProfile.channel_message_id}` : '';
+
+      const candName = targetProfile.full_name || 'Verified Member';
+      const candPhone = targetProfile.phone_number || 'Not provided';
+      const candUser = targetProfile.telegram_username ? `@${targetProfile.telegram_username.replace('@', '')}` : (targetProfile.telegram_id ? `ID: ${targetProfile.telegram_id}` : 'N/A');
+      const candSex = targetProfile.gender || 'Any';
+      const candPrefSex = targetProfile.preferred_gender || 'Any';
+      const candLocations = Array.isArray(targetProfile.locations) ? targetProfile.locations.join(', ') : (Array.isArray(targetProfile.preferred_subcity) ? targetProfile.preferred_subcity.join(', ') : 'Addis Ababa');
+      const candBudget = targetProfile.budget_max ? `${Number(targetProfile.budget_max).toLocaleString()} ETB / month` : (targetProfile.space_rent ? `${Number(targetProfile.space_rent).toLocaleString()} ETB / month` : 'Negotiable');
+      const candDesc = extractUserDescription(targetProfile.roommate_traits || targetProfile.lifestyle_bio || targetProfile.description) || 'None provided';
+
+      const dossierText = `
+🔍 <b>SpaceMatch Admin · Post Dossier #${code}</b>
+
+• <b>Listing Type:</b> ${listingType}
+• <b>Status:</b> <b>${statusBadge}</b>
+• <b>Display Code:</b> <code>#${code}</code>
+${postLink ? `• <b>Channel Link:</b> <a href="${postLink}">Open Post in Channel ↗️</a>\n` : ''}
+👤 <b>Candidate Information:</b>
+• <b>Name:</b> ${escapeHtml(candName)}
+• <b>Phone:</b> <code>${escapeHtml(candPhone)}</code>
+• <b>Telegram:</b> ${candUser.startsWith('@') ? `<a href="https://t.me/${candUser.replace('@', '')}">${candUser}</a>` : candUser}
+• <b>Sex:</b> ${escapeHtml(candSex)}
+• <b>Preferred Sex:</b> ${escapeHtml(candPrefSex)}
+• <b>${isSpace ? 'Monthly Rent' : 'Budget'}:</b> <code>${candBudget}</code>
+• <b>Locations:</b> <code>${escapeHtml(candLocations)}</code>
+
+📝 <b>Description / Notes:</b>
+<blockquote>${escapeHtml(candDesc)}</blockquote>
+
+🤝 <b>Ideal Match / Housemate:</b>
+<blockquote>Clean, respectful, and compatible housemate.</blockquote>
+      `.trim();
+
+      const dossierButtons: any[] = [];
+      if (!isClosed && targetProfile.channel_message_id) {
+        dossierButtons.push([{ text: `🔴 Mark #${code} as CLOSED in Channel`, callback_data: `admin_close:${code}` }]);
+      }
+      if (postLink) {
+        dossierButtons.push([{ text: '📢 View Channel Post ↗️', url: postLink }]);
+      }
+      if (targetProfile.telegram_username) {
+        dossierButtons.push([{ text: `💬 Direct Message Candidate ↗️`, url: `https://t.me/${targetProfile.telegram_username.replace('@', '')}` }]);
+      }
+      dossierButtons.push([{ text: '🔍 Search Another Code', callback_data: 'admin_search_code_prompt' }]);
+      dossierButtons.push([{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }]);
+
+      await sendOrEditCard(chatId, dossierText, dossierButtons, messageIdToEdit);
+    };
+
     // Helper: 24-Hour Automated Follow-Up Check-in Protocol
     const checkPending24hCheckins = async () => {
       const now = Date.now();
@@ -634,8 +773,11 @@ It has been 24 hours since your roommate contact was unlocked!
       const activeMsgId = messageIdToEdit || draft.card_msg_id;
       const lang = getLanguage(draft, chatId);
       const isAm = lang === 'am';
-      const header = draft.target_code
-        ? (isAm ? `🤝 <b>ከቤት ጓደኛ #${draft.target_code} ጋር ይገናኙ</b>\n\n` : `🤝 <b>Connect with #${draft.target_code}</b>\n\n`)
+      const cleanCode = (draft.target_code || '').replace(/^#/, '');
+      const header = cleanCode
+        ? (isAm
+            ? `ℹ️ <b>ከማስታወቂያ #${cleanCode} ጋር እየተገናኙ ነው</b>\n<i>(ማስታወሻ: #${cleanCode} የዚህ ማስታወቂያ መለያ ኮድ ነው። ከአስተዳዳሪዎች ጋር ሲነጋገሩ ይህንን ኮድ በመጥቀስ ማስታወቂያውን ማሳወቅ ይችላሉ።)</i>\n\n━━━━━━━━━━━━━━━━━━━━━\n🤝 <b>ከቤት ጓደኛ #${cleanCode} ጋር ይገናኙ</b>\n\n`
+            : `ℹ️ <b>You are interacting with post #${cleanCode}</b>\n<i>(Note: #${cleanCode} is the unique identification code for this listing. If you contact admin support, quote this code to identify which post you are referring to.)</i>\n\n━━━━━━━━━━━━━━━━━━━━━\n🤝 <b>Connect with #${cleanCode}</b>\n\n`)
         : '';
       const question = isAm ? '🎂 <b>ዕድሜዎ ስንት ነው?</b> (ምሳሌ: 24)' : '🎂 <b>What is your age?</b> (e.g. 24)';
       const text = `${header}${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${question}`.trim();
@@ -970,8 +1112,8 @@ It has been 24 hours since your roommate contact was unlocked!
     ) => {
       const lang = getLanguage(profileData, chatId);
       const isAm = lang === 'am';
-      const cleanCode = (profileData.display_code || 'SPMARBR').replace(/^#/, '');
-      const codeTag = '#SPMARBR';
+      const cleanCode = (profileData.display_code || 'SPMARBR5').replace(/^#/, '');
+      const codeTag = '#' + cleanCode;
 
       const subcitiesStr = Array.isArray(profileData.locations) && profileData.locations.length > 0
         ? profileData.locations.join(', ')
@@ -1017,14 +1159,9 @@ It has been 24 hours since your roommate contact was unlocked!
 
       if (isGeneric) {
         prefDetails = isAm
-          ? (isPrefFemale ? 'ሴት፣ ተስማሚ እና ጽዱ የቤት ጓደኛ።' : isPrefMale ? 'ወንድ፣ ተስማሚ እና ጽዱ የቤት ጓደኛ።' : 'ተስማሚ እና ጽዱ የቤት ጓደኛ።')
-          : (isPrefFemale ? 'Female, compatible and clean roommate.' : isPrefMale ? 'Male, compatible and clean roommate.' : 'Compatible and clean roommate.');
+          ? 'ተስማሚ እና ጽዱ የቤት ጓደኛ።'
+          : 'Clean, respectful, and compatible housemate.';
       } else {
-        if (isPrefFemale && !/\bfemale\b/i.test(prefDetails) && !/ሴት/.test(prefDetails)) {
-          prefDetails = isAm ? `ሴት፣ ${prefDetails}` : `Female, ${prefDetails}`;
-        } else if (isPrefMale && !/\bmale\b/i.test(prefDetails) && !/ወንድ/.test(prefDetails)) {
-          prefDetails = isAm ? `ወንድ፣ ${prefDetails}` : `Male, ${prefDetails}`;
-        }
         if (isAm && !/[.!?።]$/.test(prefDetails)) prefDetails += '።';
         else if (!isAm && !/[.!?]$/.test(prefDetails)) prefDetails += '.';
       }
@@ -1042,7 +1179,7 @@ It has been 24 hours since your roommate contact was unlocked!
 💰 <b>በጀት:</b> ${escapeHtml(budgetDisplayAm)}
 ${genderEmoji} <b>የቤት ፈላጊ:</b> ${escapeHtml(seekerGenderAm)}
 👥 <b>የሚፈለግ ጾታ:</b> ${escapeHtml(prefGenderTextAm)}
-🤝 <b>የሚፈለግ የቤት ጓደኛ:</b> ${escapeHtml(prefDetails)}
+🤝 <b>ተስማሚ የቤት ጓደኛ:</b> ${escapeHtml(prefDetails)}
 
 🔑 <i>SpaceMatchAddis — መጀመሪያ የቤት ጓደኛዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!</i>
         `.trim()
@@ -1058,7 +1195,7 @@ We have a ${seekerGenderWordEn} Space Seeker looking for a ${prefGenderWordEn} r
 💰 <b>Budget:</b> ${escapeHtml(budgetDisplayEn)}
 ${genderEmoji} <b>Space Seeker:</b> ${escapeHtml(seekerGenderEn)}
 👥 <b>Preferred Gender:</b> ${escapeHtml(prefGenderTextEn)}
-🤝 <b>Preferred Roommate:</b> ${escapeHtml(prefDetails)}
+🤝 <b>Ideal Match / Housemate:</b> ${escapeHtml(prefDetails)}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
         `.trim();
@@ -1087,11 +1224,19 @@ ${genderEmoji} <b>Space Seeker:</b> ${escapeHtml(seekerGenderEn)}
       activeMsgId?: number,
       fromUser?: { first_name?: string; last_name?: string; username?: string }
     ) => {
-      let displayCode = `RM${Date.now().toString().slice(-4)}`;
-      try {
-        const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
-        if (codeRow) displayCode = codeRow;
-      } catch {}
+      let displayCode = draft.display_code;
+      if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
+        const { data: existingProf } = await supabaseAdmin
+          .from('profiles')
+          .select('display_code')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
+        if (existingProf?.display_code && existingProf.display_code.toUpperCase().startsWith('SPMARBR')) {
+          displayCode = existingProf.display_code;
+        } else {
+          displayCode = await getNextSpmarbrCode('seeker');
+        }
+      }
 
       const preferredSubs = draft.preferred_subcity || ['Bole'];
       const userAge = draft.age || 24;
@@ -1860,8 +2005,13 @@ A verified roommate saw your listing and wants to connect!
         ? draft.space_amenities.join(', ')
         : (isAm ? 'ዋይፋይ፣ ወጥ ቤት፣ ውሃ' : 'WiFi, Kitchen, Water supply');
       const photosCount = draft.space_photos?.length || 0;
-      const displayCode = draft.display_code || 'SPMARBR';
-      const codeTag = '#SPMARBR';
+      let displayCode = draft.display_code;
+      if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
+        displayCode = await getNextSpmarbrCode('space_available');
+        draft.display_code = displayCode;
+      }
+      const cleanDisplayCode = displayCode.replace(/^#/, '');
+      const codeTag = '#' + cleanDisplayCode;
 
       const rawGender = (draft.gender || draft.my_gender || '').toLowerCase();
       const isFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
@@ -1878,7 +2028,7 @@ A verified roommate saw your listing and wants to connect!
       const prefGenderTextEn = isPrefFemale ? 'Female Only' : isPrefMale ? 'Male Only' : 'Any Gender';
       const prefGenderTextAm = isPrefFemale ? 'ሴት ብቻ' : isPrefMale ? 'ወንድ ብቻ' : 'ማናቸውም';
 
-      const prefRoommate = draft.preferred_roommate || draft.roommate_traits || (isAm ? 'ተስማሚ እና ጽዱ የቤት ጓደኛ።' : 'Compatible and clean roommate.');
+      const prefRoommate = draft.preferred_roommate || draft.roommate_traits || (isAm ? 'ተስማሚ እና ጽዱ የቤት ጓደኛ።' : 'Clean, respectful, and compatible housemate.');
 
       const text = isAm
         ? `
@@ -1893,7 +2043,7 @@ A verified roommate saw your listing and wants to connect!
 💰 <b>ጠቅላላ ኪራይ:</b> ${rentStr} ብር (${shareStr} ብር በሰው)
 ${genderEmoji} <b>የክፍል አከራይ:</b> ${escapeHtml(hostGenderAm)}
 👥 <b>የሚፈለግ ጾታ:</b> ${escapeHtml(prefGenderTextAm)}
-🤝 <b>የሚፈለግ የቤት ጓደኛ:</b> ${escapeHtml(prefRoommate)}
+🤝 <b>ተስማሚ የቤት ጓደኛ:</b> ${escapeHtml(prefRoommate)}
 ✨ <b>ግልጋሎቶች:</b> ${escapeHtml(amenitiesStr)}
 📸 <b>ፎቶዎች:</b> ${photosCount} ተያይዘዋል
 
@@ -1911,7 +2061,7 @@ We have a ${hostGenderWordEn} Space Host looking for a compatible roommate for a
 💰 <b>Total Rent:</b> ${rentStr} ETB (${shareStr} ETB per person)
 ${genderEmoji} <b>Space Host:</b> ${escapeHtml(hostGenderEn)}
 👥 <b>Preferred Gender:</b> ${escapeHtml(prefGenderTextEn)}
-🤝 <b>Preferred Roommate:</b> ${escapeHtml(prefRoommate)}
+🤝 <b>Ideal Match / Housemate:</b> ${escapeHtml(prefRoommate)}
 ✨ <b>Amenities:</b> ${escapeHtml(amenitiesStr)}
 📸 <b>Photos:</b> ${photosCount} attached
 
@@ -1922,7 +2072,7 @@ ${genderEmoji} <b>Space Host:</b> ${escapeHtml(hostGenderEn)}
         [
           {
             text: isAm ? '📢 ለአድሚን ማረጋገጫ ላክ 🚀' : '📢 Submit for Admin Approval 🚀',
-            callback_data: `space_submit_admin:${displayCode}`,
+            callback_data: `space_submit_admin:${cleanDisplayCode}`,
           },
         ],
         [
@@ -2181,14 +2331,14 @@ Please reply with the description, perks, or notes for this channel post.
 <i>This listing will be saved to Supabase first, then published with tracking buttons:</i>
 
 ━━━━━━━━━━━━━━━━━━━━━
-✨ <b>SpaceMatch · ${catTitle} #SPMARBR</b>
+✨ <b>SpaceMatch · ${catTitle} #${draft.display_code || 'SPMARBR'}</b>
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
 
 • <b>Sex:</b> ${candidateSexPreview}
 • <b>Preferred Sex:</b> ${prefSexPreview}
 • <b>${isSpace ? 'Total Rent:' : 'Budget Cap / Rent:'}</b> <code>${isSpace ? '' : 'Up to '}${Number(budgetNum).toLocaleString()} ETB / month</code>
 • <b>Description:</b> ${bioStr}
-• <b>Preferred Roommate:</b> ${prefSexPreview}, clean and compatible roommate.
+• <b>Ideal Match / Housemate:</b> Clean, respectful, and compatible housemate.
 
 🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
 ━━━━━━━━━━━━━━━━━━━━━
@@ -3260,6 +3410,10 @@ We could not find an exact match for your selected filters in those specific sub
       let genderInfo = '';
       let budgetInfo = '';
       let bioInfo = '';
+      let codeForNotice = '';
+      if (targetId.toUpperCase().startsWith('SPMARBR') || targetId.toUpperCase().startsWith('RM')) {
+        codeForNotice = targetId.toUpperCase().replace(/^#/, '');
+      }
 
       if (targetType === 'roommate_profile') {
         try {
@@ -3269,6 +3423,7 @@ We could not find an exact match for your selected filters in those specific sub
             .eq('id', targetId)
             .single();
           if (dbProf) {
+            if (dbProf.display_code) codeForNotice = dbProf.display_code.toUpperCase().replace(/^#/, '');
             title = `Verified Roommate Seeker (${dbProf.my_gender || 'Candidate'})`;
             subcity = Array.isArray(dbProf.preferred_subcity) ? dbProf.preferred_subcity.join(', ') : 'Addis Ababa';
             genderInfo = `👤 <b>Gender:</b> ${dbProf.my_gender} (Prefers: ${dbProf.preferred_gender})`;
@@ -3280,6 +3435,7 @@ We could not find an exact match for your selected filters in those specific sub
         if (title === 'Roommate Contact Unlock' || title.startsWith('Verified Roommate Seeker')) {
           const draft = await getRoommateDraft(targetId);
           if (draft) {
+            if (draft.display_code) codeForNotice = draft.display_code.toUpperCase().replace(/^#/, '');
             title = `Verified Roommate Seeker (${draft.my_gender || 'Candidate'})`;
             subcity = Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity.join(', ') : 'Addis Ababa';
             genderInfo = `👤 <b>Gender:</b> ${draft.my_gender} (Prefers: ${draft.preferred_gender})`;
@@ -3293,6 +3449,7 @@ We could not find an exact match for your selected filters in those specific sub
                 .eq('id', targetId)
                 .single();
               if (pData) {
+                if (pData.display_code) codeForNotice = pData.display_code.toUpperCase().replace(/^#/, '');
                 title = `Verified Roommate Seeker (${pData.gender || 'Candidate'})`;
                 subcity = Array.isArray(pData.locations) ? pData.locations.join(', ') : 'Addis Ababa';
                 genderInfo = `👤 <b>Gender:</b> ${pData.gender || 'Candidate'}`;
@@ -3399,9 +3556,16 @@ We could not find an exact match for your selected filters in those specific sub
         : '';
       const receiptGuideImg = 'https://plusmfmlzzumzsqtlixb.supabase.co/storage/v1/object/public/spaces-public/payment_receipt_guide.png';
 
+      const codeNoticeAm = codeForNotice
+        ? `ℹ️ <b>ከማስታወቂያ #${codeForNotice} ጋር እየተገናኙ ነው</b>\n<i>(ማስታወሻ: #${codeForNotice} የዚህ ማስታወቂያ መለያ ኮድ ነው። ከአስተዳዳሪዎች ጋር ሲነጋገሩ ይህንን ኮድ በመጥቀስ ማስታወቂያውን ማሳወቅ ይችላሉ።)</i>\n\n━━━━━━━━━━━━━━━━━━━━━\n`
+        : '';
+      const codeNoticeEn = codeForNotice
+        ? `ℹ️ <b>You are interacting with post #${codeForNotice}</b>\n<i>(Note: #${codeForNotice} is the unique identification code for this listing. If you contact admin support, quote this code to identify which post you are referring to.)</i>\n\n━━━━━━━━━━━━━━━━━━━━━\n`
+        : '';
+
       const paywallText = isAm
         ? `
-🔒 <b>ስፔስማች አዲስ · የተረጋገጠ የስልክ አድራሻ መክፈቻ</b>
+${codeNoticeAm}🔒 <b>ስፔስማች አዲስ · የተረጋገጠ የስልክ አድራሻ መክፈቻ</b>
 📍 <code>${subcity}</code> · <b>ተፈላጊ:</b> ${title}
 
 • <b>የስልክ አድራሻ መክፈቻ ክፍያ:</b> <code>300 ብር</code>
@@ -3415,7 +3579,7 @@ ${genderInfo ? `• ${genderInfo}\n` : ''}${budgetInfo ? `• ${budgetInfo}\n` :
 💬 <i>ክፍያውን እንደፈጸሙ ከላይ በምስሉ ላይ እንደተመለከተው የደረሰኝ ቁጥርዎን (ለምሳሌ <code>FT24...</code> ወይም <code>TX...</code>) እዚህ በመላክ ወዲያውኑ ስልክ አድራሻውን ይክፈቱ!</i>
         `.trim()
         : `
-🔒 <b>SpaceMatch</b> · <b>Verified Contact Unlock</b>
+${codeNoticeEn}🔒 <b>SpaceMatch</b> · <b>Verified Contact Unlock</b>
 📍 <code>${subcity}</code> · <b>Target:</b> ${title}
 
 • <b>Contact Unlock Fee:</b> <code>300 ETB</code>
@@ -3873,26 +4037,9 @@ Transfer <code>300 ETB</code> to either account:
       if (callbackData === 'admin_post_confirm') {
         const session = getSession(chatId);
         const draft = session.draft_data || {};
+        const isSpace = draft.category === 'entire' || draft.category === 'room_avail';
 
-        let displayCode = 'SPMARBR';
-        const { data: spmProfiles } = await supabaseAdmin
-          .from('profiles')
-          .select('display_code, telegram_id')
-          .ilike('display_code', 'SPMARBR%');
-
-        if (spmProfiles && spmProfiles.length > 0) {
-          const existingCodes = new Set(spmProfiles.map((p) => (p.display_code || '').toUpperCase()));
-          const hasBaseActive = spmProfiles.some(
-            (p) => (p.display_code || '').toUpperCase() === 'SPMARBR' && Number(p.telegram_id) > 0
-          );
-          if (hasBaseActive) {
-            let counter = 2;
-            while (existingCodes.has(`SPMARBR${counter}`)) {
-              counter++;
-            }
-            displayCode = `SPMARBR${counter}`;
-          }
-        }
+        const displayCode = await getNextSpmarbrCode(isSpace ? 'space_available' : 'seeker');
 
         const subcities = draft.locations || ['Bole'];
         const subcitiesStr = subcities.join(', ');
@@ -3916,11 +4063,9 @@ Transfer <code>300 ETB</code> to either account:
         const rawBio = (draft.details || draft.description || draft.roommate_traits || draft.lifestyle_bio || '').trim() || 'Seeking compatible roommate in Addis Ababa.';
         const cleanBio = rawBio.trim();
         const bioStr = `Prefers: ${prefGenderFormatted} | ${rawBio}`;
-        const preferredRoommateLine = `${preferredSexDisplay}, clean and compatible roommate.`;
 
         const codeDigits = parseInt(displayCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
         const syntheticTgId = - (1000000000 + codeDigits);
-        const isSpace = draft.category === 'entire' || draft.category === 'room_avail';
 
         // 1. Save to Supabase profiles with unique synthetic ID and admin tracking
         const { data: savedProfile, error: saveErr } = await supabaseAdmin
@@ -3962,6 +4107,7 @@ Transfer <code>300 ETB</code> to either account:
           budget_min: 0,
           budget_max: budgetNum,
           lifestyle_bio: bioStr,
+          preferred_roommate: 'Clean, respectful, and compatible housemate.',
           listing_category: isSpace ? 'space_available' : 'seeker',
           status: 'approved',
           unlock_fee: 300,
@@ -3976,7 +4122,7 @@ Transfer <code>300 ETB</code> to either account:
         const postCardText = isSpace
           ? `
 <b>SpaceMatch Addis</b>
-<b>#SPMARBR</b>
+<b>#${displayCode}</b>
 
 🏠 <b>SPACE AVAILABLE</b>
 
@@ -3987,13 +4133,13 @@ We have a ${candidateGenderWord} Space Host looking for a ${prefGenderWord} room
 👤 <b>Sex:</b> ${candidateSexDisplay}
 👥 <b>Preferred Sex:</b> ${preferredSexDisplay}
 📝 <b>Description:</b> ${cleanBio}
-🤝 <b>Preferred Roommate:</b> ${preferredRoommateLine}
+🤝 <b>Ideal Match / Housemate:</b> Clean, respectful, and compatible housemate.
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
           `.trim()
           : `
 <b>SpaceMatch Addis</b>
-<b>#SPMARBR</b>
+<b>#${displayCode}</b>
 
 🏠 <b>ROOMMATE SEARCH</b>
 
@@ -4004,14 +4150,14 @@ We have a ${candidateGenderWord} Space Seeker looking for a ${prefGenderWord} ro
 👤 <b>Sex:</b> ${candidateSexDisplay}
 👥 <b>Preferred Sex:</b> ${preferredSexDisplay}
 📝 <b>Description:</b> ${cleanBio}
-🤝 <b>Preferred Roommate:</b> ${preferredRoommateLine}
+🤝 <b>Ideal Match / Housemate:</b> Clean, respectful, and compatible housemate.
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
           `.trim();
 
         const channelButtons = {
           inline_keyboard: [
-            [{ text: isSpace ? `⚡ Contact with Host #SPMARBR ↗️` : `⚡ Contact with Roommate #SPMARBR ↗️`, url: `https://t.me/${botUsername}?start=req_${displayCode}` }],
+            [{ text: isSpace ? `⚡ Contact with Host #${displayCode} ↗️` : `⚡ Contact with Roommate #${displayCode} ↗️`, url: `https://t.me/${botUsername}?start=req_${displayCode}` }],
             [{ text: '📢 Post My Profile ↗️', url: `https://t.me/${botUsername}?start=post_profile` }],
             [{ text: '🔍 Search Roommate for Me ↗️', url: `https://t.me/${botUsername}?start=search_roommate` }],
           ],
@@ -4240,7 +4386,10 @@ ${res.message}
       }
 
       if (callbackData.startsWith('space_submit_admin:')) {
-        const cleanCode = callbackData.split(':')[1] || `RM${chatId.toString().slice(-4)}`;
+        let cleanCode = (callbackData.split(':')[1] || '').trim().replace(/^#/, '');
+        if (!cleanCode || cleanCode === 'SPMARBR' || cleanCode.startsWith('RM') || !cleanCode.toUpperCase().startsWith('SPMARBR')) {
+          cleanCode = await getNextSpmarbrCode('space_available');
+        }
         const session = getSession(chatId);
         const draft = session.draft_data || {};
         const subcity = draft.preferred_subcity?.[0] || draft.location || 'Addis Ababa';
@@ -4636,7 +4785,10 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
 
         const session = getSession(chatId);
         const draft = session.draft_data || {};
-        const displayCode = prof?.display_code || draft.display_code || cleanCode || `RM${chatId.toString().slice(-4)}`;
+        let displayCode = (prof?.display_code || draft.display_code || cleanCode || '').replace(/^#/, '');
+        if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
+          displayCode = await getNextSpmarbrCode('seeker');
+        }
         const subcities = Array.isArray(prof?.locations) && prof.locations.length > 0
           ? prof.locations
           : (Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity : ['Addis Ababa']);
@@ -6011,6 +6163,7 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
 
         const adminKeyboard = {
           inline_keyboard: [
+            [{ text: '🔍 Search Post by Code (#SPMARBR...) 🔎', callback_data: 'admin_search_code_prompt' }],
             [{ text: `⏳ Pending Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
             [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
             [{ text: '➕ Add Admin by Username 👑', callback_data: 'admin_add_prompt' }],
@@ -6088,6 +6241,44 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
           buttons,
           msgId
         );
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin: Search Post by Code Prompt Callback
+      if (callbackData === 'admin_search_code_prompt') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          return NextResponse.json({ ok: true });
+        }
+
+        await saveSession({
+          telegram_id: chatId,
+          step: 'admin_search_code_input',
+          draft_data: { card_msg_id: msgId },
+          updated_at: new Date().toISOString(),
+        });
+
+        const promptText = `
+🔍 <b>SpaceMatch Admin · Search Post by Code</b>
+
+Please send the identification code or number of the listing you want to inspect:
+
+<b>Examples:</b>
+• <code>#SPMARBR5</code> or <code>SPMARBR5</code> (Roommate Seeker)
+• <code>#SPMARBR101</code> or <code>SPMARBR101</code> (Space Available)
+• <code>5</code> or <code>101</code> (Numeric shorthand)
+• Or send the Telegram Channel Message ID.
+
+<i>💡 You will receive the complete candidate dossier including unmasked contact info, status, and direct management buttons.</i>
+        `.trim();
+
+        const buttons = [
+          [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+          [{ text: '❌ Cancel', callback_data: 'admin_cancel' }],
+        ];
+
+        await sendOrEditCard(chatId, promptText, buttons, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -6828,6 +7019,36 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         return NextResponse.json({ ok: true });
       }
 
+      // ── ADMIN: SEARCH POST BY CODE INPUT ────────────────────────────────
+      if (session.step === 'admin_search_code_input') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          await clearSession(chatId);
+          return NextResponse.json({ ok: true });
+        }
+
+        const rawQuery = text.trim();
+        if (rawQuery === '/cancel' || rawQuery.toLowerCase() === 'cancel') {
+          await clearSession(chatId);
+          await sendOrEditCard(
+            chatId,
+            `❌ Search cancelled.`,
+            [[{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }]],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        await clearSession(chatId);
+        await executeAdminPostSearch(chatId, rawQuery, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
       // ── ADMIN: ADD ADMINISTRATOR BY USERNAME INPUT ──────────────────────
       if (session.step === 'admin_awaiting_username') {
         if (update.message?.message_id) {
@@ -7380,16 +7601,43 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         await clearSession(chatId);
 
         // ── NEW: Deep-link from channel button → /start req_<display_code> ──
-        // ── NEW: Deep-link from channel button → /start req_<display_code_or_id> ──
-        if (text.startsWith('/start req_')) {
-          const rawCode = text.replace('/start req_', '').trim();
+        if (
+          text.startsWith('/start req_') ||
+          text.startsWith('/start SPMARBR') ||
+          text.startsWith('/start spmarbr') ||
+          text.startsWith('/start #SPMARBR') ||
+          text.startsWith('/start #spmarbr')
+        ) {
+          const rawCode = text.startsWith('/start req_')
+            ? text.replace('/start req_', '').trim()
+            : text.replace(/^\/start\s*/, '').trim();
           const lookupCode = rawCode.replace(/^#/, '').trim();
 
           // Lookup target profile from profiles or roommate_profiles
           let targetProfile: any = null;
 
-          // Fast direct check for SPMARBR / RM105
-          if (lookupCode.toUpperCase().startsWith('SPMARBR') || lookupCode.toUpperCase() === 'RM105') {
+          // 1. Direct exact check by display_code
+          const { data: pExact } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .ilike('display_code', lookupCode)
+            .maybeSingle();
+          if (pExact) {
+            targetProfile = pExact;
+          }
+
+          // 2. Numeric-only check (e.g. 5 -> SPMARBR5, 101 -> SPMARBR101)
+          if (!targetProfile && /^\d+$/.test(lookupCode)) {
+            const { data: pNum } = await supabaseAdmin
+              .from('profiles')
+              .select('*')
+              .ilike('display_code', `SPMARBR${lookupCode}`)
+              .maybeSingle();
+            if (pNum) targetProfile = pNum;
+          }
+
+          // 3. Fallback: only if lookupCode is exactly 'SPMARBR' or 'RM105' (no digits)
+          if (!targetProfile && (lookupCode.toUpperCase() === 'SPMARBR' || lookupCode.toUpperCase() === 'RM105')) {
             const { data: pSpm } = await supabaseAdmin
               .from('profiles')
               .select('*')
@@ -7644,11 +7892,17 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           const myGenderStr = reqIsAm ? (myProfile.gender === 'Female' ? 'ሴት' : myProfile.gender === 'Male' ? 'ወንድ' : myProfile.gender || 'አባል') : (myProfile.gender || 'Member');
           const myAgeStr = myProfile.age ? (reqIsAm ? `፣ ${myProfile.age} ዓመት` : `, ${myProfile.age} yrs`) : '';
 
+          const cleanTargetCode = (targetProfile.display_code || lookupCode || '').toUpperCase().replace(/^#/, '');
+
           const inspectionCard = reqIsAm
             ? `
-🤝 <b>ከክፍል ጓደኛ #${targetProfile.display_code || lookupCode} ጋር ይገናኙ</b>
+ℹ️ <b>ከማስታወቂያ #${cleanTargetCode} ጋር እየተገናኙ ነው</b>
+<i>(ማስታወሻ: #${cleanTargetCode} የዚህ ማስታወቂያ መለያ ኮድ ነው። ከአስተዳዳሪዎች ጋር ሲነጋገሩ ይህንን ኮድ በመጥቀስ ማስታወቂያውን ማሳወቅ ይችላሉ።)</i>
 
-• <b>ተፈላጊ:</b> #${targetProfile.display_code || lookupCode} (📍 <code>${targetLocations}</code>)
+━━━━━━━━━━━━━━━━━━━━━
+🤝 <b>ከክፍል ጓደኛ #${cleanTargetCode} ጋር ይገናኙ</b>
+
+• <b>ተፈላጊ:</b> #${cleanTargetCode} (📍 <code>${targetLocations}</code>)
 • <b>የእርስዎ መገለጫ:</b> #${myCode} (${myGenderStr}${myAgeStr})
 • <b>ስራ:</b> ${escapeHtml(myProfile.job || 'ሙያተኛ')}
 • <b>ሃይማኖት:</b> ${escapeHtml(myProfile.religion || 'ማንኛውም')}
@@ -7657,9 +7911,13 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 • <b>የእርስዎ አካባቢዎች:</b> <code>${escapeHtml(myLocations)}</code>
             `.trim()
             : `
-🤝 <b>Connect with Roommate #${targetProfile.display_code || lookupCode}</b>
+ℹ️ <b>You are interacting with post #${cleanTargetCode}</b>
+<i>(Note: #${cleanTargetCode} is the unique identification code for this listing. If you contact admin support, quote this code to identify which post you are referring to.)</i>
 
-• <b>Target:</b> #${targetProfile.display_code || lookupCode} (📍 <code>${targetLocations}</code>)
+━━━━━━━━━━━━━━━━━━━━━
+🤝 <b>Connect with Roommate #${cleanTargetCode}</b>
+
+• <b>Target:</b> #${cleanTargetCode} (📍 <code>${targetLocations}</code>)
 • <b>Your Profile:</b> #${myCode} (${myGenderStr}${myAgeStr})
 • <b>Occupation:</b> ${escapeHtml(myProfile.job || 'Professional')}
 • <b>Religion:</b> ${escapeHtml(myProfile.religion || 'Any')}
@@ -8140,10 +8398,11 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 
         await sendTelegram('sendMessage', {
           chat_id: chatId,
-          text: `👑 <b>SpaceMatch Admin Controls</b>\n\nSelect an action below or use admin commands:\n• <code>/post</code> - Launch channel posting wizard\n• <code>/close &lt;code&gt;</code> - Close matched listing\n• <code>/admins</code> - View and manage administrator team`,
+          text: `👑 <b>SpaceMatch Admin Controls</b>\n\nSelect an action below or use admin commands:\n• <code>/find &lt;code&gt;</code> - Search post by code (#SPMARBR...)\n• <code>/post</code> - Launch channel posting wizard\n• <code>/close &lt;code&gt;</code> - Close matched listing\n• <code>/admins</code> - View and manage administrator team`,
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
+              [{ text: '🔍 Search Post by Code (#SPMARBR...) 🔎', callback_data: 'admin_search_code_prompt' }],
               [{ text: `⏳ Pending Channel Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
               [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
               [{ text: '➕ Add Admin by Username 👑', callback_data: 'admin_add_prompt' }],
@@ -8154,6 +8413,57 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           },
         });
         return NextResponse.json({ ok: true });
+      }
+
+      // ── Admin: Search Post by Code command (/find, /search, /lookup) ────────
+      if (
+        text === '/find' || text.startsWith('/find ') ||
+        text === '/search' || text.startsWith('/search ') ||
+        text === '/lookup' || text.startsWith('/lookup ')
+      ) {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⛔ <b>Access Denied.</b> Admin post lookup is restricted to SpaceMatch administrators.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const query = text.replace(/^\/(find|search|lookup)/i, '').trim();
+        if (!query) {
+          await saveSession({
+            telegram_id: chatId,
+            step: 'admin_search_code_input',
+            draft_data: {},
+            updated_at: new Date().toISOString(),
+          });
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `🔍 <b>Search Post by Code</b>\n\nPlease enter the listing code (e.g. <code>SPMARBR5</code>, <code>SPMARBR101</code>, or <code>5</code>):`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+              ],
+            },
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        await executeAdminPostSearch(chatId, query);
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── Admin / User Direct Post Code Lookup (#SPMARBR... or SPMARBR...) ───
+      if (/^#?spmarbr\d+/i.test(text.trim())) {
+        const cleanQuery = text.trim().replace(/^#/, '');
+        const adminIds = await getAdminIds();
+        if (adminIds.includes(chatId)) {
+          await executeAdminPostSearch(chatId, cleanQuery);
+          return NextResponse.json({ ok: true });
+        }
       }
 
       if (text === '/post' || text === '/admin_post') {

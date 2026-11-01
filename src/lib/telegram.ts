@@ -373,8 +373,8 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
     ? `${budgetMin}–${budgetMax} ETB per person`
     : `Up to ${budgetMax} ETB per person`;
 
-  const codeTag = '#SPMARBR';
-  const cleanCode = (profile.display_code || 'SPMARBR').replace(/^#/, '');
+  const cleanCode = (profile.display_code || 'SPMARBR5').replace(/^#/, '');
+  const codeTag = `#${cleanCode}`;
   const userAge = profile.age || 24;
 
   let prefGender = profile.preferred_gender || 'Any';
@@ -408,7 +408,7 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
     cleanTraits = 'Seeking compatible roommate in Addis Ababa.';
   }
 
-  const preferredRoommateLine = `${prefSexDisplay}, clean and compatible roommate.`;
+  const idealMatchLine = 'Clean, respectful, and compatible housemate.';
 
   const cardText = `
 <b>SpaceMatch Addis</b>
@@ -423,7 +423,7 @@ We have a ${seekerGenderWord} Space Seeker looking for a ${prefGenderWord} roomm
 👤 <b>Sex:</b> ${sexDisplay}
 👥 <b>Preferred Sex:</b> ${prefSexDisplay}
 📝 <b>Description:</b> ${escapeHtml(cleanTraits)}
-🤝 <b>Preferred Roommate:</b> ${preferredRoommateLine}
+🤝 <b>Ideal Match / Housemate:</b> ${idealMatchLine}
 
 🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
 `.trim();
