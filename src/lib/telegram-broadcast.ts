@@ -727,7 +727,7 @@ export async function broadcastListingToChannel(
     const rawDesc = space.description || 'Verified space available for rent in Addis Ababa.';
     const cleanDesc = extractUserDescription(rawDesc) || rawDesc;
     const descContent = cleanDesc.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const rawDisplayCode = space.display_code || space.id || 'SPMARBR101';
+    const rawDisplayCode = space.display_code || space.id || 'SPMARWR1';
     const cleanSpaceCode = String(rawDisplayCode).replace(/^#/, '').trim();
     const codeTag = `#${cleanSpaceCode}`;
     const rentFormatted = Number(space.price_per_month || 0).toLocaleString();
@@ -871,9 +871,9 @@ export async function postCustomToChannel(
       [
         { text: '🛒 በቦት እዘዝ (Order in Bot)', url: orderUrl, style: 'success' },
       ],
-      [
-        { text: '🔍 በሚኒ አፕ ተመልከት (View in Mini App)', url: miniAppUrl, style: 'primary' },
-      ],
+      // [
+      //   { text: '🔍 በሚኒ አፕ ተመልከት (View in Mini App)', url: miniAppUrl, style: 'primary' },
+      // ],
     ],
   };
 

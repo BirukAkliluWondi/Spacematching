@@ -5,36 +5,42 @@ if (!botToken) {
   process.exit(1);
 }
 
+async function callTelegram(method, payload) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      return data;
+    } catch (err) {
+      console.warn(`Attempt ${attempt} for ${method} failed:`, err.message);
+      if (attempt === 3) throw err;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+}
+
 async function main() {
-  console.log('Restoring Telegram Bot Name and Description...');
+  console.log('Updating Telegram Bot Name to SpaceMatch Addis...');
 
   // Set Bot Name
-  const nameRes = await fetch(`https://api.telegram.org/bot${botToken}/setMyName`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'SpaceMatch Ethiopia' }),
-  });
-  console.log('setMyName result:', await nameRes.json());
+  const nameRes = await callTelegram('setMyName', { name: 'SpaceMatch Addis' });
+  console.log('setMyName result:', nameRes);
 
   // Set Description
-  const descRes = await fetch(`https://api.telegram.org/bot${botToken}/setMyDescription`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      description: '🏠 SpaceMatch Ethiopia - ባለ 1 መኝታ፣ ስቱዲዮና የጋራ ክፍሎችን በአዲስ አበባ በቀላሉ ያግኙ ወይም ቤትዎን ያከራዩ!',
-    }),
+  const descRes = await callTelegram('setMyDescription', {
+    description: '🏠 SpaceMatch Addis - ባለ 1 መኝታ፣ ስቱዲዮና የጋራ ክፍሎችን በአዲስ አበባ በቀላሉ ያግኙ ወይም ቤትዎን ያከራዩ!',
   });
-  console.log('setMyDescription result:', await descRes.json());
+  console.log('setMyDescription result:', descRes);
 
   // Set Short Description
-  const shortDescRes = await fetch(`https://api.telegram.org/bot${botToken}/setMyShortDescription`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      short_description: '🏠 SpaceMatch Ethiopia - ክፍሎችን በቦሌ፣ ካዛንችስና አዲስ አበባ ያግኙ ወይም ያከራዩ!',
-    }),
+  const shortDescRes = await callTelegram('setMyShortDescription', {
+    short_description: '🏠 SpaceMatch Addis - ክፍሎችን በቦሌ፣ ካዛንችስና አዲስ አበባ ያግኙ ወይም ያከራዩ!',
   });
-  console.log('setMyShortDescription result:', await shortDescRes.json());
+  console.log('setMyShortDescription result:', shortDescRes);
 }
 
 main();

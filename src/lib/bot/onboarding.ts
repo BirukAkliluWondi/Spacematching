@@ -289,13 +289,20 @@ async function sendKycStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `🔒 <b>Step 7 of 7 — Fayda ID Verification</b>\n\nSpaceMatch Addis requires all members to verify their identity.\n\n<blockquote>Scan the QR code on your Fayda card or digital slip using your camera in the Mini App for instant offline verification.</blockquote>`,
+    `🔒 <b>Step 7 of 7 — Fayda ID Verification</b>\n\nSpaceMatch Addis requires all members to verify their identity.\n\n<blockquote>Please upload a photo of your Fayda card or enter your 16-digit Fayda number directly in chat for instant offline verification.</blockquote>`,
     {
       inline_keyboard: [
+        // Mini App camera scanning hidden for pure bot experience:
+        // [
+        //   {
+        //     text: '🛡️ Scan Fayda QR Code in Mini App ↗️',
+        //     web_app: { url: `${appUrl}?startapp=verify_fayda` },
+        //   },
+        // ],
         [
           {
-            text: '🛡️ Scan Fayda QR Code in Mini App ↗️',
-            web_app: { url: `${appUrl}?startapp=verify_fayda` },
+            text: '🖼️ Upload Fayda Photo in Chat',
+            callback_data: 'dyn_upload_fayda',
           },
         ],
       ],

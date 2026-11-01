@@ -387,7 +387,7 @@ export async function POST(request: Request) {
       }
     };
 
-    // Helper: Admin Search Post by Code (#SPMARBR...)
+    // Helper: Admin Search Post by Code (#SPMARBR... / #SPMARWR...)
     const executeAdminPostSearch = async (
       chatId: number,
       rawQuery: string,
@@ -397,9 +397,11 @@ export async function POST(request: Request) {
       const candidates: string[] = [clean.toUpperCase()];
       if (/^\d+$/.test(clean)) {
         candidates.unshift(`SPMARBR${clean}`);
+        candidates.unshift(`SPMARWR${clean}`);
       }
-      if (!clean.toUpperCase().startsWith('SPMARBR')) {
+      if (!clean.toUpperCase().startsWith('SPMARBR') && !clean.toUpperCase().startsWith('SPMARWR')) {
         candidates.push(`SPMARBR${clean.toUpperCase()}`);
+        candidates.push(`SPMARWR${clean.toUpperCase()}`);
       }
 
       let targetProfile: any = null;
@@ -455,7 +457,7 @@ export async function POST(request: Request) {
       if (!targetProfile) {
         await sendOrEditCard(
           chatId,
-          `⚠️ <b>Post Not Found</b>\n\nNo active or historical post was found matching code <code>${escapeHtml(rawQuery)}</code>.\n\nPlease check the code (e.g. <code>SPMARBR5</code>, <code>SPMARBR101</code>, or <code>5</code>) and try again.`,
+          `⚠️ <b>Post Not Found</b>\n\nNo active or historical post was found matching code <code>${escapeHtml(rawQuery)}</code>.\n\nPlease check the code (e.g. <code>SPMARBR5</code>, <code>SPMARWR1</code>, or <code>5</code>) and try again.`,
           [
             [{ text: '🔍 Search Another Code', callback_data: 'admin_search_code_prompt' }],
             [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
@@ -469,9 +471,8 @@ export async function POST(request: Request) {
       const isClosed = targetProfile.status === 'closed' || targetProfile.status === 'matched';
       const isPending = targetProfile.status === 'pending_approval' || targetProfile.status === 'paused';
       const statusBadge = isClosed ? '🔴 Closed / Matched' : isPending ? '⏳ Pending Review' : '🟢 Active & Published';
-      const numPart = parseInt(code.replace(/\D/g, ''), 10);
-      const isSpace = targetProfile.listing_category === 'space_available' || targetProfile.space_rent || (!isNaN(numPart) && numPart >= 100);
-      const listingType = isSpace ? '🏠 Space Available (Have a Room)' : '👥 Roommate Search';
+      const isSpace = targetProfile.listing_category === 'space_available' || Boolean(targetProfile.space_rent) || code.startsWith('SPMARWR');
+      const listingType = isSpace ? '🏠 Space Available (Roommate With Room)' : '👥 Roommate Search (Roommate Before Room)';
 
       const targetChannel = await getPrimaryChannel();
       const channelHandle = String(targetChannel).replace('@', '');
@@ -738,12 +739,13 @@ It has been 24 hours since your roommate contact was unlocked!
         : `🛡️ <b>Enter your Fayda FAN number or scan QR:</b> (e.g. 1234 5678 9012)`;
 
       const inlineKeyboard = [
-        [
-          {
-            text: isAm ? '📷 በካሜራ የፋይዳ QR ኮድ ይቃኙ ↗️' : '📷 Scan Fayda QR ↗️',
-            web_app: { url: `${appUrl}?startapp=verify_fayda` },
-          },
-        ],
+        // Mini App camera scan hidden for pure bot experience:
+        // [
+        //   {
+        //     text: isAm ? '📷 በካሜራ የፋይዳ QR ኮድ ይቃኙ ↗️' : '📷 Scan Fayda QR ↗️',
+        //     web_app: { url: `${appUrl}?startapp=verify_fayda` },
+        //   },
+        // ],
         [
           {
             text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu',
@@ -1089,12 +1091,13 @@ It has been 24 hours since your roommate contact was unlocked!
       const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
-        [
-          {
-            text: isAm ? '📷 በካሜራ የፋይዳ QR ኮድ ይቃኙ ↗️' : '📷 Scan Fayda QR ↗️',
-            web_app: { url: `${appUrl}?startapp=verify_fayda` },
-          },
-        ],
+        // Mini App camera scan hidden for pure bot experience:
+        // [
+        //   {
+        //     text: isAm ? '📷 በካሜራ የፋይዳ QR ኮድ ይቃኙ ↗️' : '📷 Scan Fayda QR ↗️',
+        //     web_app: { url: `${appUrl}?startapp=verify_fayda` },
+        //   },
+        // ],
         [
           { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_subs' },
           { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
@@ -2006,7 +2009,7 @@ A verified roommate saw your listing and wants to connect!
         : (isAm ? 'ዋይፋይ፣ ወጥ ቤት፣ ውሃ' : 'WiFi, Kitchen, Water supply');
       const photosCount = draft.space_photos?.length || 0;
       let displayCode = draft.display_code;
-      if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
+      if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARWR')) {
         displayCode = await getNextSpmarbrCode('space_available');
         draft.display_code = displayCode;
       }
@@ -2331,7 +2334,7 @@ Please reply with the description, perks, or notes for this channel post.
 <i>This listing will be saved to Supabase first, then published with tracking buttons:</i>
 
 ━━━━━━━━━━━━━━━━━━━━━
-✨ <b>SpaceMatch · ${catTitle} #${draft.display_code || 'SPMARBR'}</b>
+✨ <b>SpaceMatch · ${catTitle} #${draft.display_code || (isSpace ? 'SPMARWR1' : 'SPMARBR5')}</b>
 📍 <code>${subcitiesStr}</code> · 🛡️ <b>Fayda Verified ✅</b>
 
 • <b>Sex:</b> ${candidateSexPreview}
@@ -2519,7 +2522,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 • <code>/seeker</code> — Post Seeker Profile
 • <code>/post</code> — List Room or Apartment
 • <code>/myorders</code> — View Unlocked Contacts
-• <code>/browse</code> — Launch SpaceMatch Mini App
+<!-- • <code>/browse</code> — Launch SpaceMatch Mini App (hidden for pure bot mode) -->
 • <code>/support</code> — Contact Live Support
       `.trim();
 
@@ -3411,7 +3414,7 @@ We could not find an exact match for your selected filters in those specific sub
       let budgetInfo = '';
       let bioInfo = '';
       let codeForNotice = '';
-      if (targetId.toUpperCase().startsWith('SPMARBR') || targetId.toUpperCase().startsWith('RM')) {
+      if (targetId.toUpperCase().startsWith('SPMARBR') || targetId.toUpperCase().startsWith('SPMARWR') || targetId.toUpperCase().startsWith('RM')) {
         codeForNotice = targetId.toUpperCase().replace(/^#/, '');
       }
 
@@ -4387,7 +4390,7 @@ ${res.message}
 
       if (callbackData.startsWith('space_submit_admin:')) {
         let cleanCode = (callbackData.split(':')[1] || '').trim().replace(/^#/, '');
-        if (!cleanCode || cleanCode === 'SPMARBR' || cleanCode.startsWith('RM') || !cleanCode.toUpperCase().startsWith('SPMARBR')) {
+        if (!cleanCode || cleanCode.startsWith('RM') || !cleanCode.toUpperCase().startsWith('SPMARWR')) {
           cleanCode = await getNextSpmarbrCode('space_available');
         }
         const session = getSession(chatId);
@@ -5452,12 +5455,13 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
             `.trim();
 
           const inlineKeyboard = [
-            [
-              {
-                text: acceptIsAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️',
-                web_app: { url: `${appUrl}?startapp=verify_fayda` },
-              },
-            ],
+            // Mini App camera scan hidden for pure bot experience:
+            // [
+            //   {
+            //     text: acceptIsAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️',
+            //     web_app: { url: `${appUrl}?startapp=verify_fayda` },
+            //   },
+            // ],
             [{ text: acceptIsAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }],
           ];
 
@@ -6163,7 +6167,7 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
 
         const adminKeyboard = {
           inline_keyboard: [
-            [{ text: '🔍 Search Post by Code (#SPMARBR...) 🔎', callback_data: 'admin_search_code_prompt' }],
+            [{ text: '🔍 Search Post by Code (#SPMARBR / #SPMARWR) 🔎', callback_data: 'admin_search_code_prompt' }],
             [{ text: `⏳ Pending Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
             [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
             [{ text: '➕ Add Admin by Username 👑', callback_data: 'admin_add_prompt' }],
@@ -6265,9 +6269,9 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
 Please send the identification code or number of the listing you want to inspect:
 
 <b>Examples:</b>
-• <code>#SPMARBR5</code> or <code>SPMARBR5</code> (Roommate Seeker)
-• <code>#SPMARBR101</code> or <code>SPMARBR101</code> (Space Available)
-• <code>5</code> or <code>101</code> (Numeric shorthand)
+• <code>#SPMARBR5</code> or <code>SPMARBR5</code> (Roommate Before Room)
+• <code>#SPMARWR1</code> or <code>SPMARWR1</code> (Roommate With Room)
+• <code>5</code> or <code>1</code> (Numeric shorthand)
 • Or send the Telegram Channel Message ID.
 
 <i>💡 You will receive the complete candidate dossier including unmasked contact info, status, and direct management buttons.</i>
@@ -6939,7 +6943,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
               ? `🛡️ <b>ስፔስማች አዲስ · የፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል</b>\n\n⚠️ <b>${fanResult.error || 'ትክክለኛ የፋይዳ ቁጥር አይደለም። እባክዎ ቁጥሩን በትክክል ያስገቡ (12 ወይም 16 ዲጂት):'}</b>\n\nየእርስዎን 12 ወይም 16 ዲጂት የፋይዳ ቁጥር (FAN) እዚህ ይጻፉ:`
               : `🛡️ <b>SpaceMatch · Fayda ID Verification Required</b>\n\n⚠️ <b>${fanResult.error || 'Invalid Fayda FAN number. Please check the digits and try again.'}</b>\n\nPlease reply with your 12-digit or 16-digit FAN number:`,
             [
-              [{ text: isAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
+              // [{ text: isAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
               [{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }],
             ],
             activeMsgId
@@ -7358,7 +7362,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
               ? `🛡️ <b>ስፔስማች አዲስ · የፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል</b>\n\n⚠️ <b>${errMsg}</b>\n\nየእርስዎን 12 ወይም 16 ዲጂት የፋይዳ ቁጥር (FAN) እዚህ ይጻፉ:`
               : `🛡️ <b>Fayda ID Verification Required</b>\n\n⚠️ <b>${errMsg}</b>\n\nPlease reply with your 12-digit or 16-digit FAN number:`,
             [
-              [{ text: isAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
+              // [{ text: isAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
               [{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }],
             ],
             activeMsgId
@@ -7606,7 +7610,11 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           text.startsWith('/start SPMARBR') ||
           text.startsWith('/start spmarbr') ||
           text.startsWith('/start #SPMARBR') ||
-          text.startsWith('/start #spmarbr')
+          text.startsWith('/start #spmarbr') ||
+          text.startsWith('/start SPMARWR') ||
+          text.startsWith('/start spmarwr') ||
+          text.startsWith('/start #SPMARWR') ||
+          text.startsWith('/start #spmarwr')
         ) {
           const rawCode = text.startsWith('/start req_')
             ? text.replace('/start req_', '').trim()
@@ -7626,14 +7634,23 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             targetProfile = pExact;
           }
 
-          // 2. Numeric-only check (e.g. 5 -> SPMARBR5, 101 -> SPMARBR101)
+          // 2. Numeric-only check (e.g. 5 -> SPMARBR5, 1 -> SPMARWR1)
           if (!targetProfile && /^\d+$/.test(lookupCode)) {
-            const { data: pNum } = await supabaseAdmin
+            const { data: pNumBr } = await supabaseAdmin
               .from('profiles')
               .select('*')
               .ilike('display_code', `SPMARBR${lookupCode}`)
               .maybeSingle();
-            if (pNum) targetProfile = pNum;
+            if (pNumBr) {
+              targetProfile = pNumBr;
+            } else {
+              const { data: pNumWr } = await supabaseAdmin
+                .from('profiles')
+                .select('*')
+                .ilike('display_code', `SPMARWR${lookupCode}`)
+                .maybeSingle();
+              if (pNumWr) targetProfile = pNumWr;
+            }
           }
 
           // 3. Fallback: only if lookupCode is exactly 'SPMARBR' or 'RM105' (no digits)
@@ -7730,9 +7747,9 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             if (pLatestSpm) targetProfile = pLatestSpm;
           }
 
-          // Check by channel_message_id if lookupCode has a number or starts with post_ / SPMARBR / RM
+          // Check by channel_message_id if lookupCode has a number or starts with post_ / SPMARBR / SPMARWR / RM
           if (!targetProfile) {
-            const numPart = lookupCode.replace(/^post_/i, '').replace(/^SPMARBR/i, '').replace(/^RM/i, '').replace(/^SP/i, '');
+            const numPart = lookupCode.replace(/^post_/i, '').replace(/^SPMAR(BR|WR)/i, '').replace(/^RM/i, '').replace(/^SP/i, '');
             const channelMsgId = parseInt(numPart, 10);
             if (!isNaN(channelMsgId) && channelMsgId > 0) {
               const { data: pByMsg } = await supabaseAdmin
@@ -7746,8 +7763,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             }
           }
 
-          // Fallback: If still not found and it starts with post_ or SPMARBR / RM / SP, create active profile placeholder
-          if (!targetProfile && (lookupCode.toLowerCase().startsWith('post_') || /^SPMARBR/i.test(lookupCode) || /^[A-Z]{2,10}\d*$/i.test(lookupCode))) {
+          // Fallback: If still not found and it starts with post_ or SPMARBR / SPMARWR / RM / SP, create active profile placeholder
+          if (!targetProfile && (lookupCode.toLowerCase().startsWith('post_') || /^SPMAR(BR|WR)/i.test(lookupCode) || /^[A-Z]{2,10}\d*$/i.test(lookupCode))) {
             const adminIds = await getAdminIds();
             const primaryAdmin = adminIds[0] || 800701176;
             const codeDigits = parseInt(lookupCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
@@ -8441,7 +8458,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           });
           await sendTelegram('sendMessage', {
             chat_id: chatId,
-            text: `🔍 <b>Search Post by Code</b>\n\nPlease enter the listing code (e.g. <code>SPMARBR5</code>, <code>SPMARBR101</code>, or <code>5</code>):`,
+            text: `🔍 <b>Search Post by Code</b>\n\nPlease enter the listing code (e.g. <code>SPMARBR5</code>, <code>SPMARWR1</code>, or <code>5</code>):`,
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [
@@ -8456,8 +8473,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         return NextResponse.json({ ok: true });
       }
 
-      // ── Admin / User Direct Post Code Lookup (#SPMARBR... or SPMARBR...) ───
-      if (/^#?spmarbr\d+/i.test(text.trim())) {
+      // ── Admin / User Direct Post Code Lookup (#SPMARBR... / #SPMARWR...) ───
+      if (/^#?(spmarbr|spmarwr)\d+/i.test(text.trim())) {
         const cleanQuery = text.trim().replace(/^#/, '');
         const adminIds = await getAdminIds();
         if (adminIds.includes(chatId)) {

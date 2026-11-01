@@ -569,25 +569,28 @@ export async function removeManagedChannel(channelId: string | number): Promise<
 }
 
 /**
- * Generates the next sequential #SPMARBR code.
- * - Roommate Search (Seekers): Range < 100, starting from 5 (e.g. SPMARBR5, SPMARBR6...)
- * - Have a Room (Space Available): Range >= 100, starting from 101 (e.g. SPMARBR101, SPMARBR102...)
+ * Generates the next sequential listing code.
+ * - Roommate Search (Seekers - Roommate Before Room): #SPMARBR5, #SPMARBR6...
+ * - Have a Room (Space Available - Roommate With Room): #SPMARWR1, #SPMARWR2...
  */
 export async function getNextSpmarbrCode(category: 'seeker' | 'space_available' = 'seeker'): Promise<string> {
+  const prefix = category === 'space_available' ? 'SPMARWR' : 'SPMARBR';
+  const minStart = category === 'space_available' ? 1 : 5;
+
   try {
     const { data } = await supabase
       .from('profiles')
       .select('display_code')
-      .ilike('display_code', 'SPMARBR%');
+      .ilike('display_code', `${prefix}%`);
 
     const existingNums: number[] = [];
     if (data && Array.isArray(data)) {
       for (const row of data) {
         const raw = (row.display_code || '').toUpperCase().replace(/^#/, '').trim();
-        if (raw.startsWith('SPMARBR')) {
-          const numPart = raw.replace(/^SPMARBR/, '');
+        if (raw.startsWith(prefix)) {
+          const numPart = raw.replace(prefix, '');
           if (numPart === '') {
-            existingNums.push(1); // Base SPMARBR counts as 1
+            existingNums.push(1);
           } else {
             const parsed = parseInt(numPart, 10);
             if (!isNaN(parsed)) existingNums.push(parsed);
@@ -596,18 +599,11 @@ export async function getNextSpmarbrCode(category: 'seeker' | 'space_available' 
       }
     }
 
-    if (category === 'space_available') {
-      const spaceNums = existingNums.filter((n) => n >= 100);
-      const nextNum = spaceNums.length > 0 ? Math.max(...spaceNums) + 1 : 101;
-      return `SPMARBR${nextNum}`;
-    } else {
-      const seekerNums = existingNums.filter((n) => n < 100);
-      const nextNum = seekerNums.length > 0 ? Math.max(Math.max(...seekerNums) + 1, 5) : 5;
-      return `SPMARBR${nextNum}`;
-    }
+    const nextNum = existingNums.length > 0 ? Math.max(Math.max(...existingNums) + 1, minStart) : minStart;
+    return `${prefix}${nextNum}`;
   } catch (err) {
     console.error('[getNextSpmarbrCode] error generating code:', err);
-    return category === 'space_available' ? 'SPMARBR101' : 'SPMARBR5';
+    return `${prefix}${minStart}`;
   }
 }
 
