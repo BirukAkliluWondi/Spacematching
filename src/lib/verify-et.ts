@@ -23,8 +23,8 @@ export async function verifyTelebirrPayment(
   expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '300')
 ): Promise<VerifyEtResult> {
   const apiKey = process.env.VERIFY_ET_API_KEY;
-  const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
-  const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
+  const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0901570707';
+  const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000720760416';
 
   if (!apiKey) {
     return {
@@ -36,11 +36,15 @@ export async function verifyTelebirrPayment(
   const cleanRef = referenceNumber.trim();
   const endpoint = 'https://verify.et/api/verify?waitMs=5000';
 
-  // Bank Options to evaluate (Telebirr & CBE)
+  // Bank Options to evaluate (Telebirr & CBE) - supports both current and fallback accounts
   const bankConfigs = [
     { bank: 'telebirr', settlementAccount: receiverPhone.trim() },
+    { bank: 'telebirr', settlementAccount: '0901570707' },
+    { bank: 'telebirr', settlementAccount: '0987310978' },
     { bank: 'cbe', settlementAccount: cbeAccount.trim() },
-  ];
+    { bank: 'cbe', settlementAccount: '1000720760416' },
+    { bank: 'cbe', settlementAccount: '1000054066094' },
+  ].filter((item, index, self) => index === self.findIndex((t) => t.bank === item.bank && t.settlementAccount === item.settlementAccount));
 
   let lastFailureMessage = 'Payment transaction status is not verified.';
   let lastRawResponse: unknown = null;

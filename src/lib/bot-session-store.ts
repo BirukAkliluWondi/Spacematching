@@ -607,4 +607,87 @@ export async function getNextSpmarbrCode(category: 'seeker' | 'space_available' 
   }
 }
 
+/**
+ * 300 ETB 30-Day Unified Membership Pass Management
+ */
+export interface MembershipStatus {
+  isActive: boolean;
+  expiresAt: Date | null;
+  daysRemaining: number;
+  lastPaymentRef?: string;
+  orderId?: string;
+}
+
+const membershipCache = new Map<number, { status: MembershipStatus; cachedAt: number }>();
+const MEMBERSHIP_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+
+export function invalidateMembershipCache(telegramId?: number): void {
+  if (telegramId) {
+    membershipCache.delete(telegramId);
+  } else {
+    membershipCache.clear();
+  }
+}
+
+/**
+ * Checks whether a user has an active 30-day all-access membership pass.
+ * Valid if they have a completed order of >= 300 ETB verified within the last 30 days.
+ */
+export async function getUserMembershipStatus(telegramId: number): Promise<MembershipStatus> {
+  const cached = membershipCache.get(telegramId);
+  if (cached && Date.now() - cached.cachedAt < MEMBERSHIP_CACHE_TTL_MS) {
+    return cached.status;
+  }
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const { data: order } = await supabase
+      .from('orders')
+      .select('id, verified_at, created_at, transaction_reference, amount')
+      .eq('buyer_telegram_id', telegramId)
+      .eq('payment_status', 'completed')
+      .gte('created_at', thirtyDaysAgo)
+      .gte('amount', 300)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!order) {
+      const res: MembershipStatus = { isActive: false, expiresAt: null, daysRemaining: 0 };
+      membershipCache.set(telegramId, { status: res, cachedAt: Date.now() });
+      return res;
+    }
+
+    const baseDate = new Date(order.verified_at || order.created_at);
+    const expiresAt = new Date(baseDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const diffMs = expiresAt.getTime() - Date.now();
+    const daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+    const isActive = diffMs > 0;
+
+    const res: MembershipStatus = {
+      isActive,
+      expiresAt,
+      daysRemaining,
+      lastPaymentRef: order.transaction_reference,
+      orderId: order.id,
+    };
+    membershipCache.set(telegramId, { status: res, cachedAt: Date.now() });
+    return res;
+  } catch (err) {
+    console.error('[getUserMembershipStatus] error checking membership:', err);
+    return { isActive: false, expiresAt: null, daysRemaining: 0 };
+  }
+}
+
+export async function activateUserMembership(
+  telegramId: number,
+  orderId?: string,
+  txRef?: string
+): Promise<MembershipStatus> {
+  invalidateMembershipCache(telegramId);
+  return await getUserMembershipStatus(telegramId);
+}
+
+
 
