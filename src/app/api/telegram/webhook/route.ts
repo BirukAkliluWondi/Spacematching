@@ -50,6 +50,8 @@ import {
 } from '@/lib/bot/onboarding';
 import { validateFaydaFan } from '@/lib/fayda-qr-decoder';
 import { verifyFaydaFan } from '@/lib/fayda-verification';
+import { decodeImage } from 'fayda-decoder';
+import { verifySignature } from 'fayda-decoder/verify';
 import { getLanguage, I18N, SupportedLang } from '@/lib/bot-i18n';
 
 const ALL_SUBCITIES = [
@@ -759,6 +761,82 @@ It has been 24 hours since your roommate contact was unlocked!
       ];
 
       return await sendOrEditCard(chatId, gateText, inlineKeyboard, messageIdToEdit);
+    };
+
+    // Helper: Verify Fayda QR from a Telegram photo using fayda-decoder
+    const verifyFaydaPhotoFromTelegram = async (photoArray: any[]): Promise<{
+      success: boolean;
+      fan?: string;
+      fullName?: string;
+      gender?: string;
+      dob?: string;
+      error?: string;
+    }> => {
+      if (!botToken) {
+        return { success: false, error: 'Telegram bot token is not configured.' };
+      }
+      try {
+        const largestPhoto = photoArray[photoArray.length - 1];
+        if (!largestPhoto?.file_id) {
+          return { success: false, error: 'No photo file ID provided.' };
+        }
+
+        const fileRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${largestPhoto.file_id}`, {
+          signal: AbortSignal.timeout(15000),
+        });
+        const fileJson = await fileRes.json();
+        if (!fileJson?.ok || !fileJson.result?.file_path) {
+          return { success: false, error: 'Could not retrieve photo details from Telegram.' };
+        }
+
+        const photoRes = await fetch(`https://api.telegram.org/file/bot${botToken}/${fileJson.result.file_path}`, {
+          signal: AbortSignal.timeout(20000),
+        });
+        if (!photoRes.ok) {
+          return { success: false, error: 'Could not download photo file from Telegram.' };
+        }
+        const photoBuffer = await photoRes.arrayBuffer();
+
+        const decodeResult = await decodeImage(new Uint8Array(photoBuffer), { includeFace: false });
+        if (!decodeResult.ok) {
+          return {
+            success: false,
+            error: decodeResult.error.message || 'QR code could not be detected or read from the photo.',
+          };
+        }
+
+        if (!decodeResult.fields.fan) {
+          return {
+            success: false,
+            error: 'Fayda QR is missing the Fayda Account Number (FAN).',
+          };
+        }
+
+        const sigResult = await verifySignature(decodeResult, {
+          publicKeyPem: process.env.FAYDA_PUBLIC_KEY_PEM,
+        });
+
+        if (!sigResult.verified) {
+          return {
+            success: false,
+            error: `Cryptographic digital signature verification failed: ${sigResult.reason || 'Invalid signature'}.`,
+          };
+        }
+
+        return {
+          success: true,
+          fan: decodeResult.fields.fan,
+          fullName: decodeResult.fields.full_name || undefined,
+          gender: decodeResult.fields.gender === 'M' ? 'Male' : decodeResult.fields.gender === 'F' ? 'Female' : (decodeResult.fields.gender || undefined),
+          dob: decodeResult.fields.date_of_birth || undefined,
+        };
+      } catch (err: any) {
+        console.error('Error during Fayda photo verification:', err);
+        return {
+          success: false,
+          error: err?.message || 'An unexpected error occurred while processing the Fayda photo.',
+        };
+      }
     };
 
     // Helper to format dynamic context header
@@ -7286,6 +7364,107 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
         const isAm = lang === 'am';
+
+        // Check if user sent a photo of their Fayda QR code
+        const photo = update.message?.photo;
+        if (photo && Array.isArray(photo) && photo.length > 0) {
+          const photoResult = await verifyFaydaPhotoFromTelegram(photo);
+          if (!photoResult.success || !photoResult.fan) {
+            const retryGuidance = isAm
+              ? `⚠️ <b>የፋይዳ QR ኮድ ማንበብ አልተቻለም</b>\n\n• ፎቶው በቂ ብርሃን ያለው፣ ከነጸብራቅ የጸዳ እና ጥራት ያለው መሆኑን ያረጋግጡ።\n• የካሜራ መደብዘዝ ወይም አንግል ማጋደል እንዳይኖር ያድርጉ።\n• በመታወቂያው ጀርባ ያለውን QR ኮድ በሙሉ ግልጽ አድርገው ያንሱ።\n\n💡 <i>እንዲሁም ባለ 16 አሃዝ የፋይዳ (FAN) ቁጥርዎን በቀጥታ እዚህ መጻፍ ይችላሉ:</i>`
+              : `⚠️ <b>Could not verify Fayda QR code</b>\n\n• Ensure the photo is clear, well-lit, and glare-free.\n• Avoid steep angles, shadows, or motion blur.\n• Make sure the QR code on the back of your Fayda card is completely visible and sharp.\n\n💡 <i>You can also type your 16-digit Fayda FAN number manually:</i>`;
+
+            await sendOrEditCard(
+              chatId,
+              retryGuidance,
+              [[{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }]],
+              activeMsgId
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          const { data: existingUser } = await supabaseAdmin
+            .from('users')
+            .select('id, telegram_id')
+            .eq('fayda_id_number', photoResult.fan)
+            .neq('telegram_id', chatId)
+            .maybeSingle();
+
+          if (existingUser) {
+            await sendOrEditCard(
+              chatId,
+              isAm
+                ? `⚠️ <b>ይህ የፋይዳ ቁጥር ቀደም ሲል ተመዝግቧል</b>\n\nይህ የፋይዳ ብሔራዊ መታወቂያ በሌላ አካውንት ስም ተመዝግቧል።`
+                : `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda National ID is already registered to another account.`,
+              [[{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]],
+              activeMsgId
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          await supabaseAdmin
+            .from('users')
+            .upsert({
+              telegram_id: chatId,
+              fayda_status: 'verified',
+              fayda_id_number: photoResult.fan,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'telegram_id' });
+
+          const profileUpdates: Record<string, any> = {
+            kyc_status: 'verified',
+            status: 'active',
+          };
+          if (photoResult.fullName) {
+            profileUpdates.full_name = photoResult.fullName;
+          }
+          if (photoResult.gender) {
+            profileUpdates.gender = photoResult.gender;
+            profileUpdates.my_gender = photoResult.gender;
+          }
+          await supabaseAdmin
+            .from('profiles')
+            .update(profileUpdates)
+            .eq('telegram_id', chatId);
+
+          setFaydaStatusCache(chatId, true);
+          await clearSession(chatId);
+
+          const verifiedText = isAm
+            ? `
+🎉 <b>የፋይዳ ብሔራዊ መታወቂያዎ ተረጋግጧል!</b>
+🛡️ <b>ሁኔታ:</b> የተረጋገጠ ✅
+
+• <b>የፋይዳ መለያ:</b> <code>•••• •••• ${photoResult.fan.slice(-4)}</code>
+${photoResult.fullName ? `• <b>ስም:</b> <b>${photoResult.fullName}</b>\n` : ''}${photoResult.gender ? `• <b>ጾታ:</b> ${photoResult.gender}\n` : ''}• <b>ፈቃድ:</b> ሙሉ አገልግሎት (ማዛመጃ፣ የፈላጊ መገለጫ፣ የጋራ ግንኙነት)
+• <b>ማረጋገጫ:</b> ይፋዊ የዲጂታል ፊርማ (RS256) የተረጋገጠ ✅
+
+<blockquote>በአዲስ አበባ ውስጥ በሙሉ እምነት እና ደህንነት መፈለግ እና መገናኘት ይችላሉ።</blockquote>
+            `.trim()
+            : `
+🎉 <b>FAYDA NATIONAL ID VERIFIED!</b>
+🛡️ <b>Status:</b> VERIFIED ✅
+
+• <b>Fayda ID:</b> <code>•••• •••• ${photoResult.fan.slice(-4)}</code>
+${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</b>\n` : ''}${photoResult.gender ? `• <b>Gender:</b> ${photoResult.gender}\n` : ''}• <b>Access:</b> Full Platform Access (Matchmaker, Seeker Profiles, Mutual Connections)
+• <b>Validation:</b> Official RS256 Digital Signature Validated ✅
+
+<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
+            `.trim();
+
+          await sendOrEditCard(
+            chatId,
+            verifiedText,
+            [
+              [{ text: isAm ? '⚡ የክፍል ጓደኛ ፈልግ · ማዛመጃ 🔍' : '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
+              [{ text: isAm ? '📢 መረጃህን ቻናል ላይ ልጠፍ ↗️' : '📢 Post Your Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
+              [{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+            ],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
         const fanResult = await verifyFaydaFan(text, chatId);
 
         if (!fanResult.valid || !fanResult.fanNumber) {
@@ -7679,6 +7858,83 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
         const isAm = lang === 'am';
+
+        // Check if user uploaded a photo of Fayda QR
+        const photo = update.message?.photo;
+        if (photo && Array.isArray(photo) && photo.length > 0) {
+          const photoResult = await verifyFaydaPhotoFromTelegram(photo);
+          if (!photoResult.success || !photoResult.fan) {
+            const retryGuidance = isAm
+              ? `⚠️ <b>የፋይዳ QR ኮድ ማንበብ አልተቻለም</b>\n\n• ፎቶው በቂ ብርሃን ያለው፣ ከነጸብራቅ የጸዳ እና ጥራት ያለው መሆኑን ያረጋግጡ።\n• የካሜራ መደብዘዝ ወይም አንግል ማጋደል እንዳይኖር ያድርጉ።\n• በመታወቂያው ጀርባ ያለውን QR ኮድ በሙሉ ግልጽ አድርገው ያንሱ።\n\n💡 <i>እንዲሁም ባለ 16 አሃዝ የፋይዳ (FAN) ቁጥርዎን በቀጥታ እዚህ መጻፍ ይችላሉ:</i>`
+              : `⚠️ <b>Could not verify Fayda QR code</b>\n\n• Ensure the photo is clear, well-lit, and glare-free.\n• Avoid steep angles, shadows, or motion blur.\n• Make sure the QR code on the back of your Fayda card is completely visible and sharp.\n\n💡 <i>You can also type your 16-digit Fayda FAN number manually:</i>`;
+
+            await sendDynamicCardStep9FaydaFan(
+              chatId,
+              session.draft_data,
+              activeMsgId,
+              retryGuidance
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          const { data: existingUser } = await supabaseAdmin
+            .from('users')
+            .select('id, telegram_id')
+            .eq('fayda_id_number', photoResult.fan)
+            .neq('telegram_id', chatId)
+            .maybeSingle();
+
+          if (existingUser) {
+            await sendDynamicCardStep9FaydaFan(
+              chatId,
+              session.draft_data,
+              activeMsgId,
+              isAm
+                ? 'ይህ የፋይዳ ብሔራዊ መታወቂያ በሌላ አካውንት ስም ተመዝግቧል።'
+                : 'This Fayda National ID is already registered to another account.'
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          await supabaseAdmin
+            .from('users')
+            .upsert({
+              telegram_id: chatId,
+              fayda_status: 'verified',
+              fayda_id_number: photoResult.fan,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'telegram_id' });
+
+          const profileUpdates: Record<string, any> = {
+            kyc_status: 'verified',
+            status: 'active',
+          };
+          if (photoResult.fullName) {
+            profileUpdates.full_name = photoResult.fullName;
+          }
+          if (photoResult.gender) {
+            profileUpdates.gender = photoResult.gender;
+            profileUpdates.my_gender = photoResult.gender;
+          }
+          await supabaseAdmin
+            .from('profiles')
+            .update(profileUpdates)
+            .eq('telegram_id', chatId);
+
+          setFaydaStatusCache(chatId, true);
+
+          const updatedDraft = {
+            ...session.draft_data,
+            lang,
+            fayda_number: photoResult.fan,
+            fayda_status: 'verified',
+            full_name: photoResult.fullName || session.draft_data?.full_name,
+            gender: photoResult.gender || session.draft_data?.gender,
+          };
+          await completeSeekerOnboarding(chatId, updatedDraft, activeMsgId, message.from);
+          return NextResponse.json({ ok: true });
+        }
+
         const fanResult = await verifyFaydaFan(text, chatId);
 
         if (!fanResult.valid || !fanResult.fanNumber) {
@@ -7704,6 +7960,86 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const activeMsgId = session.draft_data?.card_msg_id;
         const lang = getLanguage(session.draft_data, chatId);
         const isAm = lang === 'am';
+
+        // Check if user uploaded a photo of Fayda QR
+        const photo = update.message?.photo;
+        if (photo && Array.isArray(photo) && photo.length > 0) {
+          const photoResult = await verifyFaydaPhotoFromTelegram(photo);
+          if (!photoResult.success || !photoResult.fan) {
+            const retryGuidance = isAm
+              ? `⚠️ <b>የፋይዳ QR ኮድ ማንበብ አልተቻለም</b>\n\n• ፎቶው በቂ ብርሃን ያለው፣ ከነጸብራቅ የጸዳ እና ጥራት ያለው መሆኑን ያረጋግጡ።\n• የካሜራ መደብዘዝ ወይም አንግል ማጋደል እንዳይኖር ያድርጉ።\n• በመታወቂያው ጀርባ ያለውን QR ኮድ በሙሉ ግልጽ አድርገው ያንሱ።\n\n💡 <i>እንዲሁም ባለ 16 አሃዝ የፋይዳ (FAN) ቁጥርዎን በቀጥታ እዚህ መጻፍ ይችላሉ:</i>`
+              : `⚠️ <b>Could not verify Fayda QR code</b>\n\n• Ensure the photo is clear, well-lit, and glare-free.\n• Avoid steep angles, shadows, or motion blur.\n• Make sure the QR code on the back of your Fayda card is completely visible and sharp.\n\n💡 <i>You can also type your 16-digit Fayda FAN number manually:</i>`;
+
+            await sendOrEditCard(
+              chatId,
+              retryGuidance,
+              [[{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }]],
+              activeMsgId
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          const { data: existingUser } = await supabaseAdmin
+            .from('users')
+            .select('id, telegram_id')
+            .eq('fayda_id_number', photoResult.fan)
+            .neq('telegram_id', chatId)
+            .maybeSingle();
+
+          if (existingUser) {
+            await sendOrEditCard(
+              chatId,
+              isAm
+                ? `⚠️ <b>ይህ የፋይዳ ቁጥር ቀደም ሲል ተመዝግቧል</b>\n\nይህ የፋይዳ መታወቂያ በሌላ አካውንት ስም ተመዝግቧል። እባክዎ የራስዎን የፋይዳ ቁጥር ይጠቀሙ።`
+                : `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda ID is already associated with another account. Please use your own Fayda ID.`,
+              [[{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }]],
+              activeMsgId
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          await supabaseAdmin
+            .from('users')
+            .update({
+              fayda_status: 'verified',
+              fayda_id_number: photoResult.fan,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('telegram_id', chatId);
+
+          const profileUpdates: Record<string, any> = {
+            kyc_status: 'verified',
+          };
+          if (photoResult.fullName) {
+            profileUpdates.full_name = photoResult.fullName;
+          }
+          if (photoResult.gender) {
+            profileUpdates.gender = photoResult.gender;
+            profileUpdates.my_gender = photoResult.gender;
+          }
+          await supabaseAdmin
+            .from('profiles')
+            .update(profileUpdates)
+            .eq('telegram_id', chatId);
+
+          setFaydaStatusCache(chatId, true);
+          await clearSession(chatId);
+
+          const { data: match } = await supabaseAdmin
+            .from('matches')
+            .select('*, requester:requester_id(telegram_id, gender, budget_min, budget_max, locations, display_code), target:target_id(telegram_id, display_code)')
+            .eq('id', matchId)
+            .single();
+
+          if (!match || match.status !== 'pending_acceptance') {
+            await sendOrEditCard(chatId, isAm ? `✅ <b>ፋይዳ ተረጋግጧል!</b> ነገር ግን ይህ የግንኙነት ጥያቄ በአሁኑ ሰዓት ንቁ አይደለም።` : `✅ <b>Fayda Verified!</b> However, this match request is no longer pending.`, [[{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]], activeMsgId);
+            return NextResponse.json({ ok: true });
+          }
+
+          await revealMutualMatchContacts(matchId, chatId, activeMsgId);
+          return NextResponse.json({ ok: true });
+        }
+
         const fanResult = await verifyFaydaFan(text, chatId);
 
         if (!fanResult.valid || !fanResult.fanNumber) {

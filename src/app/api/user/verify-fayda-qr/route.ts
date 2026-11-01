@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
-import { decodeFaydaQr } from '@/lib/fayda-qr-decoder';
+import { decodePayload } from 'fayda-decoder';
+import { verifySignature } from 'fayda-decoder/verify';
 
 const verifyFaydaQrSchema = z.object({
   telegram_id: z.number().or(z.string().transform((val) => parseInt(val, 10))),
@@ -15,25 +16,53 @@ export async function POST(request: Request) {
     const { telegram_id, qr_data } = parsed;
 
     // 1. Decode Fayda QR data offline
-    const decodeResult = decodeFaydaQr(qr_data);
-    if (!decodeResult.success || !decodeResult.faydaNumber) {
+    const decoded = decodePayload(qr_data, { includeFace: false });
+    if (!decoded.ok) {
       return NextResponse.json(
         {
           success: false,
-          error: decodeResult.error || 'Invalid Fayda QR code. Please scan an authentic Ethiopian Fayda card or e-Fayda document.',
+          error: decoded.error.message || 'Invalid Fayda QR code. Please scan an authentic Ethiopian Fayda card or e-Fayda document.',
         },
         { status: 400 }
       );
     }
 
-    const { faydaNumber, fullName, gender, dob } = decodeResult;
+    // Guard against partial success: fan must be present
+    if (!decoded.fields.fan) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Fayda QR payload is missing the Fayda Account Number (FAN).',
+        },
+        { status: 400 }
+      );
+    }
+
+    // Cryptographically verify RS256 signature
+    const signatureVerification = await verifySignature(decoded, {
+      publicKeyPem: process.env.FAYDA_PUBLIC_KEY_PEM,
+    });
+    if (!signatureVerification.verified) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Cryptographic signature verification failed: ${signatureVerification.reason || 'Invalid digital signature'}.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const fan = decoded.fields.fan;
+    const fullName = decoded.fields.full_name || undefined;
+    const gender = decoded.fields.gender === 'M' ? 'Male' : decoded.fields.gender === 'F' ? 'Female' : (decoded.fields.gender || undefined);
+    const dob = decoded.fields.date_of_birth || undefined;
 
     // 2. Uniqueness check: Ensure Fayda number is not claimed by another Telegram user
     try {
       const { data: existingUser } = await supabaseAdmin
         .from('users')
         .select('id, telegram_id')
-        .eq('fayda_id_number', faydaNumber)
+        .eq('fayda_id_number', fan)
         .neq('telegram_id', telegram_id)
         .limit(1)
         .single();
@@ -55,7 +84,7 @@ export async function POST(request: Request) {
         .from('users')
         .update({
           fayda_status: 'verified',
-          fayda_id_number: faydaNumber,
+          fayda_id_number: fan,
           updated_at: new Date().toISOString(),
         })
         .eq('telegram_id', telegram_id);
@@ -65,12 +94,20 @@ export async function POST(request: Request) {
 
     // 4. Update 'profiles' table
     try {
+      const profileUpdates: Record<string, any> = {
+        kyc_status: 'verified',
+        status: 'active',
+      };
+      if (fullName) {
+        profileUpdates.full_name = fullName;
+      }
+      if (gender) {
+        profileUpdates.gender = gender;
+        profileUpdates.my_gender = gender;
+      }
       await supabaseAdmin
         .from('profiles')
-        .update({
-          kyc_status: 'verified',
-          status: 'active',
-        })
+        .update(profileUpdates)
         .eq('telegram_id', telegram_id);
     } catch (profErr) {
       console.error('Error updating profiles table with verified Fayda:', profErr);
@@ -79,7 +116,7 @@ export async function POST(request: Request) {
     // 5. Send direct Telegram DM to the user confirming instant verification
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     if (botToken) {
-      const maskedFin = `•••• •••• ${faydaNumber.slice(-4)}`;
+      const maskedFin = `•••• •••• ${fan.slice(-4)}`;
       const verificationMsg = `
 🎉 <b>FAYDA NATIONAL ID VERIFIED!</b>
 🛡️ <b>Status:</b> VERIFIED ✅
@@ -139,7 +176,7 @@ ${fullName ? `• <b>Name:</b> ${fullName}\n` : ''}• <b>Verification:</b> Inst
     return NextResponse.json({
       success: true,
       message: 'Fayda ID verified successfully via offline QR scan.',
-      fayda_number: faydaNumber,
+      fayda_number: fan,
       full_name: fullName,
       gender,
       dob,
