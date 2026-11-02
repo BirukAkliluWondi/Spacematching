@@ -25,7 +25,9 @@ export async function verifyTelebirrPayment(
   expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '300'),
   preferredBank?: string
 ): Promise<VerifyEtResult> {
-  const apiKey = process.env.VERIFY_ET_API_KEY;
+  const apiKey =
+    process.env.VERIFY_ET_API_KEY ||
+    'VERIFY_BANK_ET_KR3fTQgvo-2DvqSxGFeT7m-cX4Qd7El55LyRwxnHrPVjV9EVKmelfN8hz9Necag1';
   const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
   const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
   const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';
