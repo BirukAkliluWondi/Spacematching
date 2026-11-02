@@ -10168,7 +10168,8 @@ All administrators of this channel can now use bot admin features, and approved 
           return NextResponse.json({ ok: true });
         }
 
-        const verifyRes = await verifyTelebirrPayment(txRef, 300);
+        const bankHint = txRef.toUpperCase().startsWith('FT') ? 'cbe' : undefined;
+        const verifyRes = await verifyTelebirrPayment(txRef, 300, bankHint);
 
         if (!verifyRes.success) {
           await sendTelegram('sendMessage', {
@@ -10261,7 +10262,19 @@ All administrators of this channel can now use bot admin features, and approved 
           parse_mode: 'HTML',
         });
 
-        const verifyRes = await verifyTelebirrPayment(txRef, 300);
+        const bankHint = txRef.toUpperCase().startsWith('FT') ? 'cbe' : undefined;
+        const verifyRes = await verifyTelebirrPayment(txRef, 300, bankHint);
+
+        if (!verifyRes.success) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: isAm
+              ? `❌ <b>ክፍያው አልተረጋገጠም</b>\n\n${verifyRes.message}\n\nእባክዎ የደረሰኝ ቁጥርዎን (ለምሳሌ <code>FT...</code> ወይም <code>TX...</code>) ደግመው ያረጋግጡና እንደገና ይላኩ።`
+              : `❌ <b>Verification Failed</b>\n\n${verifyRes.message}\n\nPlease double-check your transaction reference code (e.g. <code>FT...</code> or <code>TX...</code>) and try again.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
         const targetId = session.draft_data?.target_id;
         const targetType = session.draft_data?.target_type || 'roommate_profile';
 

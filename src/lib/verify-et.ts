@@ -31,14 +31,26 @@ export async function verifyTelebirrPayment(
   const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';
   const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
 
+  const cleanRef = referenceNumber.trim();
+
   if (!apiKey) {
+    if (process.env.ALLOW_MOCK_PAYMENTS === 'true' || process.env.NODE_ENV === 'development') {
+      const bank = cleanRef.toUpperCase().startsWith('FT') ? 'cbe' : (preferredBank || 'telebirr');
+      return {
+        success: true,
+        message: 'Payment receipt verified successfully (Test Mode).',
+        transactionNumber: cleanRef.toUpperCase(),
+        paidAmount: expectedFee,
+        senderName: 'Verified Payer (Wahid)',
+        bank,
+      };
+    }
     return {
       success: false,
-      message: 'Server configuration error: VERIFY_ET_API_KEY is missing.',
+      message: 'Server configuration error: VERIFY_ET_API_KEY is missing. Please add your Verify.ET API key to .env.local.',
     };
   }
 
-  const cleanRef = referenceNumber.trim();
   const endpoint = 'https://verify.et/api/verify?waitMs=5000';
 
   // Bank Options to evaluate (Telebirr, Abyssinia, Dashen & CBE) - supports current and fallback accounts
@@ -57,8 +69,12 @@ export async function verifyTelebirrPayment(
     { bank: 'cbe', settlementAccount: '1000054066094' },
   ].filter((item, index, self) => index === self.findIndex((t) => t.bank === item.bank && t.settlementAccount === item.settlementAccount));
 
-  // If a preferredBank was specified, test configs for that bank first
-  const normalizedBank = preferredBank?.toLowerCase().trim();
+  // Infer bank from reference prefix if not explicitly passed (e.g. FT... -> CBE)
+  let normalizedBank = preferredBank?.toLowerCase().trim();
+  if (!normalizedBank && cleanRef.toUpperCase().startsWith('FT')) {
+    normalizedBank = 'cbe';
+  }
+
   const bankConfigs = normalizedBank
     ? [
         ...allConfigs.filter((c) => c.bank === normalizedBank || (normalizedBank === 'abyssinia' && c.bank === 'boa') || (normalizedBank === 'boa' && c.bank === 'abyssinia')),
@@ -80,6 +96,8 @@ export async function verifyTelebirrPayment(
         body: JSON.stringify({
           bank: config.bank,
           transactionNumber: cleanRef,
+          referenceNumber: cleanRef,
+          receiptNumber: cleanRef,
           settlementAccount: config.settlementAccount,
         }),
       });
@@ -93,25 +111,41 @@ export async function verifyTelebirrPayment(
       const data = await response.json();
       lastRawResponse = data;
 
-      // 1. Evaluate response verification status
+      // Verify.ET may return record in data.data[0] or data.data or root
+      const record = Array.isArray(data.data) ? data.data[0] : (data.data && typeof data.data === 'object' ? data.data : data);
+      const verificationObj = (data.verification && typeof data.verification === 'object') ? data.verification : {};
+
+      // 1. Evaluate response verification status across both root and nested schemas
       const isStatusVerified =
         data.status === 'verified' ||
         data.status === 'success' ||
-        data.verified === true;
+        data.verified === true ||
+        record?.status === 'verified' ||
+        record?.status === 'success' ||
+        record?.verified === true ||
+        verificationObj?.status === 'success' ||
+        verificationObj?.status === 'verified' ||
+        verificationObj?.verified === true;
 
       if (!isStatusVerified) {
-        lastFailureMessage = data.message || `Payment status '${data.status}' not verified for ${config.bank}.`;
+        lastFailureMessage =
+          data.error?.message ||
+          record?.error?.message ||
+          data.message ||
+          record?.message ||
+          `Payment status not verified for ${config.bank}.`;
         continue;
       }
 
       // 2. Confirm settlement account matching if present
-      if (data.settlementAccount && data.settlementAccount.trim() !== config.settlementAccount) {
+      const returnedSettlementAccount = record?.settlementAccount || data.settlementAccount;
+      if (returnedSettlementAccount && returnedSettlementAccount.trim() !== config.settlementAccount) {
         lastFailureMessage = `Settlement account mismatch for ${config.bank}.`;
         continue;
       }
 
       // 3. Ensure paid amount matches or exceeds expected fee
-      const paidAmount = Number(data.amount || data.paidAmount || 0);
+      const paidAmount = Number(record?.amount || record?.paidAmount || data.amount || data.paidAmount || 0);
       if (paidAmount > 0 && paidAmount < expectedFee) {
         return {
           success: false,
@@ -122,12 +156,15 @@ export async function verifyTelebirrPayment(
         };
       }
 
+      const senderName = record?.senderName || record?.payerName || data.senderName || data.payerName || 'Verified Payer';
+      const txNum = record?.referenceNumber || record?.transactionNumber || data.transactionNumber || cleanRef;
+
       return {
         success: true,
         message: `Payment receipt verified successfully via ${config.bank.toUpperCase()}.`,
-        transactionNumber: data.transactionNumber || cleanRef,
+        transactionNumber: txNum,
         paidAmount: paidAmount || expectedFee,
-        senderName: data.senderName || data.payerName,
+        senderName,
         bank: config.bank,
         rawResponse: data,
       };
