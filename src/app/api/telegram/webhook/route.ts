@@ -532,6 +532,266 @@ ${postLink ? `• <b>Channel Link:</b> <a href="${postLink}">Open Post in Channe
       await sendOrEditCard(chatId, dossierText, dossierButtons, messageIdToEdit);
     };
 
+    // Helper: Render full Fayda & identity dossier for an admin
+    const renderAdminUserDossier = async (
+      chatId: number,
+      targetTelegramId: number,
+      messageIdToEdit?: number
+    ) => {
+      const [userRes, profRes] = await Promise.all([
+        supabaseAdmin.from('users').select('*').eq('telegram_id', targetTelegramId).maybeSingle(),
+        supabaseAdmin.from('profiles').select('*').eq('telegram_id', targetTelegramId).maybeSingle(),
+      ]);
+
+      const user = userRes.data;
+      const prof = profRes.data;
+
+      if (!user && !prof) {
+        await sendOrEditCard(
+          chatId,
+          `⚠️ <b>User Not Found</b>\n\nNo user account or profile was found with Telegram ID <code>${targetTelegramId}</code>.`,
+          [
+            [{ text: '🔍 Search Another User', callback_data: 'admin_search_user_prompt' }],
+            [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+          ],
+          messageIdToEdit
+        );
+        return;
+      }
+
+      // Parse rich Fayda metadata if stored in fayda_document_url
+      let faydaMeta: any = null;
+      if (user?.fayda_document_url && typeof user.fayda_document_url === 'string' && user.fayda_document_url.startsWith('{')) {
+        try {
+          faydaMeta = JSON.parse(user.fayda_document_url);
+        } catch {}
+      }
+
+      const isVerified = user?.fayda_status === 'verified' || prof?.kyc_status === 'verified';
+      const isPending = user?.fayda_status === 'pending' || prof?.kyc_status === 'pending';
+      const faydaStatusBadge = isVerified
+        ? '🛡️ VERIFIED ✅ (Cryptographic NIDP RS256 / MOSIP)'
+        : isPending
+        ? '⏳ PENDING REVIEW ⚠️'
+        : '❌ UNVERIFIED';
+
+      const officialName =
+        faydaMeta?.full_name ||
+        prof?.full_name ||
+        [user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
+        'Not provided';
+
+      const telegramName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'N/A';
+      const fanNumber = faydaMeta?.fan || user?.fayda_id_number || 'None on file';
+      const gender = faydaMeta?.gender || prof?.gender || user?.gender || 'Not specified';
+      const dob = faydaMeta?.date_of_birth || faydaMeta?.dob || 'Not captured / Pre-V4';
+
+      let verifiedDate = 'N/A';
+      const rawVerifiedAt = user?.fayda_verified_at || faydaMeta?.verified_at;
+      if (rawVerifiedAt) {
+        try {
+          verifiedDate = new Date(rawVerifiedAt).toLocaleString('en-US', {
+            timeZone: 'Africa/Addis_Ababa',
+            dateStyle: 'medium',
+            timeStyle: 'short',
+          }) + ' EAT';
+        } catch {
+          verifiedDate = String(rawVerifiedAt);
+        }
+      } else if (isVerified) {
+        verifiedDate = 'Verified';
+      }
+
+      const verificationSource = faydaMeta?.verified_source
+        ? (faydaMeta.verified_source.includes('qr')
+            ? 'Offline RS256 Digital Signature (NIDP Public Key)'
+            : 'Fayda Verhoeff Checksum Engine')
+        : (isVerified ? 'Fayda Verification Engine' : 'Unverified');
+
+      const tgUsername = user?.username
+        ? `@${user.username}`
+        : prof?.telegram_username
+        ? `@${prof.telegram_username.replace('@', '')}`
+        : 'No @username';
+
+      const rawHandle = tgUsername.startsWith('@') ? tgUsername.slice(1) : '';
+      const tgHandleDisplay = rawHandle
+        ? `<a href="https://t.me/${rawHandle}">@${rawHandle}</a>`
+        : 'None';
+
+      const phoneNumber = prof?.phone_number || user?.phone_number || 'Not provided';
+      const systemRole = user?.role === 'admin' ? '👑 Administrator' : '👤 Resident / Renter';
+      const displayCode = prof?.display_code ? `#${prof.display_code.toUpperCase().replace(/^#/, '')}` : 'No listing code';
+      const accountStatus = prof?.status ? prof.status.toUpperCase() : 'REGISTERED';
+      const locations = Array.isArray(prof?.locations) && prof.locations.length > 0
+        ? prof.locations.join(', ')
+        : 'Addis Ababa';
+      const budget = (prof?.budget_min || prof?.budget_max)
+        ? `${Number(prof?.budget_min || 0).toLocaleString()} - ${Number(prof?.budget_max || 0).toLocaleString()} ETB / mo`
+        : 'Not configured';
+
+      const memberSince = (user?.created_at || prof?.created_at)
+        ? new Date(user?.created_at || prof?.created_at).toLocaleDateString('en-US', { dateStyle: 'medium' })
+        : 'Unknown';
+
+      const dossierText = `
+🛡️ <b>SpaceMatch Admin · Fayda Resident Dossier</b>
+
+━━━━━━━━━━━━━━━━━━━━━
+👤 <b>OFFICIAL RESIDENT IDENTITY</b>
+• <b>Full Name:</b> <b>${escapeHtml(officialName)}</b>
+• <b>Telegram Name:</b> ${escapeHtml(telegramName)}
+• <b>Official Gender:</b> ${escapeHtml(gender)}
+• <b>Date of Birth:</b> <code>${escapeHtml(dob)}</code>
+
+━━━━━━━━━━━━━━━━━━━━━
+🆔 <b>FAYDA NATIONAL ID RECORD</b>
+• <b>Fayda Status:</b> <b>${faydaStatusBadge}</b>
+• <b>Fayda FAN (16-Digit):</b> <code>${escapeHtml(fanNumber)}</code>
+• <b>Verification Method:</b> ${escapeHtml(verificationSource)}
+• <b>Verified Date:</b> <code>${escapeHtml(verifiedDate)}</code>
+
+━━━━━━━━━━━━━━━━━━━━━
+📱 <b>ACCOUNT & CONTACT DETAILS</b>
+• <b>Telegram ID:</b> <code>${targetTelegramId}</code>
+• <b>Telegram Handle:</b> ${tgHandleDisplay}
+• <b>Direct Chat:</b> <a href="tg://user?id=${targetTelegramId}">Open Direct Telegram Chat ↗️</a>
+• <b>Phone Number:</b> <code>${escapeHtml(phoneNumber)}</code>
+• <b>System Role:</b> ${systemRole}
+
+━━━━━━━━━━━━━━━━━━━━━
+🏠 <b>SPACEMATCH ACTIVITY & PREFERENCES</b>
+• <b>Listing Code:</b> <code>${displayCode}</code>
+• <b>Account Status:</b> <b>${accountStatus}</b>
+• <b>Preferred Locations:</b> <code>${escapeHtml(locations)}</code>
+• <b>Budget Range:</b> <code>${escapeHtml(budget)}</code>
+• <b>Member Since:</b> <code>${escapeHtml(memberSince)}</code>
+      `.trim();
+
+      const dossierButtons: any[] = [];
+      if (rawHandle) {
+        dossierButtons.push([{ text: `💬 Direct Message @${rawHandle} ↗️`, url: `https://t.me/${rawHandle}` }]);
+      } else if (targetTelegramId > 0) {
+        dossierButtons.push([{ text: `💬 Open Direct Chat ↗️`, url: `tg://user?id=${targetTelegramId}` }]);
+      }
+
+      if (prof?.display_code) {
+        dossierButtons.push([{ text: `📢 View Listing #${prof.display_code.toUpperCase().replace(/^#/, '')}`, callback_data: `admin_search_code:${prof.display_code}` }]);
+      }
+
+      dossierButtons.push([{ text: '🔍 Search Another User', callback_data: 'admin_search_user_prompt' }]);
+      dossierButtons.push([{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }]);
+
+      await sendOrEditCard(chatId, dossierText, dossierButtons, messageIdToEdit);
+    };
+
+    // Helper: Execute Admin User & Fayda Search
+    const executeAdminUserSearch = async (
+      chatId: number,
+      rawQuery: string,
+      messageIdToEdit?: number
+    ) => {
+      const clean = rawQuery.trim().replace(/^@/, '').replace(/^#/, '');
+      if (!clean) {
+        await sendOrEditCard(
+          chatId,
+          `⚠️ <b>Please provide a name, username, or Fayda ID to search.</b>`,
+          [
+            [{ text: '🔍 Search User', callback_data: 'admin_search_user_prompt' }],
+            [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+          ],
+          messageIdToEdit
+        );
+        return;
+      }
+
+      const isNumeric = /^\d+$/.test(clean);
+
+      // Search users and profiles in parallel
+      const [uNameRes, uUsernameRes, uFaydaRes, pNameRes, pUsernameRes] = await Promise.all([
+        supabaseAdmin.from('users').select('*').or(`first_name.ilike.%${clean}%,last_name.ilike.%${clean}%`).limit(20),
+        supabaseAdmin.from('users').select('*').ilike('username', `%${clean}%`).limit(20),
+        supabaseAdmin.from('users').select('*').ilike('fayda_id_number', `%${clean}%`).limit(20),
+        supabaseAdmin.from('profiles').select('*').ilike('full_name', `%${clean}%`).limit(20),
+        supabaseAdmin.from('profiles').select('*').ilike('telegram_username', `%${clean}%`).limit(20),
+      ]);
+
+      const map = new Map<number, { user?: any; profile?: any }>();
+
+      for (const u of [...(uNameRes.data || []), ...(uUsernameRes.data || []), ...(uFaydaRes.data || [])]) {
+        if (u?.telegram_id) {
+          map.set(Number(u.telegram_id), { user: u });
+        }
+      }
+
+      for (const p of [...(pNameRes.data || []), ...(pUsernameRes.data || [])]) {
+        if (p?.telegram_id) {
+          const existing = map.get(Number(p.telegram_id)) || {};
+          existing.profile = p;
+          map.set(Number(p.telegram_id), existing);
+        }
+      }
+
+      if (isNumeric) {
+        const num = Number(clean);
+        const [uNum, pNum] = await Promise.all([
+          supabaseAdmin.from('users').select('*').eq('telegram_id', num).maybeSingle(),
+          supabaseAdmin.from('profiles').select('*').eq('telegram_id', num).maybeSingle(),
+        ]);
+        if (uNum.data || pNum.data) {
+          const existing = map.get(num) || {};
+          if (uNum.data) existing.user = uNum.data;
+          if (pNum.data) existing.profile = pNum.data;
+          map.set(num, existing);
+        }
+      }
+
+      if (map.size === 0) {
+        await sendOrEditCard(
+          chatId,
+          `⚠️ <b>No Users Found</b>\n\nNo resident or Fayda record was found matching <code>${escapeHtml(rawQuery)}</code>.\n\n💡 <i>Try searching by first name, last name, Telegram @username, or 16-digit Fayda FAN.</i>`,
+          [
+            [{ text: '🔍 Search Another Name', callback_data: 'admin_search_user_prompt' }],
+            [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+          ],
+          messageIdToEdit
+        );
+        return;
+      }
+
+      // If exactly 1 match found, directly render their dossier!
+      if (map.size === 1) {
+        const onlyTgId = Array.from(map.keys())[0];
+        await renderAdminUserDossier(chatId, onlyTgId, messageIdToEdit);
+        return;
+      }
+
+      // If multiple matches, show selection list
+      const matches = Array.from(map.entries()).slice(0, 10);
+      let listText = `🔍 <b>Matching Users for "${escapeHtml(rawQuery)}" (${map.size} found)</b>\n\nSelect a resident below to view their complete Fayda dossier:\n\n`;
+
+      const buttons: any[] = [];
+      for (const [tgId, data] of matches) {
+        const name = data.profile?.full_name || [data.user?.first_name, data.user?.last_name].filter(Boolean).join(' ') || `ID: ${tgId}`;
+        const handle = data.user?.username ? `@${data.user.username}` : (data.profile?.telegram_username ? `@${data.profile.telegram_username.replace('@', '')}` : `<code>${tgId}</code>`);
+        const isVerified = data.user?.fayda_status === 'verified' || data.profile?.kyc_status === 'verified';
+        const badge = isVerified ? '🛡️ Verified' : '⚠️ Pending';
+
+        listText += `• <b>${escapeHtml(name)}</b> (${handle}) — ${badge}\n`;
+        buttons.push([
+          {
+            text: `👤 ${name.slice(0, 22)} (${badge})`,
+            callback_data: `admin_user_dossier:${tgId}`,
+          },
+        ]);
+      }
+
+      buttons.push([{ text: '🔍 Search Another Name', callback_data: 'admin_search_user_prompt' }]);
+      buttons.push([{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }]);
+
+      await sendOrEditCard(chatId, listText.trim(), buttons, messageIdToEdit);
+    };
+
     // Helper: 24-Hour Automated Follow-Up Check-in Protocol
     const checkPending24hCheckins = async () => {
       const now = Date.now();
@@ -6597,6 +6857,7 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
 
         const adminKeyboard = {
           inline_keyboard: [
+            [{ text: '🔍 Search User by Name (Fayda Dossier) 🛡️', callback_data: 'admin_search_user_prompt' }],
             [{ text: '🔍 Search Post by Code (#SPMARBR / #SPMARWR) 🔎', callback_data: 'admin_search_code_prompt' }],
             [{ text: `⏳ Pending Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
             [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
@@ -6713,6 +6974,68 @@ Please send the identification code or number of the listing you want to inspect
         ];
 
         await sendOrEditCard(chatId, promptText, buttons, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin: Search User by Name Prompt Callback
+      if (callbackData === 'admin_search_user_prompt') {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          return NextResponse.json({ ok: true });
+        }
+
+        await saveSession({
+          telegram_id: chatId,
+          step: 'admin_search_user_input',
+          draft_data: { card_msg_id: msgId },
+          updated_at: new Date().toISOString(),
+        });
+
+        const promptText = `
+🔍 <b>SpaceMatch Admin · Search Resident & Fayda Record</b>
+
+Please send the resident's <b>Full Name</b>, <b>First Name</b>, <b>@username</b>, or <b>16-digit Fayda FAN number</b>:
+
+<b>Examples:</b>
+• <code>Tsehay</code> or <code>Biruk</code>
+• <code>@birukadiyee</code>
+• <code>4783419389048718</code>
+• Or send their numeric Telegram ID.
+
+<i>💡 The bot will retrieve all official demographic and cryptographic Fayda data registered to this person.</i>
+        `.trim();
+
+        const buttons = [
+          [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+          [{ text: '❌ Cancel', callback_data: 'admin_cancel' }],
+        ];
+
+        await sendOrEditCard(chatId, promptText, buttons, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin: View User Fayda Dossier Callback
+      if (callbackData?.startsWith('admin_user_dossier:')) {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          return NextResponse.json({ ok: true });
+        }
+        const targetTgId = Number(callbackData.replace('admin_user_dossier:', ''));
+        await renderAdminUserDossier(chatId, targetTgId, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin: Direct Search Code Callback (e.g. from user dossier)
+      if (callbackData?.startsWith('admin_search_code:')) {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          return NextResponse.json({ ok: true });
+        }
+        const targetCode = callbackData.replace('admin_search_code:', '');
+        await executeAdminPostSearch(chatId, targetCode, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -7402,13 +7725,26 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             return NextResponse.json({ ok: true });
           }
 
+          const nowIso = new Date().toISOString();
+          const faydaMeta = JSON.stringify({
+            fan: photoResult.fan,
+            full_name: photoResult.fullName,
+            gender: photoResult.gender,
+            date_of_birth: photoResult.dob,
+            verified_source: 'telegram_photo_rs256_qr',
+            verified_at: nowIso,
+          });
+
           await supabaseAdmin
             .from('users')
             .upsert({
               telegram_id: chatId,
               fayda_status: 'verified',
               fayda_id_number: photoResult.fan,
-              updated_at: new Date().toISOString(),
+              fayda_verified_at: nowIso,
+              fayda_document_url: faydaMeta,
+              gender: photoResult.gender || undefined,
+              updated_at: nowIso,
             }, { onConflict: 'telegram_id' });
 
           const profileUpdates: Record<string, any> = {
@@ -7581,6 +7917,36 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
 
         await clearSession(chatId);
         await executeAdminPostSearch(chatId, rawQuery, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── ADMIN: SEARCH USER INPUT ───────────────────────────────────────
+      if (session.step === 'admin_search_user_input') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await tgSend(chatId, `⛔ <b>Access Denied.</b>`);
+          await clearSession(chatId);
+          return NextResponse.json({ ok: true });
+        }
+
+        const rawQuery = text.trim();
+        if (rawQuery === '/cancel' || rawQuery.toLowerCase() === 'cancel') {
+          await clearSession(chatId);
+          await sendOrEditCard(
+            chatId,
+            `❌ User search cancelled.`,
+            [[{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }]],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        await clearSession(chatId);
+        await executeAdminUserSearch(chatId, rawQuery, activeMsgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -7896,13 +8262,26 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
             return NextResponse.json({ ok: true });
           }
 
+          const nowIso = new Date().toISOString();
+          const faydaMeta = JSON.stringify({
+            fan: photoResult.fan,
+            full_name: photoResult.fullName,
+            gender: photoResult.gender,
+            date_of_birth: photoResult.dob,
+            verified_source: 'telegram_photo_rs256_qr',
+            verified_at: nowIso,
+          });
+
           await supabaseAdmin
             .from('users')
             .upsert({
               telegram_id: chatId,
               fayda_status: 'verified',
               fayda_id_number: photoResult.fan,
-              updated_at: new Date().toISOString(),
+              fayda_verified_at: nowIso,
+              fayda_document_url: faydaMeta,
+              gender: photoResult.gender || undefined,
+              updated_at: nowIso,
             }, { onConflict: 'telegram_id' });
 
           const profileUpdates: Record<string, any> = {
@@ -7998,14 +8377,27 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
             return NextResponse.json({ ok: true });
           }
 
+          const nowIso = new Date().toISOString();
+          const faydaMeta = JSON.stringify({
+            fan: photoResult.fan,
+            full_name: photoResult.fullName,
+            gender: photoResult.gender,
+            date_of_birth: photoResult.dob,
+            verified_source: 'telegram_photo_rs256_qr',
+            verified_at: nowIso,
+          });
+
           await supabaseAdmin
             .from('users')
-            .update({
+            .upsert({
+              telegram_id: chatId,
               fayda_status: 'verified',
               fayda_id_number: photoResult.fan,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('telegram_id', chatId);
+              fayda_verified_at: nowIso,
+              fayda_document_url: faydaMeta,
+              gender: photoResult.gender || undefined,
+              updated_at: nowIso,
+            }, { onConflict: 'telegram_id' });
 
           const profileUpdates: Record<string, any> = {
             kyc_status: 'verified',
@@ -8980,10 +9372,11 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
 
         await sendTelegram('sendMessage', {
           chat_id: chatId,
-          text: `👑 <b>SpaceMatch Admin Controls</b>\n\nSelect an action below or use admin commands:\n• <code>/find &lt;code&gt;</code> - Search post by code (#SPMARBR...)\n• <code>/post</code> - Launch channel posting wizard\n• <code>/close &lt;code&gt;</code> - Close matched listing\n• <code>/admins</code> - View and manage administrator team`,
+          text: `👑 <b>SpaceMatch Admin Controls</b>\n\nSelect an action below or use admin commands:\n• <code>/user &lt;name&gt;</code> - Search resident & Fayda dossier\n• <code>/find &lt;code&gt;</code> - Search post by code (#SPMARBR...)\n• <code>/post</code> - Launch channel posting wizard\n• <code>/close &lt;code&gt;</code> - Close matched listing\n• <code>/admins</code> - View and manage administrator team`,
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
+              [{ text: '🔍 Search User by Name (Fayda Dossier) 🛡️', callback_data: 'admin_search_user_prompt' }],
               [{ text: '🔍 Search Post by Code (#SPMARBR...) 🔎', callback_data: 'admin_search_code_prompt' }],
               [{ text: `⏳ Pending Channel Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
               [{ text: '📢 Post to Channel as Admin 🛠️', callback_data: 'admin_post_start' }],
@@ -8994,6 +9387,49 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
             ],
           },
         });
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── Admin: Search User by Name command (/user, /search_user, /fayda_search, /fayda_user) ────────
+      if (
+        text === '/user' || text.startsWith('/user ') ||
+        text === '/search_user' || text.startsWith('/search_user ') ||
+        text === '/fayda_search' || text.startsWith('/fayda_search ') ||
+        text === '/fayda_user' || text.startsWith('/fayda_user ') ||
+        text === '/resident' || text.startsWith('/resident ')
+      ) {
+        const adminIds = await getAdminIds();
+        if (!adminIds.includes(chatId)) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `⛔ <b>Access Denied.</b> User search is restricted to SpaceMatch administrators.`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const query = text.replace(/^\/(user|search_user|fayda_search|fayda_user|resident)/i, '').trim();
+        if (!query) {
+          await saveSession({
+            telegram_id: chatId,
+            step: 'admin_search_user_input',
+            draft_data: {},
+            updated_at: new Date().toISOString(),
+          });
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: `🔍 <b>Search Resident & Fayda Record</b>\n\nPlease enter the resident's full name, first name, @username, or 16-digit Fayda FAN number:`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
+              ],
+            },
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        await executeAdminUserSearch(chatId, query);
         return NextResponse.json({ ok: true });
       }
 

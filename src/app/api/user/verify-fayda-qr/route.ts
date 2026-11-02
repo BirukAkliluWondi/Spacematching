@@ -80,14 +80,27 @@ export async function POST(request: Request) {
 
     // 3. Update 'users' table
     try {
+      const nowIso = new Date().toISOString();
+      const faydaMeta = JSON.stringify({
+        fan,
+        full_name: fullName,
+        gender,
+        date_of_birth: dob,
+        verified_source: 'offline_rs256_qr',
+        verified_at: nowIso,
+      });
+
       await supabaseAdmin
         .from('users')
-        .update({
+        .upsert({
+          telegram_id,
           fayda_status: 'verified',
           fayda_id_number: fan,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('telegram_id', telegram_id);
+          fayda_verified_at: nowIso,
+          fayda_document_url: faydaMeta,
+          gender: gender || undefined,
+          updated_at: nowIso,
+        }, { onConflict: 'telegram_id' });
     } catch (userErr) {
       console.error('Error updating users table with verified Fayda:', userErr);
     }
