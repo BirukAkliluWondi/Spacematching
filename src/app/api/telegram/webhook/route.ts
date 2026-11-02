@@ -1748,6 +1748,34 @@ ${genderEmoji} <b>Space Seeker:</b> ${escapeHtml(seekerGenderEn)}
           }
         }
 
+        if (!targetProfile && (targetCode || targetId)) {
+          const rawLookup = (targetCode || targetId || '').replace(/^#/, '').trim();
+          const draft = await getRoommateDraft(rawLookup);
+          if (draft) {
+            const codeDigits = parseInt(rawLookup.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
+            const syntheticTgId = draft.user_telegram_id || -(1000000000 + codeDigits);
+            const { data: createdFromDraft } = await supabaseAdmin
+              .from('profiles')
+              .upsert({
+                telegram_id: syntheticTgId,
+                display_code: (draft.display_code || rawLookup).toUpperCase().replace(/^#/, ''),
+                gender: draft.my_gender || 'Member',
+                locations: Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity : ['Addis Ababa'],
+                budget_min: Number(draft.budget_min || 0),
+                budget_max: Number(draft.budget_max || 10000),
+                roommate_traits: draft.lifestyle_bio || 'Channel Roommate Listing',
+                kyc_status: 'verified',
+                status: 'active',
+                onboarding_step: 'completed',
+                telegram_username: draft.username || null,
+                full_name: draft.user_name || 'Verified Channel Listing',
+              }, { onConflict: 'display_code' })
+              .select('*')
+              .maybeSingle();
+            if (createdFromDraft) targetProfile = createdFromDraft;
+          }
+        }
+
         if (!targetProfile) {
           await sendOrEditCard(
             chatId,
@@ -2964,7 +2992,6 @@ Transfer <code>300 ETB</code> to either verified account:
         kyc_status: 'verified',
         status: 'paused',
         onboarding_step: 'completed',
-        preferred_gender: prefGenderStr,
       }, { onConflict: 'telegram_id' });
 
       const userName = [fromCallbackUser?.first_name, fromCallbackUser?.last_name].filter(Boolean).join(' ') || prof?.full_name || 'Roommate Seeker';
@@ -3110,11 +3137,10 @@ A user has requested to post their profile to the channel <code>${targetChannel}
         telegram_id: chatId,
         display_code: cleanCode,
         gender: ownerGender,
-        preferred_gender: prefGender,
         locations: [subcity],
         budget_min: shareNum,
         budget_max: rentNum,
-        roommate_traits: `Age ${userAge} · ${desc}`,
+        roommate_traits: `Age ${userAge} · Prefers: ${prefGender} · ${desc}`,
         kyc_status: 'verified',
         status: 'paused',
       }, { onConflict: 'telegram_id' });
@@ -5140,7 +5166,6 @@ ${cleanTg ? `• <b>Telegram:</b> @${cleanTg}\n` : ''}
             telegram_id: syntheticTgId,
             display_code: displayCode,
             gender: draft.gender || 'Any',
-            preferred_gender: prefGenderStr,
             locations: subcities,
             budget_min: 0,
             budget_max: budgetNum,
@@ -5161,7 +5186,7 @@ ${cleanTg ? `• <b>Telegram:</b> @${cleanTg}\n` : ''}
 
         // 2. Also save to draft store so it is cached in session drafts
         await saveRoommateDraft({
-          id: displayCode,
+          id: savedProfile?.id || displayCode,
           user_telegram_id: syntheticTgId,
           display_code: displayCode,
           user_name: 'Verified Channel Listing',
@@ -5985,6 +6010,47 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
           if (pTarget) targetProfile = pTarget;
         }
 
+        // Numeric shorthand check (e.g. "5" -> SPMARBR5 / SPMARWR5)
+        if (!targetProfile && /^\d+$/.test(targetProfileId.replace(/^#/, '').trim())) {
+          const num = targetProfileId.replace(/^#/, '').trim();
+          const { data: pBr } = await supabaseAdmin.from('profiles').select('*').ilike('display_code', `SPMARBR${num}`).maybeSingle();
+          if (pBr) {
+            targetProfile = pBr;
+          } else {
+            const { data: pWr } = await supabaseAdmin.from('profiles').select('*').ilike('display_code', `SPMARWR${num}`).maybeSingle();
+            if (pWr) targetProfile = pWr;
+          }
+        }
+
+        // Check pending roommate drafts cache
+        if (!targetProfile) {
+          const cleanCode = targetProfileId.replace(/^#/, '').trim();
+          const draft = await getRoommateDraft(cleanCode);
+          if (draft) {
+            const codeDigits = parseInt(cleanCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
+            const syntheticTgId = draft.user_telegram_id || -(1000000000 + codeDigits);
+            const { data: createdFromDraft } = await supabaseAdmin
+              .from('profiles')
+              .upsert({
+                telegram_id: syntheticTgId,
+                display_code: (draft.display_code || cleanCode).toUpperCase().replace(/^#/, ''),
+                gender: draft.my_gender || 'Member',
+                locations: Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity : ['Addis Ababa'],
+                budget_min: Number(draft.budget_min || 0),
+                budget_max: Number(draft.budget_max || 10000),
+                roommate_traits: draft.lifestyle_bio || 'Channel Roommate Listing',
+                kyc_status: 'verified',
+                status: 'active',
+                onboarding_step: 'completed',
+                telegram_username: draft.username || null,
+                full_name: draft.user_name || 'Verified Channel Listing',
+              }, { onConflict: 'display_code' })
+              .select('*')
+              .maybeSingle();
+            if (createdFromDraft) targetProfile = createdFromDraft;
+          }
+        }
+
         if (!targetProfile && isUuid) {
           const { data: rmTarget } = await supabaseAdmin
             .from('roommate_profiles')
@@ -6001,6 +6067,40 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
               budget_max: rmTarget.budget_max,
               roommate_traits: rmTarget.lifestyle_bio,
             };
+          }
+        }
+
+        // Synthetic admin post fallback
+        if (!targetProfile) {
+          const cleanCode = targetProfileId.replace(/^#/, '').trim();
+          if (cleanCode.toLowerCase().startsWith('post_') || /^SPMAR(BR|WR)/i.test(cleanCode) || /^[A-Z]{2,10}\d*$/i.test(cleanCode)) {
+            const adminIds = await getAdminIds();
+            const primaryAdmin = adminIds[0] || 800701176;
+            const codeDigits = parseInt(cleanCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
+            const fallbackSyntheticId = -(1000000000 + codeDigits);
+
+            const { data: createdProfile } = await supabaseAdmin
+              .from('profiles')
+              .upsert({
+                telegram_id: fallbackSyntheticId,
+                display_code: cleanCode.toUpperCase(),
+                gender: 'Any',
+                locations: ['Addis Ababa'],
+                budget_min: 0,
+                budget_max: 10000,
+                roommate_traits: 'Channel Roommate Listing in Addis Ababa.',
+                kyc_status: 'verified',
+                status: 'active',
+                onboarding_step: 'completed',
+                telegram_username: `admin_${primaryAdmin}`,
+                phone_number: `admin:${primaryAdmin}`,
+                full_name: 'Verified Channel Listing',
+              }, { onConflict: 'display_code' })
+              .select('*')
+              .maybeSingle();
+            if (createdProfile) {
+              targetProfile = createdProfile;
+            }
           }
         }
 
@@ -8906,6 +9006,37 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           const targetBudgetStr = targetProfile.budget_max
             ? `${Number(targetProfile.budget_max).toLocaleString()} ETB/mo`
             : '';
+
+          // Guarantee targetProfile is persisted in profiles table and has a valid UUID
+          if (!targetProfile.id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetProfile.id)) {
+            const cleanDisplayCode = (targetProfile.display_code || lookupCode).toUpperCase().replace(/^#/, '');
+            const codeDigits = parseInt(cleanDisplayCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
+            const syntheticTgId = targetProfile.telegram_id || -(1000000000 + codeDigits);
+
+            const { data: guaranteedProfile } = await supabaseAdmin
+              .from('profiles')
+              .upsert({
+                telegram_id: syntheticTgId,
+                display_code: cleanDisplayCode,
+                gender: targetProfile.gender || targetProfile.my_gender || 'Member',
+                locations: Array.isArray(targetProfile.locations) && targetProfile.locations.length > 0 ? targetProfile.locations : ['Addis Ababa'],
+                budget_min: Number(targetProfile.budget_min || 0),
+                budget_max: Number(targetProfile.budget_max || 10000),
+                roommate_traits: targetProfile.roommate_traits || targetProfile.lifestyle_bio || 'Channel Roommate Listing',
+                kyc_status: 'verified',
+                status: 'active',
+                onboarding_step: 'completed',
+                telegram_username: targetProfile.username || targetProfile.telegram_username || null,
+                phone_number: targetProfile.phone_number || null,
+                full_name: targetProfile.user_name || targetProfile.full_name || 'Verified Channel Listing',
+              }, { onConflict: 'display_code' })
+              .select('*')
+              .maybeSingle();
+
+            if (guaranteedProfile) {
+              targetProfile = guaranteedProfile;
+            }
+          }
 
           // Check if requesting user is already Fayda verified and has a completed profile in parallel
           const [isVerified, profileRes] = await Promise.all([
