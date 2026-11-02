@@ -124,7 +124,7 @@ export const I18N = {
     connectTitle: '🤝 <b>Connect with Roommate</b>',
     matchRequestSent: '✅ <b>Match Request Delivered!</b>\n\nYour request has been sent to the roommate. You will be notified the moment they accept!',
     bothConnectedTitle: '🎉 <b>You Both Want to Connect!</b>',
-    paymentInstructions: `SpaceMatch Addis 30-Day All-Access Pass (<b>300 ETB</b>).\n\n🏦 <b>Payment Options:</b>\n• <b>Telebirr:</b> <code>0901570707</code> (Wahid)\n• <b>CBE:</b> <code>1000720760416</code> (Lula Yesuf)\n\n<i>Unlocks 30 days of channel posting and unlimited connection requests with zero per-contact fees.</i>\n\nOnce transferred, send your transaction reference:\n<code>/verify telebirr YOUR_REF</code>\nor\n<code>/verify cbe YOUR_REF</code>`,
+    paymentInstructions: `SpaceMatch Addis 30-Day All-Access Pass (<b>300 ETB</b>).\n\n🏦 <b>Payment Options (Account: Wahid):</b>\n• 📱 <b>Telebirr:</b> <code>0987310978</code> (Wahid)\n• 🏦 <b>Bank of Abyssinia:</b> <code>256861771</code> (Wahid)\n• 🏦 <b>Dashen Bank:</b> <code>2922175078411</code> (Wahid)\n\n<i>Unlocks 30 days of channel posting and unlimited connection requests with zero per-contact fees.</i>\n\nOnce transferred, send your transaction reference:\n<code>/verify telebirr YOUR_REF</code>\nor\n<code>/verify abyssinia YOUR_REF</code>\nor\n<code>/verify dashen YOUR_REF</code>`,
     privacyShieldNote: '🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>',
   },
 
@@ -226,7 +226,7 @@ export const I18N = {
     connectTitle: '🤝 <b>ከቤት ጓደኛ ጋር ይገናኙ</b>',
     matchRequestSent: '✅ <b>የግንኙነት ጥያቄዎ በተሳካ ሁኔታ ደርሷል!</b>\n\nጥያቄዎ ለተጠቃሚው ተልኳል። ጥያቄዎን እንደተቀበሉ ወዲያውኑ መልዕክት ይደርስዎታል!',
     bothConnectedTitle: '🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>',
-    paymentInstructions: `የስፔስማች አዲስ የ30 ቀን ሙሉ አባልነት ፓስ (<b>300 ብር</b>)።\n\n🏦 <b>የክፍያ አማራጮች:</b>\n• <b>ቴሌብር:</b> <code>0901570707</code> (Wahid)\n• <b>ንግድ ባንክ:</b> <code>1000720760416</code> (Lula Yesuf)\n\n<i>ለ 30 ቀናት ማስታወቂያ ለመለጠፍና ያለምንም ተጨማሪ ክፍያ ያለገደብ ከማንኛውም ፈላጊ ጋር ለመገናኘት ያስችላል።</i>\n\nክፍያውን እንደፈጸሙ የደረሰኝ ቁጥርዎን እንደሚከተለው ይላኩ:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\nወይም\n<code>/verify cbe የደረሰኝ_ቁጥር</code>`,
+    paymentInstructions: `የስፔስማች አዲስ የ30 ቀን ሙሉ አባልነት ፓስ (<b>300 ብር</b>)።\n\n🏦 <b>የክፍያ አማራጮች (ዋሂድ / Wahid):</b>\n• 📱 <b>ቴሌብር:</b> <code>0987310978</code> (Wahid)\n• 🏦 <b>አቢሲኒያ ባንክ:</b> <code>256861771</code> (Wahid)\n• 🏦 <b>ዳሽን ባንክ:</b> <code>2922175078411</code> (Wahid)\n\n<i>ለ 30 ቀናት ማስታወቂያ ለመለጠፍና ያለምንም ተጨማሪ ክፍያ ያለገደብ ከማንኛውም ፈላጊ ጋር ለመገናኘት ያስችላል።</i>\n\nክፍያውን እንደፈጸሙ የደረሰኝ ቁጥርዎን እንደሚከተለው ይላኩ:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\nወይም\n<code>/verify abyssinia የደረሰኝ_ቁጥር</code>\nወይም\n<code>/verify dashen የደረሰኝ_ቁጥር</code>`,
     privacyShieldNote: '🔒 <i>የእርስዎ ትክክለኛ ስም እና ስልክ ቁጥር በሙሉ ሚስጥራዊነቱ የተጠበቀ ነው።</i>',
   },
 } as const;

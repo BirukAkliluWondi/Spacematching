@@ -76,7 +76,10 @@ export async function POST(request: Request) {
     }
 
     const unlockFeeAmount = Number(space.unlock_fee || '300.00');
-    const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '09XXXXXXXX';
+    const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
+    const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
+    const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';
+    const accountHolder = 'Wahid';
     const tempTxRef = `PENDING_${crypto.randomUUID()}`;
 
     // 4. Insert pending order record using renter_telegram_id and dynamic space unlock_fee
@@ -106,7 +109,10 @@ export async function POST(request: Request) {
       amount: unlockFeeAmount,
       currency: 'ETB',
       telebirr_receiver_phone: receiverPhone,
-      instructions: `Transfer ${unlockFeeAmount} ETB to Telebirr number ${receiverPhone} and submit your transaction reference number to verify.`,
+      abyssinia_account: abyssiniaAccount,
+      dashen_account: dashenAccount,
+      account_holder: accountHolder,
+      instructions: `Transfer ${unlockFeeAmount} ETB via Telebirr (${receiverPhone}), Bank of Abyssinia (${abyssiniaAccount}), or Dashen Bank (${dashenAccount}) to ${accountHolder} and submit your transaction reference number to verify.`,
     });
   } catch (error: unknown) {
     if (error instanceof z.ZodError) {

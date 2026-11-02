@@ -46,12 +46,14 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
   const [step, setStep] = useState<'details' | 'payment' | 'unlocked'>('details');
   const [orderId, setOrderId] = useState<string | null>(null);
   const [receiverPhone, setReceiverPhone] = useState<string>('0987310978');
-  const [cbeAccount, setCbeAccount] = useState<string>('1000054066094');
+  const [abyssiniaAccount, setAbyssiniaAccount] = useState<string>('256861771');
+  const [dashenAccount, setDashenAccount] = useState<string>('2922175078411');
   const [txRefInput, setTxRefInput] = useState<string>('');
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
-  const [copiedCbe, setCopiedCbe] = useState(false);
+  const [copiedAbyssinia, setCopiedAbyssinia] = useState(false);
+  const [copiedDashen, setCopiedDashen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [unlockedData, setUnlockedData] = useState<UnlockedDetails | null>(null);
   const [botPayUrl, setBotPayUrl] = useState<string | null>(null);
@@ -108,6 +110,12 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
       if (data.telebirr_receiver_phone) {
         setReceiverPhone(data.telebirr_receiver_phone);
       }
+      if (data.abyssinia_account) {
+        setAbyssiniaAccount(data.abyssinia_account);
+      }
+      if (data.dashen_account) {
+        setDashenAccount(data.dashen_account);
+      }
 
       const payUrl = `https://t.me/${cleanBotUsername}?start=pay_${data.order_id}`;
       setBotPayUrl(payUrl);
@@ -132,7 +140,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
 
   const handleVerifyReceipt = async () => {
     if (!orderId || !txRefInput.trim()) {
-      setErrorMsg('Please enter your Telebirr or CBE transaction reference number.');
+      setErrorMsg('Please enter your Telebirr, Abyssinia, or Dashen transaction reference number.');
       return;
     }
 
@@ -172,10 +180,16 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
     setTimeout(() => setCopiedPhone(false), 2000);
   };
 
-  const copyCbe = () => {
-    navigator.clipboard.writeText(cbeAccount);
-    setCopiedCbe(true);
-    setTimeout(() => setCopiedCbe(false), 2000);
+  const copyAbyssinia = () => {
+    navigator.clipboard.writeText(abyssiniaAccount);
+    setCopiedAbyssinia(true);
+    setTimeout(() => setCopiedAbyssinia(false), 2000);
+  };
+
+  const copyDashen = () => {
+    navigator.clipboard.writeText(dashenAccount);
+    setCopiedDashen(true);
+    setTimeout(() => setCopiedDashen(false), 2000);
   };
 
   return (
@@ -305,13 +319,13 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                 <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-1">
                   <h3 className="font-extrabold text-sm text-emerald-300">Payment Verification Required</h3>
                   <p className="text-xs text-slate-300">
-                    Transfer <strong>{space.unlock_fee || 50} ETB</strong> via Telebirr or CBE to unlock homeowner details instantly.
+                    Transfer <strong>{space.unlock_fee || 300} ETB</strong> via Telebirr, Abyssinia, or Dashen to unlock homeowner details instantly.
                   </p>
                 </div>
 
                 {/* Telebirr Account Box */}
                 <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
-                  <span className="text-[11px] text-slate-400 font-bold uppercase">📱 Telebirr Merchant Phone</span>
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">📱 Telebirr</span>
                   <div className="flex items-center justify-between">
                     <div className="flex items-baseline gap-1.5 font-mono text-base font-black text-emerald-400">
                       <span>{receiverPhone}</span>
@@ -327,20 +341,38 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                   </div>
                 </div>
 
-                {/* CBE Account Box */}
+                {/* Bank of Abyssinia Box */}
                 <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
-                  <span className="text-[11px] text-slate-400 font-bold uppercase">🏦 Commercial Bank of Ethiopia (CBE)</span>
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">🏦 Bank of Abyssinia</span>
                   <div className="flex items-center justify-between">
                     <div className="flex items-baseline gap-1.5 font-mono text-base font-black text-amber-400">
-                      <span>{cbeAccount}</span>
-                      <span className="text-xs text-amber-300 font-sans font-medium">(Lula Yesuf)</span>
+                      <span>{abyssiniaAccount}</span>
+                      <span className="text-xs text-amber-300 font-sans font-medium">(Wahid)</span>
                     </div>
                     <button
-                      onClick={copyCbe}
+                      onClick={copyAbyssinia}
                       className="px-3 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white flex items-center gap-1 transition-colors"
                     >
-                      {copiedCbe ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedCbe ? 'Copied' : 'Copy'}</span>
+                      {copiedAbyssinia ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedAbyssinia ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dashen Bank Box */}
+                <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">🏦 Dashen Bank</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-baseline gap-1.5 font-mono text-base font-black text-cyan-400">
+                      <span>{dashenAccount}</span>
+                      <span className="text-xs text-cyan-300 font-sans font-medium">(Wahid)</span>
+                    </div>
+                    <button
+                      onClick={copyDashen}
+                      className="px-3 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white flex items-center gap-1 transition-colors"
+                    >
+                      {copiedDashen ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedDashen ? 'Copied' : 'Copy'}</span>
                     </button>
                   </div>
                 </div>

@@ -9,22 +9,27 @@ export interface VerifyEtResult {
 }
 
 /**
- * Validates Telebirr or CBE (Commercial Bank of Ethiopia) transaction receipts using the verify.et API
+ * Validates Telebirr, Bank of Abyssinia, Dashen Bank, or CBE transaction receipts using the verify.et API
  * 
- * Supported Accounts:
+ * Supported Accounts (Account Holder: Wahid):
  * - Telebirr: process.env.TELEBIRR_RECEIVER_PHONE || '0987310978' (Wahid)
- * - CBE Bank: process.env.CBE_ACCOUNT_NUMBER || '1000054066094' (Lula Yesuf)
+ * - Bank of Abyssinia: process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771' (Wahid)
+ * - Dashen Bank: process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411' (Wahid)
+ * - CBE (Fallback): process.env.CBE_ACCOUNT_NUMBER || '1000054066094'
  * 
  * Endpoint: POST https://verify.et/api/verify?waitMs=5000
  * Headers: x-api-key: process.env.VERIFY_ET_API_KEY
  */
 export async function verifyTelebirrPayment(
   referenceNumber: string,
-  expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '300')
+  expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '300'),
+  preferredBank?: string
 ): Promise<VerifyEtResult> {
   const apiKey = process.env.VERIFY_ET_API_KEY;
-  const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0901570707';
-  const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000720760416';
+  const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
+  const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
+  const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';
+  const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
 
   if (!apiKey) {
     return {
@@ -36,15 +41,30 @@ export async function verifyTelebirrPayment(
   const cleanRef = referenceNumber.trim();
   const endpoint = 'https://verify.et/api/verify?waitMs=5000';
 
-  // Bank Options to evaluate (Telebirr & CBE) - supports both current and fallback accounts
-  const bankConfigs = [
+  // Bank Options to evaluate (Telebirr, Abyssinia, Dashen & CBE) - supports current and fallback accounts
+  const allConfigs = [
     { bank: 'telebirr', settlementAccount: receiverPhone.trim() },
-    { bank: 'telebirr', settlementAccount: '0901570707' },
     { bank: 'telebirr', settlementAccount: '0987310978' },
+    { bank: 'telebirr', settlementAccount: '0901570707' },
+    { bank: 'abyssinia', settlementAccount: abyssiniaAccount.trim() },
+    { bank: 'abyssinia', settlementAccount: '256861771' },
+    { bank: 'boa', settlementAccount: abyssiniaAccount.trim() },
+    { bank: 'boa', settlementAccount: '256861771' },
+    { bank: 'dashen', settlementAccount: dashenAccount.trim() },
+    { bank: 'dashen', settlementAccount: '2922175078411' },
     { bank: 'cbe', settlementAccount: cbeAccount.trim() },
     { bank: 'cbe', settlementAccount: '1000720760416' },
     { bank: 'cbe', settlementAccount: '1000054066094' },
   ].filter((item, index, self) => index === self.findIndex((t) => t.bank === item.bank && t.settlementAccount === item.settlementAccount));
+
+  // If a preferredBank was specified, test configs for that bank first
+  const normalizedBank = preferredBank?.toLowerCase().trim();
+  const bankConfigs = normalizedBank
+    ? [
+        ...allConfigs.filter((c) => c.bank === normalizedBank || (normalizedBank === 'abyssinia' && c.bank === 'boa') || (normalizedBank === 'boa' && c.bank === 'abyssinia')),
+        ...allConfigs.filter((c) => c.bank !== normalizedBank && !((normalizedBank === 'abyssinia' && c.bank === 'boa') || (normalizedBank === 'boa' && c.bank === 'abyssinia'))),
+      ]
+    : allConfigs;
 
   let lastFailureMessage = 'Payment transaction status is not verified.';
   let lastRawResponse: unknown = null;

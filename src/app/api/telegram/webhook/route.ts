@@ -97,7 +97,10 @@ export async function POST(request: Request) {
     const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://spacematch1-flax.vercel.app';
     const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
+    const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
+    const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';
     const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
+    const paymentAccountHolder = 'Wahid';
 
     // Helper to send requests to Telegram API with keep-alive and network timeout guard
     const sendTelegram = async (method: string, payload: Record<string, any>) => {
@@ -2756,8 +2759,10 @@ Please reply with the description, perks, or notes for this channel post.
       const session = getSession(chatId);
       const lang = getLanguage(session.draft_data, chatId);
       const isAm = lang === 'am';
-      const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0901570707';
-      const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000720760416';
+      const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
+      const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
+      const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';
+      const paymentAccountHolder = 'Wahid';
       const receiptGuideImg = 'https://plusmfmlzzumzsqtlixb.supabase.co/storage/v1/object/public/spaces-public/payment_receipt_guide.png';
 
       let purposeTitleAm = 'ማስታወቂያዎን ቻናል ላይ ለመለጠፍ';
@@ -2781,10 +2786,11 @@ ${purposeTitleAm} እና መድረኩን ሙሉ በሙሉ ለመጠቀም የአ
 • 🔓 <b>ጥያቄ ሲቀባበሉ ያለምንም ተጨማሪ ክፍያ ስልክ እና ቴሌግራም መክፈት!</b>
 
 💳 <b>የክፍያ መመሪያ:</b>
-የ <code>300 ብር</code> ክፍያ ከታች ባሉት የክፍያ አማራጮች ይፈጽሙ:
+የ <code>300 ብር</code> ክፍያ ከታች ባሉት የክፍያ አማራጮች ይፈጽሙ (የሂሳብ ስም: <b>${paymentAccountHolder}</b>):
 
-📱 <b>ቴሌብር:</b> <code>${receiverPhone}</code> (Wahid)
-🏦 <b>ንግድ ባንክ (CBE):</b> <code>${cbeAccount}</code> (Lula Yesuf)
+📱 <b>ቴሌብር:</b> <code>${receiverPhone}</code> (${paymentAccountHolder})
+🏦 <b>አቢሲኒያ ባንክ:</b> <code>${abyssiniaAccount}</code> (${paymentAccountHolder})
+🏦 <b>ዳሽን ባንክ:</b> <code>${dashenAccount}</code> (${paymentAccountHolder})
 
 💬 <i>ክፍያውን እንደፈጸሙ ከላይ በምስሉ ላይ እንደተመለከተው የደረሰኝ ቁጥርዎን (ለምሳሌ <code>FT24...</code> ወይም <code>TX...</code>) እዚህ በመላክ ወዲያውኑ አባልነትዎን ያግብሩ!</i>
         `.trim()
@@ -2800,10 +2806,11 @@ Required ${purposeTitleEn} and enjoy full platform access!
 • 🔓 <b>Instant mutual contact unlock</b> when accepted — zero per-contact fees!
 
 💳 <b>Instant Payment Instructions:</b>
-Transfer <code>300 ETB</code> to either verified account:
+Transfer <code>300 ETB</code> to any verified account (Account Holder: <b>${paymentAccountHolder}</b>):
 
-📱 <b>Telebirr:</b> <code>${receiverPhone}</code> (Wahid)
-🏦 <b>CBE Account:</b> <code>${cbeAccount}</code> (Lula Yesuf)
+📱 <b>Telebirr:</b> <code>${receiverPhone}</code> (${paymentAccountHolder})
+🏦 <b>Bank of Abyssinia:</b> <code>${abyssiniaAccount}</code> (${paymentAccountHolder})
+🏦 <b>Dashen Bank:</b> <code>${dashenAccount}</code> (${paymentAccountHolder})
 
 💬 <i>Once transferred, send your Transaction Reference Code (e.g. <code>FT24...</code> or <code>TX...</code>, shown in the guide above) here to activate your 30-Day Pass immediately!</i>
         `.trim();
@@ -9319,7 +9326,7 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
       }
 
       // ── NEW: /verify <bank> <reference> — 30-Day Unified Membership Pass ──
-      // Pattern: /verify telebirr FT260920042  OR  /verify cbe TX123456
+      // Pattern: /verify telebirr FT260920042  OR  /verify abyssinia TX123456  OR  /verify dashen ...
       if (text.startsWith('/verify ') && text.split(/\s+/).length >= 3) {
         const parts = text.split(/\s+/);
         const bank = parts[1]?.toLowerCase();
@@ -9327,12 +9334,13 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         const payerLang = getUserLanguage(chatId);
         const payerIsAm = payerLang === 'am';
 
-        if (!['telebirr', 'cbe'].includes(bank) || !reference) {
+        const validBanks = ['telebirr', 'abyssinia', 'boa', 'dashen', 'cbe'];
+        if (!validBanks.includes(bank) || !reference) {
           await tgSend(
             chatId,
             payerIsAm
-              ? `⚠️ <b>የተሳሳተ አጻጻፍ።</b>\n\nአጠቃቀም: <code>/verify telebirr የደረሰኝ_ቁጥር</code> ወይም <code>/verify cbe የደረሰኝ_ቁጥር</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
-              : `⚠️ <b>Invalid format.</b>\n\nUsage: <code>/verify telebirr YOUR_REF</code> or <code>/verify cbe YOUR_REF</code>\n\n<i>Example: /verify telebirr FT260920042</i>`
+              ? `⚠️ <b>የተሳሳተ አጻጻፍ።</b>\n\nአጠቃቀም:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\n<code>/verify abyssinia የደረሰኝ_ቁጥር</code>\n<code>/verify dashen የደረሰኝ_ቁጥር</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
+              : `⚠️ <b>Invalid format.</b>\n\nUsage:\n<code>/verify telebirr YOUR_REF</code>\n<code>/verify abyssinia YOUR_REF</code>\n<code>/verify dashen YOUR_REF</code>\n\n<i>Example: /verify telebirr FT260920042</i>`
           );
           return NextResponse.json({ ok: true });
         }
@@ -9362,8 +9370,8 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
             : `⏳ <b>Verifying payment with Verify.ET...</b>`
         );
 
-        // 3. Call Verify.ET with 300 ETB
-        const verifyResult = await verifyTelebirrPayment(reference, 300);
+        // 3. Call Verify.ET with 300 ETB, prioritizing selected bank
+        const verifyResult = await verifyTelebirrPayment(reference, 300, bank);
 
         if (!verifyResult.success) {
           await tgSend(
