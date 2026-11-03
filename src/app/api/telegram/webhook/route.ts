@@ -25,7 +25,7 @@ import {
   invalidateMembershipCache,
   MembershipStatus,
 } from '@/lib/bot-session-store';
-import { verifyTelebirrPayment } from '@/lib/verify-et';
+import { verifyTelebirrPayment, extractTransactionReference } from '@/lib/verify-et';
 import {
   broadcastListingToChannel,
   broadcastRoommateProfileToChannel,
@@ -9326,21 +9326,34 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
       }
 
       // ── NEW: /verify <bank> <reference> — 30-Day Unified Membership Pass ──
-      // Pattern: /verify telebirr FT260920042  OR  /verify abyssinia TX123456  OR  /verify dashen ...
-      if (text.startsWith('/verify ') && text.split(/\s+/).length >= 3) {
-        const parts = text.split(/\s+/);
-        const bank = parts[1]?.toLowerCase();
-        const reference = parts[2]?.trim();
+      // Pattern: /verify telebirr FT260920042  OR  /verify cbe FT...  OR  /verify FT...
+      if (text.startsWith('/verify ') && text.trim().length > 8) {
+        const parts = text.trim().split(/\s+/);
+        const validBanks = ['telebirr', 'abyssinia', 'boa', 'dashen', 'cbe'];
+        let bank: string | undefined;
+        let rawRef: string;
+
+        if (validBanks.includes(parts[1]?.toLowerCase())) {
+          bank = parts[1].toLowerCase();
+          rawRef = parts.slice(2).join(' ');
+        } else {
+          // If bank was omitted (e.g. /verify FT260920042)
+          rawRef = parts.slice(1).join(' ');
+          if (rawRef.toUpperCase().startsWith('FT') || rawRef.toLowerCase().includes('cbe.com.et')) {
+            bank = 'cbe';
+          }
+        }
+
+        const reference = extractTransactionReference(rawRef);
         const payerLang = getUserLanguage(chatId);
         const payerIsAm = payerLang === 'am';
 
-        const validBanks = ['telebirr', 'abyssinia', 'boa', 'dashen', 'cbe'];
-        if (!validBanks.includes(bank) || !reference) {
+        if (!reference) {
           await tgSend(
             chatId,
             payerIsAm
-              ? `⚠️ <b>የተሳሳተ አጻጻፍ።</b>\n\nአጠቃቀም:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\n<code>/verify abyssinia የደረሰኝ_ቁጥር</code>\n<code>/verify dashen የደረሰኝ_ቁጥር</code>\n\n<i>ምሳሌ: /verify telebirr FT260920042</i>`
-              : `⚠️ <b>Invalid format.</b>\n\nUsage:\n<code>/verify telebirr YOUR_REF</code>\n<code>/verify abyssinia YOUR_REF</code>\n<code>/verify dashen YOUR_REF</code>\n\n<i>Example: /verify telebirr FT260920042</i>`
+              ? `⚠️ <b>የተሳሳተ አጻጻፍ።</b>\n\nአጠቃቀም:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\n<code>/verify cbe የደረሰኝ_ቁጥር</code>\n<code>/verify abyssinia የደረሰኝ_ቁጥር</code>\n<code>/verify dashen የደረሰኝ_ቁጥር</code>\n\n<i>ምሳሌ: /verify cbe FT260920042</i>`
+              : `⚠️ <b>Invalid format.</b>\n\nUsage:\n<code>/verify telebirr YOUR_REF</code>\n<code>/verify cbe YOUR_REF</code>\n<code>/verify abyssinia YOUR_REF</code>\n<code>/verify dashen YOUR_REF</code>\n\n<i>Example: /verify cbe FT260920042</i>`
           );
           return NextResponse.json({ ok: true });
         }
@@ -9349,7 +9362,7 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         const { data: existingPayment } = await supabaseAdmin
           .from('payments')
           .select('id')
-          .ilike('reference', reference.trim())
+          .ilike('reference', reference)
           .maybeSingle();
 
         if (existingPayment) {
@@ -9374,11 +9387,12 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         const verifyResult = await verifyTelebirrPayment(reference, 300, bank);
 
         if (!verifyResult.success) {
+          const failMsg = payerIsAm ? (verifyResult.messageAm || verifyResult.message) : verifyResult.message;
           await tgSend(
             chatId,
             payerIsAm
-              ? `❌ <b>ክፍያው አልተረጋገጠም</b>\n\n${verifyResult.message}\n\nእባክዎ የደረሰኝ ቁጥርዎን ደግመው ያረጋግጡና እንደገና ይሞክሩ።`
-              : `❌ <b>Verification Failed</b>\n\n${verifyResult.message}\n\nPlease double-check your reference number and try again.`
+              ? `❌ <b>ክፍያው አልተረጋገጠም</b>\n\n${failMsg}\n\nእባክዎ የደረሰኝ ቁጥርዎን ደግመው ያረጋግጡና እንደገና ይሞክሩ።`
+              : `❌ <b>Verification Failed</b>\n\n${failMsg}\n\nPlease double-check your reference number and try again.`
           );
           return NextResponse.json({ ok: true });
         }
@@ -9408,7 +9422,7 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         try {
           await supabaseAdmin.from('payments').insert({
             user_id: chatId,
-            bank,
+            bank: verifyResult.bank || bank || 'telebirr',
             reference,
             amount: verifyResult.paidAmount ?? 300,
           });
@@ -10138,15 +10152,26 @@ All administrators of this channel can now use bot admin features, and approved 
 
       // Handle 30-Day Unified Membership Pass Payment Reference Submission
       if (session.step && session.step.startsWith('awaiting_payment_for_membership:')) {
-        const txRef = text.trim();
+        const txRef = extractTransactionReference(text);
         const lang = getLanguage(session.draft_data, chatId);
         const isAm = lang === 'am';
+
+        if (!txRef) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: isAm
+              ? `❌ <b>የደረሰኝ ቁጥር አልተገኘም</b>\n\nእባክዎ ትክክለኛውን የግብይት ቁጥር (ለምሳሌ <code>FT...</code> ወይም <code>TX...</code>) ያስገቡ።`
+              : `❌ <b>No Reference Code Found</b>\n\nPlease enter a valid transaction reference code (e.g. <code>FT...</code> or <code>TX...</code>).`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
 
         await sendTelegram('sendMessage', {
           chat_id: chatId,
           text: isAm
-            ? `⏳ <b>የግብይት ደረሰኝ ቁጥር <code>${txRef}</code> በ Verify.ET እየተረጋገጠ ነው...</b>`
-            : `⏳ <b>Verifying transaction reference <code>${txRef}</code> with Verify.ET...</b>`,
+            ? `⏳ <b>የግብይት ደረሰኝ ቁጥር <code>${escapeHtml(txRef)}</code> በ Verify.ET እየተረጋገጠ ነው...</b>`
+            : `⏳ <b>Verifying transaction reference <code>${escapeHtml(txRef)}</code> with Verify.ET...</b>`,
           parse_mode: 'HTML',
         });
 
@@ -10168,15 +10193,17 @@ All administrators of this channel can now use bot admin features, and approved 
           return NextResponse.json({ ok: true });
         }
 
-        const bankHint = txRef.toUpperCase().startsWith('FT') ? 'cbe' : undefined;
+        const isCbe = txRef.toUpperCase().startsWith('FT') || txRef.toLowerCase().includes('cbe.com.et');
+        const bankHint = isCbe ? 'cbe' : undefined;
         const verifyRes = await verifyTelebirrPayment(txRef, 300, bankHint);
 
         if (!verifyRes.success) {
+          const failMsg = isAm ? (verifyRes.messageAm || verifyRes.message) : verifyRes.message;
           await sendTelegram('sendMessage', {
             chat_id: chatId,
             text: isAm
-              ? `❌ <b>ክፍያው አልተረጋገጠም</b>\n\n${verifyRes.message}\n\nእባክዎ የደረሰኝ ቁጥርዎን (ለምሳሌ <code>FT...</code> ወይም <code>TX...</code>) ደግመው ያረጋግጡና እንደገና ይላኩ።`
-              : `❌ <b>Verification Failed</b>\n\n${verifyRes.message}\n\nPlease double-check your transaction reference code (e.g. <code>FT...</code> or <code>TX...</code>) and try again.`,
+              ? `❌ <b>ክፍያው አልተረጋገጠም</b>\n\n${failMsg}\n\nእባክዎ የደረሰኝ ቁጥርዎን (ለምሳሌ <code>FT...</code> ወይም <code>TX...</code>) ደግመው ያረጋግጡና እንደገና ይላኩ።`
+              : `❌ <b>Verification Failed</b>\n\n${failMsg}\n\nPlease double-check your transaction reference code (e.g. <code>FT...</code> or <code>TX...</code>) and try again.`,
             parse_mode: 'HTML',
           });
           return NextResponse.json({ ok: true });
@@ -10250,27 +10277,40 @@ All administrators of this channel can now use bot admin features, and approved 
 
       // Handle Payment Reference Submission
       if (session.step.startsWith('awaiting_payment_for_unlock:')) {
-        const txRef = text.trim();
+        const txRef = extractTransactionReference(text);
         const lang = getLanguage(session.draft_data, chatId);
         const isAm = lang === 'am';
+
+        if (!txRef) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: isAm
+              ? `❌ <b>የደረሰኝ ቁጥር አልተገኘም</b>\n\nእባክዎ ትክክለኛውን የግብይት ቁጥር (ለምሳሌ <code>FT...</code> ወይም <code>TX...</code>) ያስገቡ።`
+              : `❌ <b>No Reference Code Found</b>\n\nPlease enter a valid transaction reference code (e.g. <code>FT...</code> or <code>TX...</code>).`,
+            parse_mode: 'HTML',
+          });
+          return NextResponse.json({ ok: true });
+        }
 
         await sendTelegram('sendMessage', {
           chat_id: chatId,
           text: isAm
-            ? `⏳ <b>የግብይት ደረሰኝ ቁጥር <code>${txRef}</code> እየተረጋገጠ ነው...</b>`
-            : `⏳ <b>Verifying transaction reference <code>${txRef}</code>...</b>`,
+            ? `⏳ <b>የግብይት ደረሰኝ ቁጥር <code>${escapeHtml(txRef)}</code> እየተረጋገጠ ነው...</b>`
+            : `⏳ <b>Verifying transaction reference <code>${escapeHtml(txRef)}</code>...</b>`,
           parse_mode: 'HTML',
         });
 
-        const bankHint = txRef.toUpperCase().startsWith('FT') ? 'cbe' : undefined;
+        const isCbe = txRef.toUpperCase().startsWith('FT') || txRef.toLowerCase().includes('cbe.com.et');
+        const bankHint = isCbe ? 'cbe' : undefined;
         const verifyRes = await verifyTelebirrPayment(txRef, 300, bankHint);
 
         if (!verifyRes.success) {
+          const failMsg = isAm ? (verifyRes.messageAm || verifyRes.message) : verifyRes.message;
           await sendTelegram('sendMessage', {
             chat_id: chatId,
             text: isAm
-              ? `❌ <b>ክፍያው አልተረጋገጠም</b>\n\n${verifyRes.message}\n\nእባክዎ የደረሰኝ ቁጥርዎን (ለምሳሌ <code>FT...</code> ወይም <code>TX...</code>) ደግመው ያረጋግጡና እንደገና ይላኩ።`
-              : `❌ <b>Verification Failed</b>\n\n${verifyRes.message}\n\nPlease double-check your transaction reference code (e.g. <code>FT...</code> or <code>TX...</code>) and try again.`,
+              ? `❌ <b>ክፍያው አልተረጋገጠም</b>\n\n${failMsg}\n\nእባክዎ የደረሰኝ ቁጥርዎን (ለምሳሌ <code>FT...</code> ወይም <code>TX...</code>) ደግመው ያረጋግጡና እንደገና ይላኩ።`
+              : `❌ <b>Verification Failed</b>\n\n${failMsg}\n\nPlease double-check your transaction reference code (e.g. <code>FT...</code> or <code>TX...</code>) and try again.`,
             parse_mode: 'HTML',
           });
           return NextResponse.json({ ok: true });

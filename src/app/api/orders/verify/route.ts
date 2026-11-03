@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
-import { verifyTelebirrPayment } from '@/lib/verify-et';
+import { verifyTelebirrPayment, extractTransactionReference } from '@/lib/verify-et';
 
 const verifyOrderSchema = z.object({
   order_id: z.string().uuid('Invalid order_id UUID format'),
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     });
 
     const { order_id, telegram_id, transaction_reference } = parsed;
-    const cleanTxRef = transaction_reference.trim();
+    const cleanTxRef = extractTransactionReference(transaction_reference);
 
     // 1. Retrieve order record from database
     const { data: order, error: orderFetchError } = await supabaseAdmin
@@ -77,13 +77,20 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. Call verify.et to validate Telebirr receipt against the specific order fee amount
+    // 3. Call verify.et to validate payment receipt against the specific order fee amount
     const requiredFee = Number(order.amount);
-    const verification = await verifyTelebirrPayment(cleanTxRef, requiredFee);
+    const isCbe = cleanTxRef.toUpperCase().startsWith('FT') || cleanTxRef.toLowerCase().includes('cbe.com.et');
+    const bankHint = isCbe ? 'cbe' : undefined;
+    const verification = await verifyTelebirrPayment(cleanTxRef, requiredFee, bankHint);
 
     if (!verification.success) {
       return NextResponse.json(
-        { error: `Payment Verification Failed: ${verification.message}` },
+        {
+          error: verification.message,
+          message: verification.message,
+          messageAm: verification.messageAm,
+          errorCode: verification.errorCode,
+        },
         { status: 400 }
       );
     }
