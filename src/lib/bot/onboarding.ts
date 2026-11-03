@@ -15,6 +15,9 @@
 
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { saveSession } from '@/lib/bot-session-store';
+import { decodeImage } from 'fayda-decoder';
+import { verifySignature } from 'fayda-decoder/verify';
+import { persistFaydaVerification } from '@/lib/fayda-verification';
 import {
   sendMessage,
   editMessageText,
@@ -428,6 +431,7 @@ export async function handleOnboardingMessage(
   message: {
     message_id?: number;
     text?: string;
+    from?: { first_name?: string; last_name?: string; username?: string };
     contact?: { phone_number: string; first_name?: string; last_name?: string };
     photo?: { file_id: string; file_size?: number }[];
   },
@@ -507,7 +511,7 @@ export async function handleOnboardingMessage(
     return true;
   }
 
-  // ── KYC photo upload ──────────────────────────────────────────────────────
+  // ── KYC photo upload (In-memory extraction only - 0 bytes saved to storage) ────────
   if (step === 'kyc' && message.photo && message.photo.length > 0) {
     // Pick highest-resolution photo
     const bestPhoto = message.photo.reduce((a, b) =>
@@ -515,40 +519,53 @@ export async function handleOnboardingMessage(
     );
 
     try {
-      await sendMessage(chatId, `⏳ <b>Uploading your document securely...</b>`);
+      await sendMessage(chatId, `⏳ <b>Processing your identity document in memory...</b>`);
 
-      // 1. Download from Telegram
+      // 1. Download into RAM buffer
       const fileBuffer = await getFile(bestPhoto.file_id);
 
-      // 2. Upload to Supabase Storage (private bucket)
-      const storagePath = `${chatId}/${Date.now()}.jpg`;
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from('kyc-documents')
-        .upload(storagePath, fileBuffer, {
-          contentType: 'image/jpeg',
-          upsert: true,
-        });
+      // 2. Extract data in memory (Zero storage policy to protect free tier database)
+      let faydaVerified = false;
+      let extractedFan = '';
+      let extractedName = '';
 
-      if (uploadError) {
-        console.error('[onboarding] KYC upload failed:', uploadError.message);
-        await sendMessage(
-          chatId,
-          `❌ <b>Upload failed.</b> Please try again by sending your ID photo.`
-        );
-        return true;
+      try {
+        const decodeResult = await decodeImage(new Uint8Array(fileBuffer), { includeFace: false });
+        if (decodeResult.ok && decodeResult.fields.fan) {
+          const sigResult = await verifySignature(decodeResult, {
+            publicKeyPem: process.env.FAYDA_PUBLIC_KEY_PEM,
+          });
+          if (sigResult.verified) {
+            faydaVerified = true;
+            extractedFan = decodeResult.fields.fan;
+            extractedName = decodeResult.fields.full_name || '';
+            const extractedGender = decodeResult.fields.gender === 'M' ? 'Male' : decodeResult.fields.gender === 'F' ? 'Female' : (decodeResult.fields.gender || undefined);
+            const extractedDob = decodeResult.fields.date_of_birth || undefined;
+
+            await persistFaydaVerification(chatId, extractedFan, extractedName || undefined, {
+              gender: extractedGender,
+              dob: extractedDob,
+              verifiedSource: 'onboarding_photo_rs256_qr',
+              from: message.from,
+            });
+          }
+        }
+      } catch (decodeErr) {
+        console.warn('[onboarding] In-memory Fayda QR decode note:', decodeErr);
       }
 
-      // 3. Generate display code and finalise profile
+      // 3. Generate display code and finalise profile (NO files stored in storage)
       const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
       const displayCode: string = codeRow || `RM${Date.now()}`;
 
       const updatedProfile = await updateProfile(chatId, {
-        kyc_doc_path: storagePath,
-        kyc_status: 'pending',
+        kyc_doc_path: null, // ZERO STORAGE: Free tier database safe (no images stored)
+        kyc_status: faydaVerified ? 'verified' : 'pending',
         status: 'active',
         onboarding_step: 'completed',
         display_code: displayCode,
         telegram_username: telegramUsername || null,
+        full_name: extractedName || undefined,
       });
 
       if (!updatedProfile) {

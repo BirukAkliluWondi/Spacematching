@@ -2817,6 +2817,54 @@ Please reply with the description, perks, or notes for this channel post.
       await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
     };
 
+    const sendAdminPostContactStep = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      await saveSession({
+        telegram_id: chatId,
+        step: 'admin_post_contact',
+        draft_data: { ...draft, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      let adminHandle = 'WWEHID';
+      try {
+        const { data: adminUser } = await supabaseAdmin
+          .from('users')
+          .select('username')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
+        if (adminUser?.username) {
+          adminHandle = adminUser.username.replace('@', '');
+        }
+      } catch {}
+
+      const text = `
+📢 <b>SpaceMatch Admin · Step 7: Matched Contact Setup</b>
+
+Who should matched users contact when their connection is unlocked?
+
+• <b>Option 1 — SpaceMatch Concierge (@${adminHandle}):</b>
+Tap the button below. Matched users will be connected with you (@${adminHandle}) to coordinate room visits.
+
+• <b>Option 2 — Resident's Real Contact:</b>
+Reply in this chat with the resident's contact details:
+<i>Format: <code>&lt;Full Name&gt; | &lt;Phone Number&gt; | &lt;@username or None&gt;</code></i>
+<i>Example: <code>Selamawit Tadesse | 0911223344 | @selam_t</code></i>
+      `.trim();
+
+      const inlineKeyboard = [
+        [{ text: `👑 SpaceMatch Concierge (@${adminHandle})`, callback_data: 'admin_post_contact_concierge' }],
+        [{ text: '⬅️ Back to Description', callback_data: 'admin_post_back_to_bio' }],
+        [{ text: '🏠 Cancel', callback_data: 'nav_start' }],
+      ];
+
+      await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
     const sendAdminPostPreviewCard = async (
       chatId: number,
       draft: Record<string, any>,
@@ -2849,6 +2897,11 @@ Please reply with the description, perks, or notes for this channel post.
       const isSpace = draft.category === 'entire' || draft.category === 'room_avail';
       const catTitle = isSpace ? 'Space Available' : 'Roommate Search';
 
+      const isConcierge = draft.is_concierge !== false;
+      const contactPreview = isConcierge
+        ? `SpaceMatch Concierge (@${draft.contact_username || 'WWEHID'})`
+        : `${draft.contact_name || 'Resident'} (${draft.contact_phone || 'N/A'}${draft.contact_username ? `, @${draft.contact_username}` : ''})`;
+
       const previewText = `
 📋 <b>SpaceMatch Admin · Review Channel Post</b>
 <i>This listing will be saved to Supabase first, then published with tracking buttons:</i>
@@ -2862,6 +2915,7 @@ Please reply with the description, perks, or notes for this channel post.
 • <b>${isSpace ? 'Total Rent:' : 'Budget Cap / Rent:'}</b> <code>${isSpace ? '' : 'Up to '}${Number(budgetNum).toLocaleString()} ETB / month</code>
 • <b>Description:</b> ${bioStr}
 • <b>Ideal Match / Housemate:</b> Clean, respectful, and compatible housemate.
+• <b>Contact for Matched Users:</b> <code>${escapeHtml(contactPreview)}</code>
 
 🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>
 ━━━━━━━━━━━━━━━━━━━━━
@@ -2870,7 +2924,7 @@ Please reply with the description, perks, or notes for this channel post.
       const inlineKeyboard = [
         [{ text: '📢 Publish to Channel Live 🚀', callback_data: 'admin_post_confirm' }],
         [
-          { text: '✏️ Restart / Edit Details', callback_data: 'admin_post_start' },
+          { text: '✏️ Edit Contact', callback_data: 'admin_post_proceed_contact' },
           { text: '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
@@ -3040,52 +3094,96 @@ Transfer <code>300 ETB</code> to any verified account (Account Holder: <b>${paym
       const requesterIsAm = requesterTgId ? getUserLanguage(requesterTgId) === 'am' : false;
       const targetIsAm = targetTgId ? getUserLanguage(targetTgId) === 'am' : false;
 
-      const buildRevealMsg = (other: any, isAmUser: boolean) => {
-        const cleanHandle = (other?.telegram_username || '').replace('@', '');
-        const tgHandle = cleanHandle ? `@${cleanHandle}` : 'N/A';
-        const otherPhone = other?.phone_number || 'N/A';
-        const otherName = other?.full_name || (isAmUser ? 'የተረጋገጠ አባል' : 'Verified Member');
+      const resolveContactDossier = async (profile: any, isAmUser: boolean) => {
+        let cleanHandle = (profile?.telegram_username || '').replace('@', '').trim();
+        let phone = (profile?.phone_number || '').trim();
+        let name = (profile?.full_name || '').trim();
+        let isConcierge = false;
 
-        return isAmUser
-          ? `🎉 <b>እንኳን ደስ አላችሁ! ተዛምዳችኋል!</b>\n\nየሁለታችሁም አባልነት ተረጋግጧል። ግንኙነታችሁ ተጠናቋል!\n\n👤 <b>ስም:</b> ${otherName}\n📞 <b>ስልክ:</b> <code>${otherPhone}</code>\n💬 <b>ቴሌግራም:</b> ${tgHandle}\n\nመልካም የጋራ ኑሮ ይሁንላችሁ! 🏠🤝`
-          : `🎉 <b>YOU'RE MATCHED!</b>\n\nMembership confirmed. Your connection is complete!\n\n👤 <b>Name:</b> ${otherName}\n📞 <b>Phone:</b> <code>${otherPhone}</code>\n💬 <b>Telegram:</b> ${tgHandle}\n\nGood luck finding your home together! 🏠🤝`;
+        const isSyntheticOrAdmin =
+          cleanHandle.startsWith('admin_') ||
+          phone.startsWith('admin:') ||
+          (profile?.telegram_id && profile.telegram_id < 0) ||
+          phone.toLowerCase().includes('concierge') ||
+          cleanHandle.toLowerCase() === 'wwehid';
+
+        if (isSyntheticOrAdmin) {
+          isConcierge = true;
+          const rawAdminId =
+            Number(cleanHandle.replace('admin_', '')) ||
+            Number(phone.replace('admin:', '')) ||
+            (await getAdminIds())[0] ||
+            980853835;
+
+          let resolvedAdminHandle = 'WWEHID';
+          try {
+            const { data: adminUser } = await supabaseAdmin
+              .from('users')
+              .select('username')
+              .eq('telegram_id', rawAdminId)
+              .maybeSingle();
+            if (adminUser?.username) {
+              resolvedAdminHandle = adminUser.username.replace('@', '');
+            }
+          } catch {}
+
+          cleanHandle = resolvedAdminHandle;
+          phone = isAmUser ? 'በስፔስማች አስተዳዳሪ በኩል የሚገናኝ' : 'Contact via SpaceMatch Coordinator';
+          name = isAmUser ? 'የተረጋገጠ የክፍል ማስታወቂያ (በኮንሲየርጅ የሚመራ)' : 'SpaceMatch Verified Listing (Concierge Managed)';
+        }
+
+        const tgHandle = cleanHandle ? `@${cleanHandle}` : 'N/A';
+        const displayPhone = phone || 'N/A';
+        const displayName = name || (isAmUser ? 'የተረጋገጠ አባል' : 'Verified Member');
+
+        let msg = isAmUser
+          ? `🎉 <b>እንኳን ደስ አላችሁ! ተዛምዳችኋል!</b>\n\nየሁለታችሁም አባልነት ተረጋግጧል። ግንኙነታችሁ ተጠናቋል!\n\n👤 <b>ስም:</b> ${escapeHtml(displayName)}\n📞 <b>ስልክ:</b> <code>${escapeHtml(displayPhone)}</code>\n💬 <b>ቴሌግራም:</b> ${tgHandle}\n\nመልካም የጋራ ኑሮ ይሁንላችሁ! 🏠🤝`
+          : `🎉 <b>YOU'RE MATCHED!</b>\n\nMembership confirmed. Your connection is complete!\n\n👤 <b>Name:</b> ${escapeHtml(displayName)}\n📞 <b>Phone:</b> <code>${escapeHtml(displayPhone)}</code>\n💬 <b>Telegram:</b> ${tgHandle}\n\nGood luck finding your home together! 🏠🤝`;
+
+        if (isConcierge && cleanHandle) {
+          msg += isAmUser
+            ? `\n\n💡 <i>ይህ ማስታወቂያ በስፔስማች አስተዳዳሪ በኩል የሚስተናገድ ነው። ከታች ያለውን ቁልፍ በመጫን ከአስተዳዳሪው (@${cleanHandle}) ጋር በቀጥታ በመነጋገር የክፍሉን ጉብኝት ማመቻቸት ይችላሉ።</i>`
+            : `\n\n💡 <i>This listing is managed by SpaceMatch Concierge. Tap the button below to coordinate your room visit directly with our team!</i>`;
+        }
+
+        const buttonText = isAmUser
+          ? (isConcierge ? `💬 ከአስተዳዳሪ ጋር አውራ (@${cleanHandle}) ↗️` : '💬 በቴሌግራም አውራ')
+          : (isConcierge ? `💬 Chat with SpaceMatch Coordinator (@${cleanHandle}) ↗️` : '💬 Open Chat on Telegram');
+
+        const markup = cleanHandle
+          ? { inline_keyboard: [[{ text: buttonText, url: `https://t.me/${cleanHandle}` }]] }
+          : undefined;
+
+        return { text: msg, cleanHandle, markup, isConcierge };
       };
 
       const getDisclaimerText = (isAmUser: boolean) => isAmUser
         ? `⚠️ <b>ማሳሰቢያ:</b> የእኛ ስራ የተረጋገጡ የቤት ጓደኞችን ማገናኘት ብቻ ነው። ከግንኙነቱ በኋላ ለሚፈጠሩ ማናቸውም ነገሮች ስፔስማች አዲስ ኃላፊነት አይወስድም።`
         : `⚠️ <b>Disclaimer:</b> Our job is to connect verified roommates. SpaceMatch Addis does not take responsibility for anything that happens after roommates are matched up.`;
 
-      const targetHandle = (targetData?.telegram_username || '').replace('@', '');
-      const requesterHandle = (requesterData?.telegram_username || '').replace('@', '');
-
-      const requesterRevealMarkup = targetHandle
-        ? { inline_keyboard: [[{ text: requesterIsAm ? '💬 በቴሌግራም አውራ' : '💬 Open Chat on Telegram', url: `https://t.me/${targetHandle}` }]] }
-        : undefined;
-
-      const targetRevealMarkup = requesterHandle
-        ? { inline_keyboard: [[{ text: targetIsAm ? '💬 በቴሌግራም አውራ' : '💬 Open Chat on Telegram', url: `https://t.me/${requesterHandle}` }]] }
-        : undefined;
+      const targetContact = await resolveContactDossier(targetData, requesterIsAm);
+      const requesterContact = await resolveContactDossier(requesterData, targetIsAm);
 
       if (requesterTgId) {
         await tgSend(requesterTgId, getDisclaimerText(requesterIsAm));
-        await tgSend(requesterTgId, buildRevealMsg(targetData, requesterIsAm), requesterRevealMarkup);
+        await tgSend(requesterTgId, targetContact.text, targetContact.markup);
       }
 
       const targetNotifyId = (targetTgId && targetTgId > 0)
         ? targetTgId
-        : (Number(targetData?.telegram_username?.replace('admin_', '')) || Number(targetData?.phone_number?.replace('admin:', '')) || (await getAdminIds())[0] || 800701176);
+        : (Number(targetData?.telegram_username?.replace('admin_', '')) || Number(targetData?.phone_number?.replace('admin:', '')) || (await getAdminIds())[0] || 980853835);
 
       if (targetNotifyId) {
         if (triggerChatId === targetNotifyId && messageIdToEdit) {
-          const targetCardText = `${getDisclaimerText(targetIsAm)}\n\n${buildRevealMsg(requesterData, targetIsAm)}`;
+          const targetCardText = `${getDisclaimerText(targetIsAm)}\n\n${requesterContact.text}`;
           const targetCardButtons = [
-            ...(targetRevealMarkup ? targetRevealMarkup.inline_keyboard : []),
+            ...(requesterContact.markup ? requesterContact.markup.inline_keyboard : []),
             [{ text: targetIsAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
           ];
           await sendOrEditCard(targetNotifyId, targetCardText, targetCardButtons, messageIdToEdit);
         } else {
           await tgSend(targetNotifyId, getDisclaimerText(targetIsAm));
-          await tgSend(targetNotifyId, buildRevealMsg(requesterData, targetIsAm), targetRevealMarkup);
+          await tgSend(targetNotifyId, requesterContact.text, requesterContact.markup);
         }
 
         // Schedule 24-hour follow-up check-in for listing owner
@@ -5261,6 +5359,50 @@ ${cleanTg ? `• <b>Telegram:</b> @${cleanTg}\n` : ''}
         return NextResponse.json({ ok: true });
       }
 
+      if (callbackData === 'admin_post_back_to_bio') {
+        const session = getSession(chatId);
+        await sendAdminPostBioStep(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'admin_post_proceed_contact') {
+        const session = getSession(chatId);
+        await sendAdminPostContactStep(chatId, session.draft_data, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'admin_post_contact_concierge') {
+        const session = getSession(chatId);
+        const draft = session.draft_data || {};
+        let adminUsername = 'WWEHID';
+        try {
+          const { data: adminUser } = await supabaseAdmin
+            .from('users')
+            .select('username')
+            .eq('telegram_id', chatId)
+            .maybeSingle();
+          if (adminUser?.username) {
+            adminUsername = adminUser.username.replace('@', '');
+          }
+        } catch {}
+
+        const updatedDraft = {
+          ...draft,
+          is_concierge: true,
+          contact_name: 'SpaceMatch Verified Listing (Concierge)',
+          contact_phone: 'SpaceMatch Concierge',
+          contact_username: adminUsername,
+        };
+        await saveSession({
+          telegram_id: chatId,
+          step: 'admin_post_preview',
+          draft_data: { ...updatedDraft, card_msg_id: msgId },
+          updated_at: new Date().toISOString(),
+        });
+        await sendAdminPostPreviewCard(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
       if (callbackData === 'admin_post_use_default_bio') {
         const session = getSession(chatId);
         const updatedDraft = {
@@ -5272,11 +5414,11 @@ ${cleanTg ? `• <b>Telegram:</b> @${cleanTg}\n` : ''}
         };
         await saveSession({
           telegram_id: chatId,
-          step: 'admin_post_preview',
+          step: 'admin_post_contact',
           draft_data: { ...updatedDraft, card_msg_id: msgId },
           updated_at: new Date().toISOString(),
         });
-        await sendAdminPostPreviewCard(chatId, updatedDraft, msgId);
+        await sendAdminPostContactStep(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -5310,6 +5452,23 @@ ${cleanTg ? `• <b>Telegram:</b> @${cleanTg}\n` : ''}
         const cleanBio = rawBio.trim();
         const bioStr = `Prefers: ${prefGenderFormatted} | ${rawBio}`;
 
+        let adminUsername = 'WWEHID';
+        try {
+          const { data: adminUser } = await supabaseAdmin
+            .from('users')
+            .select('username')
+            .eq('telegram_id', chatId)
+            .maybeSingle();
+          if (adminUser?.username) {
+            adminUsername = adminUser.username.replace('@', '');
+          }
+        } catch {}
+
+        const isConcierge = draft.is_concierge !== false;
+        const contactName = draft.contact_name || (isConcierge ? 'SpaceMatch Verified Listing (Concierge)' : 'Verified Resident');
+        const contactPhone = draft.contact_phone || (isConcierge ? 'SpaceMatch Concierge' : 'Contact via SpaceMatch');
+        const contactUsername = draft.contact_username || (isConcierge ? adminUsername : null);
+
         const codeDigits = parseInt(displayCode.replace(/\D/g, ''), 10) || Math.floor(Math.random() * 1000000);
         const syntheticTgId = - (1000000000 + codeDigits);
 
@@ -5327,9 +5486,9 @@ ${cleanTg ? `• <b>Telegram:</b> @${cleanTg}\n` : ''}
             kyc_status: 'verified',
             status: 'active',
             onboarding_step: 'completed',
-            telegram_username: `admin_${chatId}`,
-            phone_number: `admin:${chatId}`,
-            full_name: 'Verified Channel Listing',
+            telegram_username: contactUsername,
+            phone_number: contactPhone,
+            full_name: contactName,
           }, { onConflict: 'display_code' })
           .select('*')
           .single();
@@ -5343,8 +5502,8 @@ ${cleanTg ? `• <b>Telegram:</b> @${cleanTg}\n` : ''}
           id: savedProfile?.id || displayCode,
           user_telegram_id: syntheticTgId,
           display_code: displayCode,
-          user_name: 'Verified Channel Listing',
-          username: `admin_${chatId}`,
+          user_name: contactName,
+          username: contactUsername,
           age: 24,
           my_gender: draft.gender || 'Any',
           preferred_gender: prefGenderStr,
@@ -6246,9 +6405,9 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
                 kyc_status: 'verified',
                 status: 'active',
                 onboarding_step: 'completed',
-                telegram_username: `admin_${primaryAdmin}`,
-                phone_number: `admin:${primaryAdmin}`,
-                full_name: 'Verified Channel Listing',
+                telegram_username: 'WWEHID',
+                phone_number: 'SpaceMatch Concierge',
+                full_name: 'SpaceMatch Verified Listing (Concierge)',
               }, { onConflict: 'display_code' })
               .select('*')
               .maybeSingle();
@@ -8309,10 +8468,63 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         };
         await saveSession({
           telegram_id: chatId,
+          step: 'admin_post_contact',
+          draft_data: { ...updatedDraft, card_msg_id: activeMsgId },
+          updated_at: new Date().toISOString(),
+        });
+        await sendAdminPostContactStep(chatId, updatedDraft, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Admin Post Wizard: Step 7 Contact Information Text Input
+      if (session.step === 'admin_post_contact') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const rawContact = text.trim();
+
+        let contactName = 'Verified Resident';
+        let contactPhone = '';
+        let contactUsername: string | null = null;
+
+        if (rawContact.includes('|')) {
+          const parts = rawContact.split('|').map(s => s.trim());
+          if (parts[0]) contactName = parts[0];
+          if (parts[1]) contactPhone = parts[1];
+          if (parts[2]) contactUsername = parts[2].replace(/^@/, '');
+        } else {
+          const phoneMatch = rawContact.match(/(\+?251\d{9}|09\d{8}|07\d{8})/);
+          if (phoneMatch) {
+            contactPhone = phoneMatch[0];
+            const remaining = rawContact.replace(contactPhone, '').trim();
+            const userMatch = remaining.match(/@([a-zA-Z0-9_]{4,})/);
+            if (userMatch) {
+              contactUsername = userMatch[1];
+              contactName = remaining.replace(userMatch[0], '').trim() || 'Verified Resident';
+            } else {
+              contactName = remaining || 'Verified Resident';
+            }
+          } else {
+            contactPhone = rawContact;
+          }
+        }
+
+        const updatedDraft = {
+          ...session.draft_data,
+          is_concierge: false,
+          contact_name: contactName,
+          contact_phone: contactPhone || 'Contact via SpaceMatch',
+          contact_username: contactUsername,
+        };
+
+        await saveSession({
+          telegram_id: chatId,
           step: 'admin_post_preview',
           draft_data: { ...updatedDraft, card_msg_id: activeMsgId },
           updated_at: new Date().toISOString(),
         });
+
         await sendAdminPostPreviewCard(chatId, updatedDraft, activeMsgId);
         return NextResponse.json({ ok: true });
       }
@@ -8993,9 +9205,9 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
                 kyc_status: 'verified',
                 status: 'active',
                 onboarding_step: 'completed',
-                telegram_username: `admin_${primaryAdmin}`,
-                phone_number: `admin:${primaryAdmin}`,
-                full_name: 'Verified Channel Listing',
+                telegram_username: 'WWEHID',
+                phone_number: 'SpaceMatch Concierge',
+                full_name: 'SpaceMatch Verified Listing (Concierge)',
               }, { onConflict: 'display_code' })
               .select('*')
               .maybeSingle();
@@ -10189,6 +10401,7 @@ All administrators of this channel can now use bot admin features, and approved 
             text: message.text,
             contact: message.contact,
             photo: message.photo,
+            from: message.from,
           },
           message.from?.username
         );
