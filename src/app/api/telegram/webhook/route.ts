@@ -49,7 +49,7 @@ import {
   initiateOnboarding,
 } from '@/lib/bot/onboarding';
 import { validateFaydaFan } from '@/lib/fayda-qr-decoder';
-import { verifyFaydaFan } from '@/lib/fayda-verification';
+import { verifyFaydaFan, persistFaydaVerification } from '@/lib/fayda-verification';
 import { decodeImage } from 'fayda-decoder';
 import { verifySignature } from 'fayda-decoder/verify';
 import { getLanguage, I18N, SupportedLang } from '@/lib/bot-i18n';
@@ -694,8 +694,8 @@ ${postLink ? `• <b>Channel Link:</b> <a href="${postLink}">Open Post in Channe
       rawQuery: string,
       messageIdToEdit?: number
     ) => {
-      const clean = rawQuery.trim().replace(/^@/, '').replace(/^#/, '');
-      if (!clean) {
+      const cleanText = rawQuery.trim().replace(/^[@#]/, '').trim();
+      if (!cleanText) {
         await sendOrEditCard(
           chatId,
           `⚠️ <b>Please provide a name, username, or Fayda ID to search.</b>`,
@@ -708,44 +708,167 @@ ${postLink ? `• <b>Channel Link:</b> <a href="${postLink}">Open Post in Channe
         return;
       }
 
-      const isNumeric = /^\d+$/.test(clean);
+      const cleanDigits = cleanText.replace(/[\s-]/g, '');
+      const digitOnly = cleanText.replace(/\D/g, '');
+      const isNumeric = /^\d+$/.test(cleanDigits);
+      const tokens = cleanText.split(/\s+/).filter(Boolean);
 
-      // Search users and profiles in parallel
-      const [uNameRes, uUsernameRes, uFaydaRes, pNameRes, pUsernameRes] = await Promise.all([
-        supabaseAdmin.from('users').select('*').or(`first_name.ilike.%${clean}%,last_name.ilike.%${clean}%`).limit(20),
-        supabaseAdmin.from('users').select('*').ilike('username', `%${clean}%`).limit(20),
-        supabaseAdmin.from('users').select('*').ilike('fayda_id_number', `%${clean}%`).limit(20),
-        supabaseAdmin.from('profiles').select('*').ilike('full_name', `%${clean}%`).limit(20),
-        supabaseAdmin.from('profiles').select('*').ilike('telegram_username', `%${clean}%`).limit(20),
+      const userQueries: any[] = [];
+      const profileQueries: any[] = [];
+
+      // 1. Full text / phrase match across users
+      userQueries.push(
+        supabaseAdmin
+          .from('users')
+          .select('*')
+          .or(`first_name.ilike.%${cleanText}%,last_name.ilike.%${cleanText}%,username.ilike.%${cleanText}%,fayda_document_url.ilike.%${cleanText}%`)
+          .limit(25)
+      );
+
+      // 2. Unspaced / stripped FAN digits search (>= 3 digits)
+      if (cleanDigits.length >= 3 && /\d{3,}/.test(cleanDigits)) {
+        userQueries.push(
+          supabaseAdmin
+            .from('users')
+            .select('*')
+            .or(`fayda_id_number.ilike.%${cleanDigits}%,fayda_document_url.ilike.%${cleanDigits}%`)
+            .limit(25)
+        );
+      }
+      if (digitOnly.length >= 3 && digitOnly !== cleanDigits) {
+        userQueries.push(
+          supabaseAdmin
+            .from('users')
+            .select('*')
+            .or(`fayda_id_number.ilike.%${digitOnly}%,fayda_document_url.ilike.%${digitOnly}%`)
+            .limit(25)
+        );
+      }
+
+      // 3. Multi-word name token search across first_name, last_name, fayda_document_url
+      if (tokens.length > 1) {
+        for (const token of tokens.slice(0, 4)) {
+          if (token.length >= 2) {
+            userQueries.push(
+              supabaseAdmin
+                .from('users')
+                .select('*')
+                .or(`first_name.ilike.%${token}%,last_name.ilike.%${token}%,fayda_document_url.ilike.%${token}%`)
+                .limit(20)
+            );
+          }
+        }
+      }
+
+      // 4. Exact / numeric telegram_id search
+      if (isNumeric) {
+        const num = Number(cleanDigits);
+        userQueries.push(
+          supabaseAdmin.from('users').select('*').eq('telegram_id', num).limit(5)
+        );
+        profileQueries.push(
+          supabaseAdmin.from('profiles').select('*').eq('telegram_id', num).limit(5)
+        );
+      }
+
+      // 5. Profiles search: full_name, telegram_username, display_code
+      profileQueries.push(
+        supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .or(`full_name.ilike.%${cleanText}%,telegram_username.ilike.%${cleanText}%,display_code.ilike.%${cleanText}%`)
+          .limit(25)
+      );
+
+      // 6. Profiles search with multi-word tokens
+      if (tokens.length > 1) {
+        for (const token of tokens.slice(0, 4)) {
+          if (token.length >= 2) {
+            profileQueries.push(
+              supabaseAdmin
+                .from('profiles')
+                .select('*')
+                .or(`full_name.ilike.%${token}%,telegram_username.ilike.%${token}%,display_code.ilike.%${token}%`)
+                .limit(20)
+            );
+          }
+        }
+      }
+
+      if (digitOnly.length >= 3) {
+        profileQueries.push(
+          supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .ilike('display_code', `%${digitOnly}%`)
+            .limit(20)
+        );
+      }
+
+      const [userResults, profileResults] = await Promise.all([
+        Promise.all(userQueries),
+        Promise.all(profileQueries),
       ]);
 
       const map = new Map<number, { user?: any; profile?: any }>();
 
-      for (const u of [...(uNameRes.data || []), ...(uUsernameRes.data || []), ...(uFaydaRes.data || [])]) {
-        if (u?.telegram_id) {
-          map.set(Number(u.telegram_id), { user: u });
+      for (const res of userResults) {
+        if (res?.data && Array.isArray(res.data)) {
+          for (const u of res.data) {
+            if (u?.telegram_id) {
+              const tgId = Number(u.telegram_id);
+              const existing = map.get(tgId) || {};
+              existing.user = u;
+              map.set(tgId, existing);
+            }
+          }
         }
       }
 
-      for (const p of [...(pNameRes.data || []), ...(pUsernameRes.data || [])]) {
-        if (p?.telegram_id) {
-          const existing = map.get(Number(p.telegram_id)) || {};
-          existing.profile = p;
-          map.set(Number(p.telegram_id), existing);
+      for (const res of profileResults) {
+        if (res?.data && Array.isArray(res.data)) {
+          for (const p of res.data) {
+            if (p?.telegram_id) {
+              const tgId = Number(p.telegram_id);
+              const existing = map.get(tgId) || {};
+              existing.profile = p;
+              map.set(tgId, existing);
+            }
+          }
         }
       }
 
-      if (isNumeric) {
-        const num = Number(clean);
-        const [uNum, pNum] = await Promise.all([
-          supabaseAdmin.from('users').select('*').eq('telegram_id', num).maybeSingle(),
-          supabaseAdmin.from('profiles').select('*').eq('telegram_id', num).maybeSingle(),
-        ]);
-        if (uNum.data || pNum.data) {
-          const existing = map.get(num) || {};
-          if (uNum.data) existing.user = uNum.data;
-          if (pNum.data) existing.profile = pNum.data;
-          map.set(num, existing);
+      // Fetch missing half (missing users or profiles) for all discovered entries
+      const missingUserTgIds: number[] = [];
+      const missingProfileTgIds: number[] = [];
+      for (const [tgId, data] of map.entries()) {
+        if (!data.user) missingUserTgIds.push(tgId);
+        if (!data.profile) missingProfileTgIds.push(tgId);
+      }
+
+      if (missingUserTgIds.length > 0) {
+        const { data: fetchedUsers } = await supabaseAdmin
+          .from('users')
+          .select('*')
+          .in('telegram_id', missingUserTgIds.slice(0, 50));
+        if (fetchedUsers) {
+          for (const u of fetchedUsers) {
+            const entry = map.get(Number(u.telegram_id));
+            if (entry) entry.user = u;
+          }
+        }
+      }
+
+      if (missingProfileTgIds.length > 0) {
+        const { data: fetchedProfiles } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .in('telegram_id', missingProfileTgIds.slice(0, 50));
+        if (fetchedProfiles) {
+          for (const p of fetchedProfiles) {
+            const entry = map.get(Number(p.telegram_id));
+            if (entry) entry.profile = p;
+          }
         }
       }
 
@@ -775,8 +898,25 @@ ${postLink ? `• <b>Channel Link:</b> <a href="${postLink}">Open Post in Channe
 
       const buttons: any[] = [];
       for (const [tgId, data] of matches) {
-        const name = data.profile?.full_name || [data.user?.first_name, data.user?.last_name].filter(Boolean).join(' ') || `ID: ${tgId}`;
-        const handle = data.user?.username ? `@${data.user.username}` : (data.profile?.telegram_username ? `@${data.profile.telegram_username.replace('@', '')}` : `<code>${tgId}</code>`);
+        let docFullName: string | null = null;
+        if (data.user?.fayda_document_url && typeof data.user.fayda_document_url === 'string' && data.user.fayda_document_url.startsWith('{')) {
+          try {
+            docFullName = JSON.parse(data.user.fayda_document_url).full_name;
+          } catch {}
+        }
+
+        const name =
+          data.profile?.full_name ||
+          docFullName ||
+          [data.user?.first_name, data.user?.last_name].filter(Boolean).join(' ') ||
+          `ID: ${tgId}`;
+
+        const handle = data.user?.username
+          ? `@${data.user.username}`
+          : data.profile?.telegram_username
+          ? `@${data.profile.telegram_username.replace('@', '')}`
+          : `<code>${tgId}</code>`;
+
         const isVerified = data.user?.fayda_status === 'verified' || data.profile?.kyc_status === 'verified';
         const badge = isVerified ? '🛡️ Verified' : '⚠️ Pending';
 
@@ -1603,16 +1743,23 @@ ${genderEmoji} <b>Space Seeker:</b> ${escapeHtml(seekerGenderEn)}
 
       // 1. Update user record
       try {
+        const nameParts = (draft.full_name || userFullName).trim().split(/\s+/);
+        const resolvedFirstName = fromUser?.first_name || nameParts[0] || 'Resident';
+        const resolvedLastName = fromUser?.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : null);
+        const userUpsertObj: Record<string, any> = {
+          telegram_id: chatId,
+          first_name: resolvedFirstName,
+          last_name: resolvedLastName,
+          username: fromUser?.username || null,
+          fayda_status: 'verified',
+          updated_at: new Date().toISOString(),
+        };
+        if (draft.fayda_number) {
+          userUpsertObj.fayda_id_number = String(draft.fayda_number).replace(/\D/g, '');
+        }
         await supabaseAdmin
           .from('users')
-          .upsert({
-            telegram_id: chatId,
-            first_name: fromUser?.first_name || '',
-            last_name: fromUser?.last_name || '',
-            username: fromUser?.username || null,
-            fayda_status: 'verified',
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'telegram_id' });
+          .upsert(userUpsertObj, { onConflict: 'telegram_id' });
       } catch {}
 
       // 2. Upsert into profiles (with resilient schema fallback)
@@ -7832,43 +7979,12 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             return NextResponse.json({ ok: true });
           }
 
-          const nowIso = new Date().toISOString();
-          const faydaMeta = JSON.stringify({
-            fan: photoResult.fan,
-            full_name: photoResult.fullName,
+          await persistFaydaVerification(chatId, photoResult.fan, photoResult.fullName, {
             gender: photoResult.gender,
-            date_of_birth: photoResult.dob,
-            verified_source: 'telegram_photo_rs256_qr',
-            verified_at: nowIso,
+            dob: photoResult.dob,
+            verifiedSource: 'telegram_photo_rs256_qr',
+            from: update.message?.from,
           });
-
-          await supabaseAdmin
-            .from('users')
-            .upsert({
-              telegram_id: chatId,
-              fayda_status: 'verified',
-              fayda_id_number: photoResult.fan,
-              fayda_verified_at: nowIso,
-              fayda_document_url: faydaMeta,
-              gender: photoResult.gender || undefined,
-              updated_at: nowIso,
-            }, { onConflict: 'telegram_id' });
-
-          const profileUpdates: Record<string, any> = {
-            kyc_status: 'verified',
-            status: 'active',
-          };
-          if (photoResult.fullName) {
-            profileUpdates.full_name = photoResult.fullName;
-          }
-          if (photoResult.gender) {
-            profileUpdates.gender = photoResult.gender;
-            profileUpdates.my_gender = photoResult.gender;
-          }
-          await supabaseAdmin
-            .from('profiles')
-            .update(profileUpdates)
-            .eq('telegram_id', chatId);
 
           setFaydaStatusCache(chatId, true);
           await clearSession(chatId);
@@ -7944,19 +8060,11 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           return NextResponse.json({ ok: true });
         }
 
-        await supabaseAdmin
-          .from('users')
-          .upsert({
-            telegram_id: chatId,
-            fayda_status: 'verified',
-            fayda_id_number: fanResult.fanNumber,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'telegram_id' });
-
-        await supabaseAdmin
-          .from('profiles')
-          .update({ kyc_status: 'verified', status: 'active' })
-          .eq('telegram_id', chatId);
+        await persistFaydaVerification(chatId, fanResult.fanNumber, fanResult.fullName, {
+          gender: fanResult.gender,
+          verifiedSource: 'telegram_manual_fan_verhoeff',
+          from: update.message?.from,
+        });
 
         setFaydaStatusCache(chatId, true);
 
@@ -8369,43 +8477,12 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
             return NextResponse.json({ ok: true });
           }
 
-          const nowIso = new Date().toISOString();
-          const faydaMeta = JSON.stringify({
-            fan: photoResult.fan,
-            full_name: photoResult.fullName,
+          await persistFaydaVerification(chatId, photoResult.fan, photoResult.fullName, {
             gender: photoResult.gender,
-            date_of_birth: photoResult.dob,
-            verified_source: 'telegram_photo_rs256_qr',
-            verified_at: nowIso,
+            dob: photoResult.dob,
+            verifiedSource: 'telegram_photo_rs256_qr',
+            from: message.from,
           });
-
-          await supabaseAdmin
-            .from('users')
-            .upsert({
-              telegram_id: chatId,
-              fayda_status: 'verified',
-              fayda_id_number: photoResult.fan,
-              fayda_verified_at: nowIso,
-              fayda_document_url: faydaMeta,
-              gender: photoResult.gender || undefined,
-              updated_at: nowIso,
-            }, { onConflict: 'telegram_id' });
-
-          const profileUpdates: Record<string, any> = {
-            kyc_status: 'verified',
-            status: 'active',
-          };
-          if (photoResult.fullName) {
-            profileUpdates.full_name = photoResult.fullName;
-          }
-          if (photoResult.gender) {
-            profileUpdates.gender = photoResult.gender;
-            profileUpdates.my_gender = photoResult.gender;
-          }
-          await supabaseAdmin
-            .from('profiles')
-            .update(profileUpdates)
-            .eq('telegram_id', chatId);
 
           setFaydaStatusCache(chatId, true);
 
@@ -8433,7 +8510,15 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           return NextResponse.json({ ok: true });
         }
 
-        await completeSeekerOnboarding(chatId, { ...session.draft_data, lang }, activeMsgId, message.from);
+        await persistFaydaVerification(chatId, fanResult.fanNumber, fanResult.fullName, {
+          gender: fanResult.gender,
+          verifiedSource: 'telegram_manual_fan_verhoeff',
+          from: message.from,
+        });
+
+        setFaydaStatusCache(chatId, true);
+
+        await completeSeekerOnboarding(chatId, { ...session.draft_data, lang, fayda_number: fanResult.fanNumber, fayda_status: 'verified' }, activeMsgId, message.from);
         return NextResponse.json({ ok: true });
       }
 
@@ -8484,42 +8569,12 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
             return NextResponse.json({ ok: true });
           }
 
-          const nowIso = new Date().toISOString();
-          const faydaMeta = JSON.stringify({
-            fan: photoResult.fan,
-            full_name: photoResult.fullName,
+          await persistFaydaVerification(chatId, photoResult.fan, photoResult.fullName, {
             gender: photoResult.gender,
-            date_of_birth: photoResult.dob,
-            verified_source: 'telegram_photo_rs256_qr',
-            verified_at: nowIso,
+            dob: photoResult.dob,
+            verifiedSource: 'telegram_photo_rs256_qr',
+            from: update.message?.from,
           });
-
-          await supabaseAdmin
-            .from('users')
-            .upsert({
-              telegram_id: chatId,
-              fayda_status: 'verified',
-              fayda_id_number: photoResult.fan,
-              fayda_verified_at: nowIso,
-              fayda_document_url: faydaMeta,
-              gender: photoResult.gender || undefined,
-              updated_at: nowIso,
-            }, { onConflict: 'telegram_id' });
-
-          const profileUpdates: Record<string, any> = {
-            kyc_status: 'verified',
-          };
-          if (photoResult.fullName) {
-            profileUpdates.full_name = photoResult.fullName;
-          }
-          if (photoResult.gender) {
-            profileUpdates.gender = photoResult.gender;
-            profileUpdates.my_gender = photoResult.gender;
-          }
-          await supabaseAdmin
-            .from('profiles')
-            .update(profileUpdates)
-            .eq('telegram_id', chatId);
 
           setFaydaStatusCache(chatId, true);
           await clearSession(chatId);
@@ -8576,21 +8631,11 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           return NextResponse.json({ ok: true });
         }
 
-        await supabaseAdmin
-          .from('users')
-          .update({
-            fayda_status: 'verified',
-            fayda_id_number: fanResult.fanNumber,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('telegram_id', chatId);
-
-        await supabaseAdmin
-          .from('profiles')
-          .update({
-            kyc_status: 'verified',
-          })
-          .eq('telegram_id', chatId);
+        await persistFaydaVerification(chatId, fanResult.fanNumber, fanResult.fullName, {
+          gender: fanResult.gender,
+          verifiedSource: 'telegram_manual_fan_verhoeff',
+          from: update.message?.from,
+        });
 
         setFaydaStatusCache(chatId, true);
 

@@ -289,7 +289,10 @@ export async function verifyFaydaFan(
           const token = data.token || data.verificationId || `FAYDA-API-${Date.now()}`;
 
           if (telegramId) {
-            await persistFaydaVerification(telegramId, cleanFan, verifiedName);
+            await persistFaydaVerification(telegramId, cleanFan, verifiedName, {
+              gender,
+              verifiedSource: 'fayda_api',
+            });
           }
 
           return {
@@ -338,7 +341,10 @@ export async function verifyFaydaFan(
           const token = data.token || `VERIFY-ET-${Date.now()}`;
 
           if (telegramId) {
-            await persistFaydaVerification(telegramId, cleanFan, verifiedName);
+            await persistFaydaVerification(telegramId, cleanFan, verifiedName, {
+              gender,
+              verifiedSource: 'fayda_api',
+            });
           }
 
           return {
@@ -372,7 +378,9 @@ export async function verifyFaydaFan(
 
   // 6. Persist to database if telegramId was provided
   if (telegramId) {
-    await persistFaydaVerification(telegramId, cleanFan);
+    await persistFaydaVerification(telegramId, cleanFan, undefined, {
+      verifiedSource: 'mosip_checksum',
+    });
   }
 
   return {
@@ -384,42 +392,179 @@ export async function verifyFaydaFan(
   };
 }
 
+export interface PersistFaydaOptions {
+  gender?: string | null;
+  dob?: string | null;
+  verifiedSource?: string | null;
+  from?: {
+    first_name?: string | null;
+    last_name?: string | null;
+    username?: string | null;
+  } | null;
+}
+
 /**
  * Helper to update Supabase users and profiles tables with verified Fayda status.
+ * Guarantees that first_name is NEVER null on users table (avoiding Postgres constraint 23502),
+ * and creates or updates the profiles table row with display_code.
  */
-async function persistFaydaVerification(
+export async function persistFaydaVerification(
   telegramId: number,
   fanNumber: string,
-  fullName?: string
-): Promise<void> {
-  try {
-    const userUpdate: Record<string, any> = {
-      telegram_id: telegramId,
-      fayda_status: 'verified',
-      fayda_id_number: fanNumber,
-      fayda_verified_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    if (fullName) {
-      userUpdate.first_name = fullName;
-    }
+  fullName?: string | null,
+  options?: PersistFaydaOptions
+): Promise<boolean> {
+  const nowIso = new Date().toISOString();
+  const cleanFan = String(fanNumber).replace(/\D/g, '');
 
-    await supabaseAdmin
-      .from('users')
-      .upsert(userUpdate, { onConflict: 'telegram_id' });
-  } catch (userErr) {
-    console.error('[fayda-verification] Error updating users table:', userErr);
+  const faydaMeta = JSON.stringify({
+    fan: cleanFan,
+    full_name: fullName || undefined,
+    gender: options?.gender || undefined,
+    date_of_birth: options?.dob || undefined,
+    verified_source: options?.verifiedSource || 'rs256_qr',
+    verified_at: nowIso,
+  });
+
+  // Query existing user and profile to retain or supplement name information
+  let existingUser: any = null;
+  let existingProf: any = null;
+  try {
+    const [uRes, pRes] = await Promise.all([
+      supabaseAdmin.from('users').select('first_name, last_name, username').eq('telegram_id', telegramId).maybeSingle(),
+      supabaseAdmin.from('profiles').select('id, full_name, telegram_username, display_code, status').eq('telegram_id', telegramId).maybeSingle(),
+    ]);
+    existingUser = uRes.data;
+    existingProf = pRes.data;
+  } catch (fetchErr) {
+    console.warn('[fayda-verification] Warning fetching existing user/profile:', fetchErr);
+  }
+
+  // Derive firstName and lastName guaranteed to be non-null for Postgres NOT NULL constraint
+  let firstName = '';
+  let lastName: string | null = null;
+
+  if (fullName && fullName.trim()) {
+    const parts = fullName.trim().split(/\s+/);
+    firstName = parts[0] || '';
+    lastName = parts.length > 1 ? parts.slice(1).join(' ') : null;
+  }
+
+  if (!firstName) {
+    firstName =
+      options?.from?.first_name ||
+      existingUser?.first_name ||
+      (existingProf?.full_name ? existingProf.full_name.trim().split(/\s+/)[0] : '') ||
+      'Resident';
+    lastName =
+      options?.from?.last_name ||
+      existingUser?.last_name ||
+      (existingProf?.full_name ? existingProf.full_name.trim().split(/\s+/).slice(1).join(' ') || null : null);
+  }
+
+  if (!firstName || !firstName.trim()) {
+    firstName = 'Resident';
+  }
+
+  const rawUsername =
+    options?.from?.username ||
+    existingUser?.username ||
+    (existingProf?.telegram_username ? existingProf.telegram_username.replace(/^@/, '') : null);
+
+  const userUpsertPayload: Record<string, any> = {
+    telegram_id: telegramId,
+    first_name: firstName.trim(),
+    last_name: lastName ? lastName.trim() : null,
+    username: rawUsername ? rawUsername.trim() : null,
+    fayda_status: 'verified',
+    fayda_id_number: cleanFan,
+    fayda_verified_at: nowIso,
+    fayda_document_url: faydaMeta,
+    updated_at: nowIso,
+  };
+  if (options?.gender) {
+    userUpsertPayload.gender = options.gender;
   }
 
   try {
-    await supabaseAdmin
-      .from('profiles')
-      .update({
+    const { error: userErr } = await supabaseAdmin
+      .from('users')
+      .upsert(userUpsertPayload, { onConflict: 'telegram_id' });
+
+    if (userErr) {
+      console.error('[fayda-verification] Supabase users upsert error for tgId', telegramId, userErr);
+    }
+  } catch (userErr) {
+    console.error('[fayda-verification] Exception updating users table:', userErr);
+  }
+
+  // Sync to profiles table
+  const resolvedFullName =
+    fullName?.trim() ||
+    existingProf?.full_name ||
+    [firstName, lastName].filter(Boolean).join(' ') ||
+    firstName;
+
+  const resolvedUsername = rawUsername ? `@${rawUsername.replace(/^@/, '')}` : (existingProf?.telegram_username || null);
+
+  try {
+    if (!existingProf) {
+      let displayCode = `RM${Math.floor(100 + Math.random() * 900)}`;
+      try {
+        const { data: codeRow, error: codeErr } = await supabaseAdmin.rpc('generate_display_code');
+        if (codeRow) {
+          displayCode = codeRow;
+        } else if (codeErr) {
+          console.warn('[fayda-verification] generate_display_code rpc warning:', codeErr);
+        }
+      } catch (rpcErr) {
+        console.warn('[fayda-verification] generate_display_code rpc exception:', rpcErr);
+      }
+
+      const { error: profInsertErr } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          telegram_id: telegramId,
+          display_code: displayCode,
+          full_name: resolvedFullName,
+          telegram_username: resolvedUsername,
+          gender: options?.gender || undefined,
+          kyc_status: 'verified',
+          status: 'active',
+          onboarding_step: 'completed',
+        });
+
+      if (profInsertErr) {
+        console.error('[fayda-verification] Supabase profiles insert error for tgId', telegramId, profInsertErr);
+      }
+    } else {
+      const profileUpdates: Record<string, any> = {
         kyc_status: 'verified',
         status: 'active',
-      })
-      .eq('telegram_id', telegramId);
+      };
+      if (resolvedFullName) {
+        profileUpdates.full_name = resolvedFullName;
+      }
+      if (resolvedUsername && !existingProf.telegram_username) {
+        profileUpdates.telegram_username = resolvedUsername;
+      }
+      if (options?.gender) {
+        profileUpdates.gender = options.gender;
+        profileUpdates.my_gender = options.gender;
+      }
+
+      const { error: profUpdateErr } = await supabaseAdmin
+        .from('profiles')
+        .update(profileUpdates)
+        .eq('telegram_id', telegramId);
+
+      if (profUpdateErr) {
+        console.error('[fayda-verification] Supabase profiles update error for tgId', telegramId, profUpdateErr);
+      }
+    }
   } catch (profErr) {
-    console.error('[fayda-verification] Error updating profiles table:', profErr);
+    console.error('[fayda-verification] Exception updating profiles table:', profErr);
   }
+
+  return true;
 }

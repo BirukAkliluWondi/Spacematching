@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { decodePayload } from 'fayda-decoder';
 import { verifySignature } from 'fayda-decoder/verify';
+import { persistFaydaVerification } from '@/lib/fayda-verification';
 
 const verifyFaydaQrSchema = z.object({
   telegram_id: z.number().or(z.string().transform((val) => parseInt(val, 10))),
@@ -78,53 +79,12 @@ export async function POST(request: Request) {
       }
     } catch {}
 
-    // 3. Update 'users' table
-    try {
-      const nowIso = new Date().toISOString();
-      const faydaMeta = JSON.stringify({
-        fan,
-        full_name: fullName,
-        gender,
-        date_of_birth: dob,
-        verified_source: 'offline_rs256_qr',
-        verified_at: nowIso,
-      });
-
-      await supabaseAdmin
-        .from('users')
-        .upsert({
-          telegram_id,
-          fayda_status: 'verified',
-          fayda_id_number: fan,
-          fayda_verified_at: nowIso,
-          fayda_document_url: faydaMeta,
-          gender: gender || undefined,
-          updated_at: nowIso,
-        }, { onConflict: 'telegram_id' });
-    } catch (userErr) {
-      console.error('Error updating users table with verified Fayda:', userErr);
-    }
-
-    // 4. Update 'profiles' table
-    try {
-      const profileUpdates: Record<string, any> = {
-        kyc_status: 'verified',
-        status: 'active',
-      };
-      if (fullName) {
-        profileUpdates.full_name = fullName;
-      }
-      if (gender) {
-        profileUpdates.gender = gender;
-        profileUpdates.my_gender = gender;
-      }
-      await supabaseAdmin
-        .from('profiles')
-        .update(profileUpdates)
-        .eq('telegram_id', telegram_id);
-    } catch (profErr) {
-      console.error('Error updating profiles table with verified Fayda:', profErr);
-    }
+    // 3. Persist verified Fayda status to users and profiles tables (with non-null first_name guarantee and profile creation)
+    await persistFaydaVerification(telegram_id, fan, fullName, {
+      gender,
+      dob,
+      verifiedSource: 'offline_rs256_qr',
+    });
 
     // 5. Send direct Telegram DM to the user confirming instant verification
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
