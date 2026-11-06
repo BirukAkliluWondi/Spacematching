@@ -52,13 +52,18 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const subcity = (searchParams.get('subcity') || '').trim().toLowerCase();
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
+    const rawLimit = parseInt(searchParams.get('limit') || '50', 10) || 50;
+    const limit = Math.min(50, Math.max(1, rawLimit));
+    const offset = (page - 1) * limit;
 
     try {
       const { data: dbSeekers } = await supabaseAdmin
         .from('roommate_profiles')
         .select('*, users(fayda_status)')
         .eq('status', 'approved')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
 
       if (dbSeekers && dbSeekers.length > 0) {
         seekers = dbSeekers.map((s: any) => {
@@ -97,9 +102,18 @@ export async function GET(request: Request) {
     seekers = FALLBACK_SEEKERS;
   }
 
-  return NextResponse.json({
-    success: true,
-    count: seekers.length,
-    seekers,
-  });
+  const pagedSeekers = seekers.slice(0, 50);
+
+  return NextResponse.json(
+    {
+      success: true,
+      count: pagedSeekers.length,
+      seekers: pagedSeekers,
+    },
+    {
+      headers: {
+        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120',
+      },
+    }
+  );
 }

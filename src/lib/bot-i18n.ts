@@ -79,9 +79,9 @@ export const I18N = {
     btnSelectAll: '🌐 Select ALL Sub-Cities & Proceed ➡️',
     btnAllSelected: '✅ All Selected (Proceed ➡️)',
 
-    stepFayda: '🛡️ <b>Enter your Fayda FAN number or scan QR:</b> (e.g. 1234 5678 9012)',
-    btnScanQr: '📷 Scan Fayda QR ↗️',
-    errFayda: 'Invalid Fayda FAN number. Please check the digits and try again (12 or 16 digits):',
+    stepFayda: '🛡️ <b>Upload Fayda ID Card Photo:</b>\nPlease upload a clear photo or image document of the back of your Fayda ID card showing the QR code.',
+    btnScanQr: '📷 Upload Fayda Photo ↗️',
+    errFayda: '⚠️ Manual typing is not accepted. Please upload a clear photo or document of your Fayda ID card showing the QR code:',
 
     // Space Owner Questionnaire Steps
     spaceStepType: '🛏️ <b>What type of space are you offering?</b> (e.g. Master Bedroom)',
@@ -181,9 +181,9 @@ export const I18N = {
     btnSelectAll: '🌐 ሁሉንም ምረጥ & ቀጥል ➡️',
     btnAllSelected: '✅ ሁሉም ተመርጠዋል (ቀጥል ➡️)',
 
-    stepFayda: '🛡️ <b>የፋይዳ FAN ቁጥር ያስገቡ ወይም QR ኮድ ይቃኙ:</b> (ምሳሌ: 1234 5678 9012)',
-    btnScanQr: '📷 በካሜራ የፋይዳ QR ኮድ ይቃኙ ↗️',
-    errFayda: 'ትክክለኛ የፋይዳ ቁጥር አይደለም። እባክዎ ቁጥሩን በትክክል ያስገቡ (12 ወይም 16 ዲጂት):',
+    stepFayda: '🛡️ <b>የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\nእባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ ይላኩ።',
+    btnScanQr: '📷 የፋይዳ ፎቶ ይላኩ ↗️',
+    errFayda: '⚠️ የፋይዳ ቁጥርን በጽሁፍ ማስገባት አይቻልም። እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም ሰነድ ይላኩ:',
 
     // Space Owner Questionnaire Steps
     spaceStepType: '🛏️ <b>የሚከራየው ክፍል ምን አይነት ነው?</b> (ምሳሌ: ዋና መኝታ ቤት)',

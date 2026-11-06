@@ -550,7 +550,6 @@ export async function persistFaydaVerification(
       }
       if (options?.gender) {
         profileUpdates.gender = options.gender;
-        profileUpdates.my_gender = options.gender;
       }
 
       const { error: profUpdateErr } = await supabaseAdmin
@@ -564,6 +563,24 @@ export async function persistFaydaVerification(
     }
   } catch (profErr) {
     console.error('[fayda-verification] Exception updating profiles table:', profErr);
+  }
+
+  // Sync to roommate_profiles table if present
+  try {
+    const roommateUpdates: Record<string, any> = {
+      fayda_status: 'verified',
+      fayda_id_number: cleanFan,
+      updated_at: nowIso,
+    };
+    if (options?.gender) {
+      roommateUpdates.my_gender = options.gender;
+    }
+    await supabaseAdmin
+      .from('roommate_profiles')
+      .update(roommateUpdates)
+      .eq('telegram_id', telegramId);
+  } catch (rmErr) {
+    // Non-fatal if table or row doesn't exist
   }
 
   return true;

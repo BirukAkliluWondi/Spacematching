@@ -350,45 +350,45 @@ export async function verifyTelebirrPayment(
     };
   }
 
-  const endpoint = 'https://verify.et/api/verify?waitMs=5000';
+  const endpoint = 'https://verify.et/api/verify?waitMs=1500';
 
-  // Bank Options to evaluate (Telebirr, BoA, Dashen & CBE) - supports current and fallback accounts
+  // Bank Options to evaluate (Telebirr, BoA, Dashen & CBE) - deduplicated accounts
   const allConfigs = [
-    { bank: 'telebirr', settlementAccount: receiverPhone.trim() },
-    { bank: 'telebirr', settlementAccount: '0987310978' },
-    { bank: 'telebirr', settlementAccount: '0901570707' },
-    { bank: 'boa', settlementAccount: abyssiniaAccount.trim() },
-    { bank: 'boa', settlementAccount: '256861771' },
-    { bank: 'dashen', settlementAccount: dashenAccount.trim() },
-    { bank: 'dashen', settlementAccount: '2922175078411' },
-    { bank: 'cbe', settlementAccount: cbeAccount.trim() },
-    { bank: 'cbe', settlementAccount: '1000720760416' },
-    { bank: 'cbe', settlementAccount: '1000054066094' },
-  ].filter(
-    (item, index, self) =>
-      index === self.findIndex((t) => t.bank === item.bank && t.settlementAccount === item.settlementAccount)
-  );
+    { bank: 'telebirr', settlementAccount: receiverPhone.trim() || '0987310978' },
+    { bank: 'boa', settlementAccount: abyssiniaAccount.trim() || '256861771' },
+    { bank: 'dashen', settlementAccount: dashenAccount.trim() || '2922175078411' },
+    { bank: 'cbe', settlementAccount: cbeAccount.trim() || '1000054066094' },
+  ];
 
-  // Infer bank from reference prefix if not explicitly passed (e.g. FT... -> CBE)
+  // Infer bank from reference prefix if not explicitly passed
   let normalizedBank = preferredBank?.toLowerCase().trim();
   if (normalizedBank === 'abyssinia') {
     normalizedBank = 'boa';
   }
   const isCbeRef = cleanRef.toUpperCase().startsWith('FT') || cleanRef.toLowerCase().includes('cbe.com.et');
-  if (!normalizedBank && isCbeRef) {
-    normalizedBank = 'cbe';
+  const isTelebirrRef = /^\d{8,16}$/.test(cleanRef);
+  const isDashenRef = cleanRef.toUpperCase().startsWith('DTS');
+
+  if (!normalizedBank) {
+    if (isCbeRef) {
+      normalizedBank = 'cbe';
+    } else if (isTelebirrRef) {
+      normalizedBank = 'telebirr';
+    } else if (isDashenRef) {
+      normalizedBank = 'dashen';
+    }
   }
 
-  // If cleanRef starts with FT or CBE receipt link, query ONLY CBE to avoid cross-bank delays, timeouts, and irrelevant errors
+  // Strictly target the specific bank if identified, or evaluate at most 2 configs to avoid blocking delays
   let bankConfigs: typeof allConfigs;
-  if (isCbeRef || normalizedBank === 'cbe') {
-    bankConfigs = allConfigs.filter((c) => c.bank === 'cbe');
-  } else if (normalizedBank) {
-    const primaryConfigs = allConfigs.filter((c) => c.bank === normalizedBank);
-    const otherConfigs = allConfigs.filter((c) => c.bank !== normalizedBank);
-    bankConfigs = [...primaryConfigs, ...otherConfigs];
+  if (normalizedBank) {
+    bankConfigs = allConfigs.filter((c) => c.bank === normalizedBank);
+    if (bankConfigs.length === 0) {
+      bankConfigs = [{ bank: normalizedBank, settlementAccount: receiverPhone.trim() || '0987310978' }];
+    }
   } else {
-    bankConfigs = allConfigs;
+    // Default prioritized: Telebirr first, CBE second
+    bankConfigs = allConfigs.filter((c) => c.bank === 'telebirr' || c.bank === 'cbe');
   }
 
   let lastFailure: { message: string; messageAm: string; errorCode: string } | null = null;
@@ -405,6 +405,7 @@ export async function verifyTelebirrPayment(
           'x-api-key': apiKey,
         },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(6000),
       });
 
       if (!response.ok) {

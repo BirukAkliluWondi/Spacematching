@@ -5,157 +5,94 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const rawQuery = (searchParams.get('query') || '').trim();
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
+    const rawLimit = parseInt(searchParams.get('limit') || '50', 10) || 50;
+    const limit = Math.min(50, Math.max(1, rawLimit));
+    const offset = (page - 1) * limit;
+
     const cleanText = rawQuery.replace(/^[@#]/, '').trim();
     const cleanDigits = cleanText.replace(/[\s-]/g, '');
-    const digitOnly = cleanText.replace(/\D/g, '');
     const isPureNumeric = /^\d+$/.test(cleanDigits);
-    const tokens = cleanText.split(/\s+/).filter(Boolean);
 
-    const userQueries: any[] = [];
-    const profileQueries: any[] = [];
+    let userPromise: any;
+    let profilePromise: any;
 
     if (cleanText) {
-      // 1. Full text / phrase match across users
-      userQueries.push(
-        supabaseAdmin
-          .from('users')
-          .select('*')
-          .or(`first_name.ilike.%${cleanText}%,last_name.ilike.%${cleanText}%,username.ilike.%${cleanText}%,fayda_document_url.ilike.%${cleanText}%`)
-          .limit(50)
-      );
-
-      // 2. Unspaced / stripped FAN digits search (>= 3 digits)
-      if (cleanDigits.length >= 3 && /\d{3,}/.test(cleanDigits)) {
-        userQueries.push(
-          supabaseAdmin
-            .from('users')
-            .select('*')
-            .or(`fayda_id_number.ilike.%${cleanDigits}%,fayda_document_url.ilike.%${cleanDigits}%`)
-            .limit(50)
-        );
-      }
-      if (digitOnly.length >= 3 && digitOnly !== cleanDigits) {
-        userQueries.push(
-          supabaseAdmin
-            .from('users')
-            .select('*')
-            .or(`fayda_id_number.ilike.%${digitOnly}%,fayda_document_url.ilike.%${digitOnly}%`)
-            .limit(50)
-        );
-      }
-
-      // 3. Multi-token search across individual name tokens
-      if (tokens.length > 1) {
-        for (const token of tokens.slice(0, 4)) {
-          if (token.length >= 2) {
-            userQueries.push(
-              supabaseAdmin
-                .from('users')
-                .select('*')
-                .or(`first_name.ilike.%${token}%,last_name.ilike.%${token}%,fayda_document_url.ilike.%${token}%`)
-                .limit(30)
-            );
-          }
-        }
-      }
-
-      // 4. Pure numeric telegram_id search
       if (isPureNumeric) {
         const num = Number(cleanDigits);
-        userQueries.push(
-          supabaseAdmin.from('users').select('*').eq('telegram_id', num).limit(10)
-        );
-        profileQueries.push(
-          supabaseAdmin.from('profiles').select('*').eq('telegram_id', num).limit(10)
-        );
-      }
+        userPromise = supabaseAdmin.from('users').select('*').eq('telegram_id', num).limit(limit);
+        profilePromise = supabaseAdmin.from('profiles').select('*').eq('telegram_id', num).limit(limit);
+      } else {
+        const userOrFilters = [
+          `first_name.ilike.%${cleanText}%`,
+          `last_name.ilike.%${cleanText}%`,
+          `username.ilike.%${cleanText}%`,
+          cleanDigits.length >= 3 ? `fayda_id_number.ilike.%${cleanDigits}%` : null,
+          `fayda_document_url.ilike.%${cleanText}%`,
+        ]
+          .filter(Boolean)
+          .join(',');
 
-      // 5. Profiles search: full_name, telegram_username, display_code
-      profileQueries.push(
-        supabaseAdmin
-          .from('profiles')
-          .select('*')
-          .or(`full_name.ilike.%${cleanText}%,telegram_username.ilike.%${cleanText}%,display_code.ilike.%${cleanText}%`)
-          .limit(50)
-      );
-
-      // 6. Profiles search with multi-word tokens
-      if (tokens.length > 1) {
-        for (const token of tokens.slice(0, 4)) {
-          if (token.length >= 2) {
-            profileQueries.push(
-              supabaseAdmin
-                .from('profiles')
-                .select('*')
-                .or(`full_name.ilike.%${token}%,telegram_username.ilike.%${token}%,display_code.ilike.%${token}%`)
-                .limit(30)
-            );
-          }
-        }
-      }
-
-      if (digitOnly.length >= 3) {
-        profileQueries.push(
-          supabaseAdmin
-            .from('profiles')
-            .select('*')
-            .ilike('display_code', `%${digitOnly}%`)
-            .limit(30)
-        );
-      }
-    } else {
-      // Default initial view: recent users and profiles
-      userQueries.push(
-        supabaseAdmin
+        userPromise = supabaseAdmin
           .from('users')
           .select('*')
-          .order('created_at', { ascending: false })
-          .limit(50)
-      );
-      profileQueries.push(
-        supabaseAdmin
+          .or(userOrFilters)
+          .range(offset, offset + limit - 1);
+
+        const profileOrFilters = [
+          `full_name.ilike.%${cleanText}%`,
+          `telegram_username.ilike.%${cleanText}%`,
+          `display_code.ilike.%${cleanText}%`,
+        ].join(',');
+
+        profilePromise = supabaseAdmin
           .from('profiles')
           .select('*')
-          .order('created_at', { ascending: false })
-          .limit(50)
-      );
+          .or(profileOrFilters)
+          .range(offset, offset + limit - 1);
+      }
+    } else {
+      userPromise = supabaseAdmin
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      profilePromise = supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
     }
 
-    const [userResults, profileResults] = await Promise.all([
-      Promise.all(userQueries),
-      Promise.all(profileQueries),
-    ]);
+    const [userRes, profileRes] = await Promise.all([userPromise, profilePromise]);
 
     const usersMap = new Map<number, any>();
     const profilesMap = new Map<number, any>();
 
-    for (const res of userResults) {
-      if (res?.data && Array.isArray(res.data)) {
-        for (const u of res.data) {
-          if (u?.telegram_id) {
-            usersMap.set(Number(u.telegram_id), u);
-          }
+    if (userRes?.data && Array.isArray(userRes.data)) {
+      for (const u of userRes.data) {
+        if (u?.telegram_id) {
+          usersMap.set(Number(u.telegram_id), u);
         }
       }
     }
 
-    for (const res of profileResults) {
-      if (res?.data && Array.isArray(res.data)) {
-        for (const p of res.data) {
-          if (p?.telegram_id) {
-            profilesMap.set(Number(p.telegram_id), p);
-          }
+    if (profileRes?.data && Array.isArray(profileRes.data)) {
+      for (const p of profileRes.data) {
+        if (p?.telegram_id) {
+          profilesMap.set(Number(p.telegram_id), p);
         }
       }
     }
 
-    // Fetch missing profiles for found users
+    // Fetch missing profiles for found users (bounded to 50)
     const missingProfileIds = Array.from(usersMap.keys()).filter((id) => !profilesMap.has(id));
     if (missingProfileIds.length > 0) {
       const { data: fetchedProfiles } = await supabaseAdmin
         .from('profiles')
         .select('*')
-        .in('telegram_id', missingProfileIds.slice(0, 100));
+        .in('telegram_id', missingProfileIds.slice(0, 50));
       if (fetchedProfiles) {
         for (const p of fetchedProfiles) {
           profilesMap.set(Number(p.telegram_id), p);
@@ -163,13 +100,13 @@ export async function GET(request: Request) {
       }
     }
 
-    // Fetch missing users for found profiles
+    // Fetch missing users for found profiles (bounded to 50)
     const missingUserIds = Array.from(profilesMap.keys()).filter((id) => !usersMap.has(id));
     if (missingUserIds.length > 0) {
       const { data: fetchedUsers } = await supabaseAdmin
         .from('users')
         .select('*')
-        .in('telegram_id', missingUserIds.slice(0, 100));
+        .in('telegram_id', missingUserIds.slice(0, 50));
       if (fetchedUsers) {
         for (const u of fetchedUsers) {
           usersMap.set(Number(u.telegram_id), u);
@@ -262,10 +199,13 @@ export async function GET(request: Request) {
       };
     });
 
+    const pageUsers = formatted.slice(0, limit);
     return NextResponse.json({
       success: true,
-      users: formatted,
-      count: formatted.length,
+      users: pageUsers,
+      count: pageUsers.length,
+      page,
+      limit,
     });
   } catch (err: any) {
     console.error('Error fetching admin users:', err);

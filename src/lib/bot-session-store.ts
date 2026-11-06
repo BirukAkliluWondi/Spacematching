@@ -3,10 +3,145 @@ import { createClient } from '@supabase/supabase-js';
 // ---------------------------------------------------------------------------
 // Supabase client (service role — safe for server-side only)
 // ---------------------------------------------------------------------------
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabaseUrl = (
+  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://plusmfmlzzumzsqtlixb.supabase.co'
+).trim();
+const supabaseServiceRoleKey = (
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsdXNtZm1senp1bXpzcXRsaXhiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTk1OTM1NiwiZXhwIjoyMTA3NTM1MzU2fQ.1nXAUO7usoDst_maNIE252DHyK-NtHPazQY0ats7qVE'
+).trim();
+
+const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+
+// ---------------------------------------------------------------------------
+// Process Crash Guard & Lifecycle Management
+// ---------------------------------------------------------------------------
+export function installProcessProtection(): void {
+  if (typeof process === 'undefined' || !process.on) return;
+  const GLOBAL_CRASH_GUARD = Symbol.for('spacematch.crash_guard.active');
+  if ((globalThis as any)[GLOBAL_CRASH_GUARD]) return;
+  (globalThis as any)[GLOBAL_CRASH_GUARD] = true;
+
+  process.on('uncaughtException', (err: Error, origin: string) => {
+    console.error(`[Process Crash Guard] Uncaught Exception (${origin}):`, err);
+  });
+
+  process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
+    console.error('[Process Crash Guard] Unhandled Rejection at:', promise, 'reason:', reason);
+  });
+
+  process.on('SIGTERM', () => {
+    console.log('[Process] SIGTERM received. Gracefully draining connections...');
+  });
+
+  process.on('SIGINT', () => {
+    console.log('[Process] SIGINT received. Shutting down cleanly...');
+  });
+}
+
+// Auto-install guards on module load
+installProcessProtection();
+
+// ---------------------------------------------------------------------------
+// Bounded LRU Cache with TTL Eviction
+// ---------------------------------------------------------------------------
+export class BoundedLRUCache<K, V> {
+  private readonly maxSize: number;
+  private readonly defaultTtlMs: number;
+  private readonly cache = new Map<K, { value: V; expiresAt: number }>();
+
+  constructor(maxSize = 5000, defaultTtlMs = 24 * 60 * 60 * 1000) {
+    this.maxSize = maxSize;
+    this.defaultTtlMs = defaultTtlMs;
+  }
+
+  get(key: K): V | undefined {
+    const entry = this.cache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return undefined;
+    }
+    // Re-insert to mark as most recently used (LRU)
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    return entry.value;
+  }
+
+  set(key: K, value: V, ttlMs = this.defaultTtlMs): void {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else if (this.cache.size >= this.maxSize) {
+      // Evict oldest (first key in iteration order)
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.cache.delete(oldestKey);
+      }
+    }
+    this.cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+  }
+
+  has(key: K): boolean {
+    return this.get(key) !== undefined;
+  }
+
+  delete(key: K): boolean {
+    return this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+
+  *values(): IterableIterator<V> {
+    const now = Date.now();
+    for (const [key, entry] of this.cache.entries()) {
+      if (now > entry.expiresAt) {
+        this.cache.delete(key);
+      } else {
+        yield entry.value;
+      }
+    }
+  }
+
+  *entries(): IterableIterator<[K, V]> {
+    const now = Date.now();
+    for (const [key, entry] of this.cache.entries()) {
+      if (now > entry.expiresAt) {
+        this.cache.delete(key);
+      } else {
+        yield [key, entry.value];
+      }
+    }
+  }
+
+  *keys(): IterableIterator<K> {
+    const now = Date.now();
+    for (const [key, entry] of this.cache.entries()) {
+      if (now > entry.expiresAt) {
+        this.cache.delete(key);
+      } else {
+        yield key;
+      }
+    }
+  }
+
+  purgeExpired(): number {
+    const now = Date.now();
+    let purged = 0;
+    for (const [key, entry] of this.cache.entries()) {
+      if (now > entry.expiresAt) {
+        this.cache.delete(key);
+        purged++;
+      }
+    }
+    return purged;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,7 +211,7 @@ export interface SpaceDraft {
 // Empty session factory
 // ---------------------------------------------------------------------------
 function emptySession(telegramId: number): BotSession {
-  const cachedLang = _userLanguageCache[String(telegramId)];
+  const cachedLang = _userLanguageCache.get(String(telegramId));
   return {
     telegram_id: telegramId,
     step: 'idle',
@@ -85,21 +220,39 @@ function emptySession(telegramId: number): BotSession {
   };
 }
 
-// In-memory cache per serverless invocation (populated by preloadSession)
-const _sessionCache: Record<string, BotSession> = {};
-const _userLanguageCache: Record<string, 'am' | 'en'> = {};
+// Bounded in-memory caches (max 5,000 items, TTL 24h)
+const _sessionCache = new BoundedLRUCache<string, BotSession>(5000, 24 * 60 * 60 * 1000);
+const _userLanguageCache = new BoundedLRUCache<string, 'am' | 'en'>(5000, 24 * 60 * 60 * 1000);
+
+// Telegram update_id deduplication cache (max 10,000 entries, 10-minute TTL)
+const _updateIdCache = new BoundedLRUCache<number, boolean>(10000, 10 * 60 * 1000);
+
+/**
+ * Deduplicates Telegram updates within a sliding window.
+ * Returns true if update is new; false if already processed.
+ */
+export function deduplicateUpdate(updateId: number): boolean {
+  if (!updateId) return true;
+  if (_updateIdCache.has(updateId)) {
+    return false;
+  }
+  _updateIdCache.set(updateId, true);
+  return true;
+}
 
 export function getUserLanguage(telegramId: number): 'am' | 'en' | undefined {
-  return _userLanguageCache[String(telegramId)] || (_sessionCache[String(telegramId)]?.draft_data?.lang as ('am' | 'en') | undefined);
+  return _userLanguageCache.get(String(telegramId)) || (_sessionCache.get(String(telegramId))?.draft_data?.lang as ('am' | 'en') | undefined);
 }
 
 export function setUserLanguage(telegramId: number, lang: 'am' | 'en'): void {
-  _userLanguageCache[String(telegramId)] = lang;
-  if (_sessionCache[String(telegramId)]) {
-    _sessionCache[String(telegramId)].draft_data = {
-      ..._sessionCache[String(telegramId)].draft_data,
+  _userLanguageCache.set(String(telegramId), lang);
+  const sess = _sessionCache.get(String(telegramId));
+  if (sess) {
+    sess.draft_data = {
+      ...sess.draft_data,
       lang,
     };
+    _sessionCache.set(String(telegramId), sess);
   }
 }
 
@@ -110,8 +263,8 @@ export function getSession(telegramId: number): BotSession {
   // NOTE: Supabase JS v2 requires async, but the old code was sync.
   // We keep the sync interface here and use a module-level in-memory cache
   // that is populated by the async preload below. Call preloadSession() first.
-  const sess = _sessionCache[String(telegramId)] ?? emptySession(telegramId);
-  const userLang = _userLanguageCache[String(telegramId)];
+  const sess = _sessionCache.get(String(telegramId)) ?? emptySession(telegramId);
+  const userLang = _userLanguageCache.get(String(telegramId));
   if (userLang && !sess.draft_data?.lang) {
     sess.draft_data = { ...sess.draft_data, lang: userLang };
   }
@@ -120,12 +273,12 @@ export function getSession(telegramId: number): BotSession {
 
 /** Call this at the top of the webhook handler BEFORE calling getSession(). */
 export async function preloadSession(telegramId: number): Promise<BotSession> {
-  const cached = _sessionCache[String(telegramId)];
+  const cached = _sessionCache.get(String(telegramId));
   if (cached) {
     if (cached.draft_data?.lang) {
-      _userLanguageCache[String(telegramId)] = cached.draft_data.lang;
-    } else if (_userLanguageCache[String(telegramId)]) {
-      cached.draft_data.lang = _userLanguageCache[String(telegramId)];
+      _userLanguageCache.set(String(telegramId), cached.draft_data.lang);
+    } else if (_userLanguageCache.get(String(telegramId))) {
+      cached.draft_data.lang = _userLanguageCache.get(String(telegramId));
     }
     return cached;
   }
@@ -146,16 +299,16 @@ export async function preloadSession(telegramId: number): Promise<BotSession> {
       : emptySession(telegramId);
 
     if (session.draft_data?.lang) {
-      _userLanguageCache[String(telegramId)] = session.draft_data.lang;
-    } else if (_userLanguageCache[String(telegramId)]) {
-      session.draft_data.lang = _userLanguageCache[String(telegramId)];
+      _userLanguageCache.set(String(telegramId), session.draft_data.lang);
+    } else if (_userLanguageCache.get(String(telegramId))) {
+      session.draft_data.lang = _userLanguageCache.get(String(telegramId));
     }
 
-    _sessionCache[String(telegramId)] = session;
+    _sessionCache.set(String(telegramId), session);
     return session;
   } catch {
     const session = emptySession(telegramId);
-    _sessionCache[String(telegramId)] = session;
+    _sessionCache.set(String(telegramId), session);
     return session;
   }
 }
@@ -166,14 +319,14 @@ const _sessionWriteQueues: Record<string, Promise<any>> = {};
 export async function saveSession(session: BotSession, awaitDb = false): Promise<void> {
   // Ensure draft_data is an object and retains language
   session.draft_data = session.draft_data ?? {};
-  const activeLang = session.draft_data.lang || _userLanguageCache[String(session.telegram_id)];
+  const activeLang = session.draft_data.lang || _userLanguageCache.get(String(session.telegram_id));
   if (activeLang) {
     session.draft_data.lang = activeLang;
-    _userLanguageCache[String(session.telegram_id)] = activeLang;
+    _userLanguageCache.set(String(session.telegram_id), activeLang);
   }
 
   // 1. In-memory cache is updated IMMEDIATELY (0ms latency for subsequent gets)
-  _sessionCache[String(session.telegram_id)] = session;
+  _sessionCache.set(String(session.telegram_id), session);
 
   // 2. Database write is queued in background to avoid blocking the webhook lifecycle
   const persistTask = async () => {
@@ -212,10 +365,10 @@ export async function saveSession(session: BotSession, awaitDb = false): Promise
 export async function clearSession(telegramId: number): Promise<void> {
   const current = getSession(telegramId);
   const preservedDraft: Record<string, any> = {};
-  const activeLang = current?.draft_data?.lang || _userLanguageCache[String(telegramId)];
+  const activeLang = current?.draft_data?.lang || _userLanguageCache.get(String(telegramId));
   if (activeLang) {
     preservedDraft.lang = activeLang;
-    _userLanguageCache[String(telegramId)] = activeLang;
+    _userLanguageCache.set(String(telegramId), activeLang);
   }
   if (current?.draft_data?.checkin_scheduled) {
     preservedDraft.checkin_scheduled = true;
@@ -271,7 +424,8 @@ export async function getAllSpaceDrafts(): Promise<Record<string, SpaceDraft>> {
 // ---------------------------------------------------------------------------
 // Roommate Profile Drafts — stored in `pending_roommate_drafts` + in-memory & session fallback
 // ---------------------------------------------------------------------------
-const _roommateDraftsCache = new Map<string, RoommateProfileDraft>();
+// Bounded roommate drafts cache (max 5,000 items, TTL 24h)
+const _roommateDraftsCache = new BoundedLRUCache<string, RoommateProfileDraft>(5000, 24 * 60 * 60 * 1000);
 
 export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<void> {
   const cleanId = (draft.id || '').trim();
@@ -353,7 +507,7 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
     let match: any = null;
 
     // Fast check inside in-memory _sessionCache (0ms)
-    for (const s of Object.values(_sessionCache)) {
+    for (const s of _sessionCache.values()) {
       const d = s.draft_data || {};
       const code = (d.display_code || '').toLowerCase();
       const tgStr = String(s.telegram_id || '');

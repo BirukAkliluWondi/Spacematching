@@ -41,3 +41,6 @@ bot_sessions.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# agents scratch
+.agents/

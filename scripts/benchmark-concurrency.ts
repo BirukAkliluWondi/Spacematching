@@ -248,11 +248,14 @@ async function main() {
     const report = await runBenchmarkBatch(tier.concurrency, reqs);
     reports.push(report);
     console.log(`   └─ Completed in ${report.totalTimeSec}s | Throughput: ${report.requestsPerSecond} RPS | p50: ${report.p50LatencyMs}ms | p95: ${report.p95LatencyMs}ms\n`);
+    if (report.failedRequests > 0) {
+      throw new Error(`Hardening violation: ${report.failedRequests} requests failed in ${tier.name}!`);
+    }
   }
 
   // Summary Table
   console.log('===========================================================================================');
-  console.log(' 📊 BENCHMARK RESULTS SUMMARY');
+  console.log(' 📊 HARDENED BENCHMARK RESULTS SUMMARY');
   console.log('===========================================================================================');
   console.log(
     'Concurrency | Total Req | Success | Total Time | Throughput (RPS) | Avg Latency | p50 (Med) | p95 Latency | p99 Latency'
@@ -273,6 +276,60 @@ async function main() {
     console.log(`${conc}| ${tot}| ${succ}| ${time}| ${rps}| ${avg}| ${p50}| ${p95}| ${p99}`);
   }
   console.log('===========================================================================================\n');
+
+  // Baseline Comparison Table
+  console.log('===========================================================================================');
+  console.log(' 📈 BASELINE VS HARDENED COMPARISON (Milestone 1)');
+  console.log('===========================================================================================');
+  console.log('Tier        | Baseline RPS | Hardened RPS | Baseline p95 | Hardened p95 | Baseline 5xx | Hardened 5xx');
+  console.log('-------------------------------------------------------------------------------------------');
+  console.log(`20 workers  | 5.4 req/s    | ${reports[0].requestsPerSecond.toString().padEnd(12)} | 5740.5ms     | ${reports[0].p95LatencyMs.toString().padEnd(12)} | 0%           | 0%`);
+  console.log(`50 workers  | 6.7 req/s    | ${reports[1].requestsPerSecond.toString().padEnd(12)} | 8660.1ms     | ${reports[1].p95LatencyMs.toString().padEnd(12)} | 0%           | 0%`);
+  console.log(`100 workers | 6.0 req/s    | ${reports[2].requestsPerSecond.toString().padEnd(12)} | 18193.3ms    | ${reports[2].p95LatencyMs.toString().padEnd(12)} | 0%           | 0%`);
+  console.log('===========================================================================================\n');
+
+  // Milestone 1 Verification Assertions
+  console.log('🔍 Executing Component Resilience Checks...');
+  const { BoundedLRUCache, deduplicateUpdate } = await import('../src/lib/bot-session-store');
+
+  // 1. LRU bounds check
+  const testCache = new BoundedLRUCache<string, string>(2, 1000);
+  testCache.set('k1', 'v1');
+  testCache.set('k2', 'v2');
+  testCache.set('k3', 'v3');
+  if (testCache.get('k1') !== undefined) throw new Error('LRU failed to evict oldest entry');
+  if (testCache.get('k2') !== 'v2' || testCache.get('k3') !== 'v3') throw new Error('LRU get mismatch');
+  console.log('  ✅ BoundedLRUCache eviction & bounds verified');
+
+  // 2. Update deduplication check
+  const uId = 888123;
+  if (!deduplicateUpdate(uId)) throw new Error('Fresh update was rejected');
+  if (deduplicateUpdate(uId)) throw new Error('Duplicate update was not detected');
+  console.log('  ✅ Update deduplication window verified');
+
+  // 3. Middleware checks
+  const { middleware } = await import('../src/middleware');
+  const sizeCheckReq = new Request('https://spacematch1-flax.vercel.app/api/spaces', {
+    method: 'POST',
+    headers: { 'content-length': String(2 * 1024 * 1024) },
+  });
+  const sizeCheckRes = middleware(sizeCheckReq as any);
+  if (sizeCheckRes.status !== 413) throw new Error(`Middleware failed payload size check, expected 413, got ${sizeCheckRes.status}`);
+  console.log('  ✅ Middleware payload limit (HTTP 413) verified');
+
+  // Rate limiting check
+  let rlRes: any;
+  for (let i = 0; i < 35; i++) {
+    const rlReq = new Request('https://spacematch1-flax.vercel.app/api/telegram/webhook', {
+      method: 'POST',
+      headers: { 'x-forwarded-for': '10.99.88.77' },
+    });
+    rlRes = middleware(rlReq as any);
+  }
+  if (rlRes.status !== 429) throw new Error(`Middleware failed rate limit check, expected 429, got ${rlRes.status}`);
+  console.log('  ✅ Middleware sliding window rate limiter (HTTP 429) verified');
+
+  console.log('\n🎉 ALL MILESTONE 1 VERIFICATIONS AND LOAD BENCHMARKS PASSED!\n');
 }
 
 main().catch((err) => {

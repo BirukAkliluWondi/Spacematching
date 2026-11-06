@@ -58,13 +58,23 @@ export interface TelegramApiResponse<T = unknown> {
 
 const BOT_TOKEN = () => {
   const t = process.env.TELEGRAM_BOT_TOKEN;
-  if (!t) throw new Error('TELEGRAM_BOT_TOKEN is not set');
+  if (!t) {
+    if (process.env.MOCK_TELEGRAM_API === 'true') {
+      return 'mock_bot_token';
+    }
+    throw new Error('TELEGRAM_BOT_TOKEN is not set');
+  }
   return t;
 };
 
 const CHANNEL_ID = () => {
   const c = process.env.TELEGRAM_CHANNEL_ID;
-  if (!c) throw new Error('TELEGRAM_CHANNEL_ID is not set');
+  if (!c) {
+    if (process.env.MOCK_TELEGRAM_API === 'true') {
+      return '@mock_channel';
+    }
+    throw new Error('TELEGRAM_CHANNEL_ID is not set');
+  }
   return c;
 };
 
@@ -88,6 +98,12 @@ async function callTelegram<T = unknown>(
   method: string,
   payload: Record<string, unknown>
 ): Promise<TelegramApiResponse<T>> {
+  if (process.env.MOCK_TELEGRAM_API === 'true') {
+    return {
+      ok: true,
+      result: (method === 'sendMessage' ? { message_id: 9999 } : {}) as T,
+    };
+  }
   try {
     const res = await fetch(
       `https://api.telegram.org/bot${BOT_TOKEN()}/${method}`,
@@ -95,6 +111,7 @@ async function callTelegram<T = unknown>(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000),
       }
     );
     const json = (await res.json()) as TelegramApiResponse<T>;
@@ -280,6 +297,17 @@ export function parseBudgetRangeInput(
   // Normalize Ethiopian Birr symbol 'ብር' -> 'birr'
   text = text.replace(/ብር/g, 'birr');
 
+  // Reject negative numbers upfront (e.g. "-500", "-8k to 15k", "-8k - 15k", "8000 - -15000")
+  const dashes = text.match(/[\-–—−]/g);
+  if (dashes) {
+    if (dashes.length > 1) return null;
+    if (/^\s*[\-–—−]/.test(text)) return null;
+    if (/(?:to|and|between|እስከ)\s*[\-–—−]/.test(text)) return null;
+    if (!text.match(/\d+[\d,\.]*\s*k?\s*[\-–—−]\s*\d+[\d,\.]*\s*k?/)) {
+      return null;
+    }
+  }
+
   // Strip common words and currency units
   const cleaned = text
     .replace(/(?:etb|birr|br|usd|\$|€|£|\/mo|\/month|monthly|budget|rent|about|around|approx)/gi, ' ')
@@ -325,6 +353,9 @@ export function parseBudgetRangeInput(
  * Returns a Buffer containing the file's content.
  */
 export async function getFile(fileId: string): Promise<Buffer> {
+  if (process.env.MOCK_TELEGRAM_API === 'true') {
+    return Buffer.from('mock_file_content');
+  }
   // Step 1: resolve the file path
   const metaRes = await callTelegram<{ file_path: string }>('getFile', {
     file_id: fileId,
@@ -340,7 +371,9 @@ export async function getFile(fileId: string): Promise<Buffer> {
   const downloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN()}/${filePath}`;
 
   // Step 2: download the raw bytes
-  const fileRes = await fetch(downloadUrl);
+  const fileRes = await fetch(downloadUrl, {
+    signal: AbortSignal.timeout(10000),
+  });
   if (!fileRes.ok) {
     throw new Error(
       `getFile: download failed with HTTP ${fileRes.status} for path "${filePath}"`

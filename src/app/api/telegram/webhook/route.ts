@@ -24,6 +24,7 @@ import {
   activateUserMembership,
   invalidateMembershipCache,
   MembershipStatus,
+  deduplicateUpdate,
 } from '@/lib/bot-session-store';
 import { verifyTelebirrPayment, extractTransactionReference } from '@/lib/verify-et';
 import {
@@ -48,10 +49,14 @@ import {
   isOnboardingSession,
   initiateOnboarding,
 } from '@/lib/bot/onboarding';
-import { validateFaydaFan } from '@/lib/fayda-qr-decoder';
-import { verifyFaydaFan, persistFaydaVerification } from '@/lib/fayda-verification';
-import { decodeImage } from 'fayda-decoder';
-import { verifySignature } from 'fayda-decoder/verify';
+import { persistFaydaVerification } from '@/lib/fayda-verification';
+import {
+  verifyFaydaPhotoUpload,
+  extractMediaFileFromMessage,
+  downloadTelegramFile,
+  FAYDA_ERROR_GUIDANCE,
+  type FaydaVerificationResult,
+} from '@/lib/bot/fayda-photo-verifier';
 import { getLanguage, I18N, SupportedLang } from '@/lib/bot-i18n';
 
 const ALL_SUBCITIES = [
@@ -82,15 +87,29 @@ export function invalidateAdminCache() {
 const _faydaStatusCache = new Map<number, { isVerified: boolean; expiresAt: number }>();
 export function setFaydaStatusCache(chatId: number, isVerified: boolean) {
   const ttl = isVerified ? 60 * 60 * 1000 : 30 * 1000;
+  if (_faydaStatusCache.size >= 5000) {
+    const now = Date.now();
+    for (const [id, entry] of _faydaStatusCache.entries()) {
+      if (now > entry.expiresAt || _faydaStatusCache.size >= 5000) {
+        _faydaStatusCache.delete(id);
+      }
+    }
+  }
   _faydaStatusCache.set(chatId, { isVerified, expiresAt: Date.now() + ttl });
 }
 export function invalidateFaydaStatusCache(chatId: number) {
   _faydaStatusCache.delete(chatId);
 }
 
+// Module-level deduplication lock to guarantee idempotent match contact unlocks under rapid concurrent clicks
+const _activeMatchUnlocks = new Set<string>();
+
 export async function POST(request: Request) {
   try {
     const update = await request.json();
+    if (update?.update_id && !deduplicateUpdate(update.update_id)) {
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
     const botUsername = rawBotUsername.replace('@', '');
@@ -1097,10 +1116,14 @@ It has been 24 hours since your roommate contact was unlocked!
 
     // Helper to check if a user is verified via Fayda (offline Verhoeff QR or admin approved)
     const isUserFaydaVerified = async (chatId: number): Promise<boolean> => {
+      if (chatId < 0) return true; // Concierge / synthetic accounts are pre-verified
       const now = Date.now();
       const cached = _faydaStatusCache.get(chatId);
-      if (cached && cached.expiresAt > now) {
-        return cached.isVerified;
+      if (cached) {
+        if (cached.expiresAt > now) {
+          return cached.isVerified;
+        }
+        _faydaStatusCache.delete(chatId);
       }
 
       // Check current in-memory session draft_data before hitting Supabase
@@ -1144,8 +1167,8 @@ It has been 24 hours since your roommate contact was unlocked!
       });
 
       const gateText = isAm
-        ? `🛡️ <b>የፋይዳ FAN ቁጥር ያስገቡ ወይም QR ኮድ ይቃኙ:</b> (ምሳሌ: 1234 5678 9012)`
-        : `🛡️ <b>Enter your Fayda FAN number or scan QR:</b> (e.g. 1234 5678 9012)`;
+        ? `🛡️ <b>የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\n\nእባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ ይላኩ።\n\n⚠️ <i>ለደህንነት ሲባል የፋይዳ ቁጥርን በጽሁፍ ማስገባት አይቻልም።</i>`
+        : `🛡️ <b>Upload Fayda ID Card Photo:</b>\n\nPlease upload a clear photo or image document of the back of your Fayda ID card showing the QR code.\n\n⚠️ <i>Manual typing of FAN numbers is no longer accepted for security reasons.</i>`;
 
       const inlineKeyboard = [
         // Mini App camera scan hidden for pure bot experience:
@@ -1166,78 +1189,45 @@ It has been 24 hours since your roommate contact was unlocked!
       return await sendOrEditCard(chatId, gateText, inlineKeyboard, messageIdToEdit);
     };
 
-    // Helper: Verify Fayda QR from a Telegram photo using fayda-decoder
-    const verifyFaydaPhotoFromTelegram = async (photoArray: any[]): Promise<{
-      success: boolean;
-      fan?: string;
-      fullName?: string;
-      gender?: string;
-      dob?: string;
-      error?: string;
-    }> => {
-      if (!botToken) {
-        return { success: false, error: 'Telegram bot token is not configured.' };
-      }
-      try {
-        const largestPhoto = photoArray[photoArray.length - 1];
-        if (!largestPhoto?.file_id) {
-          return { success: false, error: 'No photo file ID provided.' };
-        }
-
-        const fileRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${largestPhoto.file_id}`, {
-          signal: AbortSignal.timeout(15000),
-        });
-        const fileJson = await fileRes.json();
-        if (!fileJson?.ok || !fileJson.result?.file_path) {
-          return { success: false, error: 'Could not retrieve photo details from Telegram.' };
-        }
-
-        const photoRes = await fetch(`https://api.telegram.org/file/bot${botToken}/${fileJson.result.file_path}`, {
-          signal: AbortSignal.timeout(20000),
-        });
-        if (!photoRes.ok) {
-          return { success: false, error: 'Could not download photo file from Telegram.' };
-        }
-        const photoBuffer = await photoRes.arrayBuffer();
-
-        const decodeResult = await decodeImage(new Uint8Array(photoBuffer), { includeFace: false });
-        if (!decodeResult.ok) {
-          return {
-            success: false,
-            error: decodeResult.error.message || 'QR code could not be detected or read from the photo.',
-          };
-        }
-
-        if (!decodeResult.fields.fan) {
-          return {
-            success: false,
-            error: 'Fayda QR is missing the Fayda Account Number (FAN).',
-          };
-        }
-
-        const sigResult = await verifySignature(decodeResult, {
-          publicKeyPem: process.env.FAYDA_PUBLIC_KEY_PEM,
-        });
-
-        if (!sigResult.verified) {
-          return {
-            success: false,
-            error: `Cryptographic digital signature verification failed: ${sigResult.reason || 'Invalid signature'}.`,
-          };
-        }
-
-        return {
-          success: true,
-          fan: decodeResult.fields.fan,
-          fullName: decodeResult.fields.full_name || undefined,
-          gender: decodeResult.fields.gender === 'M' ? 'Male' : decodeResult.fields.gender === 'F' ? 'Female' : (decodeResult.fields.gender || undefined),
-          dob: decodeResult.fields.date_of_birth || undefined,
-        };
-      } catch (err: any) {
-        console.error('Error during Fayda photo verification:', err);
+    // Helper: Unified Fayda Photo & Document Verification using fayda-photo-verifier
+    const verifyFaydaMediaFromTelegram = async (message: any, targetChatId?: number): Promise<FaydaVerificationResult> => {
+      const media = extractMediaFileFromMessage(message);
+      if (!media) {
         return {
           success: false,
-          error: err?.message || 'An unexpected error occurred while processing the Fayda photo.',
+          errorCode: 'NO_QR_FOUND',
+          messageAm: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.am,
+          messageEn: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.en,
+          error: 'No photo or document found in message.',
+        };
+      }
+      if ('error' in media) {
+        return {
+          success: false,
+          errorCode: media.error,
+          messageAm: media.messageAm,
+          messageEn: media.messageEn,
+          error: media.messageEn,
+        };
+      }
+      try {
+        const buffer = await downloadTelegramFile(media.fileId);
+        return await verifyFaydaPhotoUpload(buffer, targetChatId);
+      } catch (err: any) {
+        if (err?.message === 'FILE_TOO_LARGE') {
+          return {
+            success: false,
+            errorCode: 'FILE_TOO_LARGE',
+            messageAm: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.am,
+            messageEn: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.en,
+          };
+        }
+        return {
+          success: false,
+          errorCode: 'QR_UNREADABLE',
+          messageAm: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.am,
+          messageEn: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.en,
+          error: err?.message,
         };
       }
     };
@@ -1571,8 +1561,8 @@ It has been 24 hours since your roommate contact was unlocked!
       });
 
       const promptText = isAm
-        ? '🛡️ <b>የፋይዳ FAN ቁጥር ያስገቡ ወይም QR ኮድ ይቃኙ:</b> (ምሳሌ: 1234 5678 9012)'
-        : '🛡️ <b>Enter your Fayda FAN number or scan QR:</b> (e.g. 1234 5678 9012)';
+        ? '🛡️ <b>የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\nየQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም የምስል ሰነድ ይላኩ።'
+        : '🛡️ <b>Upload Fayda ID Card Photo:</b>\nPlease upload a clear photo or image document of the back of your Fayda ID card showing the QR code.';
       const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
@@ -2105,7 +2095,7 @@ A verified roommate saw your listing and wants to connect!
 
         const targetNotifyId = targetProfile.telegram_id > 0
           ? targetProfile.telegram_id
-          : (Number(targetProfile.telegram_username?.replace('admin_', '')) || Number(targetProfile.phone_number?.replace('admin:', '')) || (await getAdminIds())[0] || 800701176);
+          : (Number(targetProfile.telegram_username?.replace(/^admin[_:]/, '')) || Number(targetProfile.phone_number?.replace(/^admin[_:]/, '')) || (await getAdminIds())[0] || 800701176);
 
         if (targetNotifyId) {
           const sendRes = await tgSend(targetNotifyId, targetNotifyText, {
@@ -2153,6 +2143,70 @@ A verified roommate saw your listing and wants to connect!
       };
 
       await sendChannelPublishPreviewCard(chatId, profileForReview, activeMsgId);
+    };
+
+    // Helper: Streamlined Seeker Step Router (Eliminates Duplicate Prompts & Loops)
+    const routeNextMissingSeekerStep = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number,
+      fromUser?: { first_name?: string; last_name?: string; username?: string }
+    ) => {
+      const isVerified = await isUserFaydaVerified(chatId);
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const normalizedDraft: Record<string, any> = {
+        ...draft,
+        gender: draft.gender || draft.my_gender,
+        my_gender: draft.my_gender || draft.gender,
+        preferred_subcity: (Array.isArray(draft.preferred_subcity) && draft.preferred_subcity.length > 0)
+          ? draft.preferred_subcity
+          : (Array.isArray(draft.locations) && draft.locations.length > 0)
+          ? draft.locations
+          : (Array.isArray(draft.match_subcities) && draft.match_subcities.length > 0)
+          ? draft.match_subcities
+          : undefined,
+        roommate_traits: draft.roommate_traits || draft.traits || draft.description || draft.lifestyle_bio || draft.preferred_roommate,
+        budget_max: draft.budget_max !== undefined ? draft.budget_max : draft.budget,
+      };
+
+      if (!normalizedDraft.age || isNaN(Number(normalizedDraft.age)) || Number(normalizedDraft.age) < 18 || Number(normalizedDraft.age) > 85) {
+        await sendDynamicCardStep1Age(chatId, normalizedDraft, activeMsgId);
+        return;
+      }
+      if (!normalizedDraft.gender) {
+        await sendDynamicCardStep2Gender(chatId, normalizedDraft, activeMsgId);
+        return;
+      }
+      if (!normalizedDraft.religion) {
+        await sendDynamicCardStep3Religion(chatId, normalizedDraft, activeMsgId);
+        return;
+      }
+      if (!normalizedDraft.job) {
+        await sendDynamicCardStep4Job(chatId, normalizedDraft, activeMsgId);
+        return;
+      }
+      if (!normalizedDraft.budget_max) {
+        await sendDynamicCardStep5Budget(chatId, normalizedDraft, activeMsgId);
+        return;
+      }
+      if (!normalizedDraft.preferred_gender) {
+        await sendDynamicCardStep6PrefGender(chatId, normalizedDraft, activeMsgId);
+        return;
+      }
+      if (!normalizedDraft.roommate_traits) {
+        await sendDynamicCardStep7Traits(chatId, normalizedDraft, activeMsgId);
+        return;
+      }
+      if (!normalizedDraft.preferred_subcity || (Array.isArray(normalizedDraft.preferred_subcity) && normalizedDraft.preferred_subcity.length === 0)) {
+        await sendDynamicCardStep8Subcities(chatId, normalizedDraft, activeMsgId);
+        return;
+      }
+      if (!isVerified) {
+        await sendDynamicCardStep9FaydaFan(chatId, normalizedDraft, activeMsgId);
+        return;
+      }
+
+      await completeSeekerOnboarding(chatId, normalizedDraft, activeMsgId, fromUser);
     };
 
     // ── Helper: 2-Branch Selection: "I have a space" vs "We look for space together" ──
@@ -3066,6 +3120,11 @@ Transfer <code>300 ETB</code> to any verified account (Account Holder: <b>${paym
       triggerChatId?: number,
       messageIdToEdit?: number
     ) => {
+      // Concurrency lock: prevent duplicate execution from rapid concurrent clicks
+      if (_activeMatchUnlocks.has(matchId)) return;
+      _activeMatchUnlocks.add(matchId);
+      setTimeout(() => _activeMatchUnlocks.delete(matchId), 15000);
+
       const { data: match } = await supabaseAdmin
         .from('matches')
         .select('*, requester:requester_id(*), target:target_id(*)')
@@ -3074,16 +3133,20 @@ Transfer <code>300 ETB</code> to any verified account (Account Holder: <b>${paym
 
       if (!match) return;
 
-      await supabaseAdmin
-        .from('matches')
-        .update({
-          payment_status: 'both_paid',
-          status: 'completed',
-          completed_at: new Date().toISOString(),
-          contacts_unlocked_at: new Date().toISOString(),
-          checkin_24h_sent: false,
-        })
-        .eq('id', matchId);
+      const alreadyCompleted = match.status === 'completed' && match.contacts_unlocked_at;
+
+      if (!alreadyCompleted) {
+        await supabaseAdmin
+          .from('matches')
+          .update({
+            payment_status: 'both_paid',
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+            contacts_unlocked_at: new Date().toISOString(),
+            checkin_24h_sent: false,
+          })
+          .eq('id', matchId);
+      }
 
       const requesterData = match.requester as any;
       const targetData = match.target as any;
@@ -3100,18 +3163,45 @@ Transfer <code>300 ETB</code> to any verified account (Account Holder: <b>${paym
         let name = (profile?.full_name || '').trim();
         let isConcierge = false;
 
+        // Fetch real contact details from users table for real members (telegram_id > 0)
+        if (profile?.telegram_id && profile.telegram_id > 0) {
+          try {
+            const { data: dbUser } = await supabaseAdmin
+              .from('users')
+              .select('first_name, last_name, phone_number, username')
+              .eq('telegram_id', profile.telegram_id)
+              .maybeSingle();
+
+            if (dbUser) {
+              if (dbUser.phone_number && !dbUser.phone_number.toLowerCase().includes('admin')) {
+                phone = dbUser.phone_number.trim();
+              }
+              if (dbUser.username && !dbUser.username.toLowerCase().startsWith('admin') && !dbUser.username.includes(':')) {
+                cleanHandle = dbUser.username.replace('@', '').trim();
+              }
+              const dbName = [dbUser.first_name, dbUser.last_name].filter(Boolean).join(' ').trim();
+              if (dbName && (!name || name === 'Verified Member' || name === 'የተረጋገጠ አባል')) {
+                name = dbName;
+              }
+            }
+          } catch (err) {
+            console.warn('[resolveContactDossier] users lookup warning:', err);
+          }
+        }
+
         const isSyntheticOrAdmin =
-          cleanHandle.startsWith('admin_') ||
-          phone.startsWith('admin:') ||
           (profile?.telegram_id && profile.telegram_id < 0) ||
           phone.toLowerCase().includes('concierge') ||
+          phone.toLowerCase().includes('admin') ||
+          cleanHandle.toLowerCase().includes('admin') ||
+          cleanHandle.includes(':') ||
           cleanHandle.toLowerCase() === 'wwehid';
 
         if (isSyntheticOrAdmin) {
           isConcierge = true;
           const rawAdminId =
-            Number(cleanHandle.replace('admin_', '')) ||
-            Number(phone.replace('admin:', '')) ||
+            Number(cleanHandle.replace(/^admin[_:]/, '')) ||
+            Number(phone.replace(/^admin[_:]/, '')) ||
             (await getAdminIds())[0] ||
             980853835;
 
@@ -3132,8 +3222,21 @@ Transfer <code>300 ETB</code> to any verified account (Account Holder: <b>${paym
           name = isAmUser ? 'የተረጋገጠ የክፍል ማስታወቂያ (በኮንሲየርጅ የሚመራ)' : 'SpaceMatch Verified Listing (Concierge Managed)';
         }
 
-        const tgHandle = cleanHandle ? `@${cleanHandle}` : 'N/A';
-        const displayPhone = phone || 'N/A';
+        // Final sanity check: NEVER let raw "admin:..." placeholder leak into user-facing display
+        if (phone.startsWith('admin:') || phone.toLowerCase().includes('admin')) {
+          phone = isAmUser ? 'በስፔስማች አስተዳዳሪ በኩል የሚገናኝ' : 'Contact via SpaceMatch Coordinator';
+        }
+        if (cleanHandle.toLowerCase().startsWith('admin') || cleanHandle.includes(':') || cleanHandle.includes(' ')) {
+          cleanHandle = 'WWEHID';
+        }
+
+        // Validate Telegram handle: 5-32 alphanumeric characters and underscores
+        if (cleanHandle && !/^[a-zA-Z0-9_]{5,32}$/.test(cleanHandle)) {
+          cleanHandle = cleanHandle.toLowerCase() === 'wwehid' ? 'WWEHID' : '';
+        }
+
+        const tgHandle = cleanHandle ? `@${cleanHandle}` : (isAmUser ? 'አልተገለጸም' : 'Not provided');
+        const displayPhone = phone || (isAmUser ? 'በቴሌግራም ብቻ የሚገኝ' : 'Reach via Telegram');
         const displayName = name || (isAmUser ? 'የተረጋገጠ አባል' : 'Verified Member');
 
         let msg = isAmUser
@@ -3164,14 +3267,30 @@ Transfer <code>300 ETB</code> to any verified account (Account Holder: <b>${paym
       const targetContact = await resolveContactDossier(targetData, requesterIsAm);
       const requesterContact = await resolveContactDossier(requesterData, targetIsAm);
 
+      const targetNotifyId = (targetTgId && targetTgId > 0)
+        ? targetTgId
+        : (Number(targetData?.telegram_username?.replace(/^admin[_:]/, '')) || Number(targetData?.phone_number?.replace(/^admin[_:]/, '')) || (await getAdminIds())[0] || 980853835);
+
+      // If already completed and user re-clicked or arrived late, only update caller card without re-notifying other party
+      if (alreadyCompleted) {
+        if (triggerChatId && messageIdToEdit) {
+          const isTarget = triggerChatId === targetNotifyId;
+          const cardContact = isTarget ? requesterContact : targetContact;
+          const cardIsAm = isTarget ? targetIsAm : requesterIsAm;
+          const cardText = `${getDisclaimerText(cardIsAm)}\n\n${cardContact.text}`;
+          const cardButtons = [
+            ...(cardContact.markup ? cardContact.markup.inline_keyboard : []),
+            [{ text: cardIsAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
+          ];
+          await sendOrEditCard(triggerChatId, cardText, cardButtons, messageIdToEdit);
+        }
+        return;
+      }
+
       if (requesterTgId) {
         await tgSend(requesterTgId, getDisclaimerText(requesterIsAm));
         await tgSend(requesterTgId, targetContact.text, targetContact.markup);
       }
-
-      const targetNotifyId = (targetTgId && targetTgId > 0)
-        ? targetTgId
-        : (Number(targetData?.telegram_username?.replace('admin_', '')) || Number(targetData?.phone_number?.replace('admin:', '')) || (await getAdminIds())[0] || 980853835);
 
       if (targetNotifyId) {
         if (triggerChatId === targetNotifyId && messageIdToEdit) {
@@ -3695,7 +3814,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>` : ''}
 
       const targetNotifyId = targetProfile.telegram_id > 0
         ? targetProfile.telegram_id
-        : (Number(targetProfile.telegram_username?.replace('admin_', '')) || Number(targetProfile.phone_number?.replace('admin:', '')) || (await getAdminIds())[0] || 800701176);
+        : (Number(targetProfile.telegram_username?.replace(/^admin[_:]/, '')) || Number(targetProfile.phone_number?.replace(/^admin[_:]/, '')) || (await getAdminIds())[0] || 800701176);
 
       if (targetNotifyId) {
         await tgSend(
@@ -4364,6 +4483,12 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 
     // Helper: Seeker Review & Final Submit
     const sendSeekerFaydaStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
+      const isVerified = await isUserFaydaVerified(chatId);
+      if (!isVerified) {
+        await sendDynamicCardStep9FaydaFan(chatId, currentDraft, messageIdToEdit);
+        return;
+      }
+
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
       const subcitiesStr = (currentDraft.preferred_subcity || []).join(', ') || (isAm ? 'አዲስ አበባ' : 'Addis Ababa');
@@ -5772,20 +5897,15 @@ ${res.message}
 
       if (callbackData === 'space_photos_done' || callbackData === 'space_photos_skip') {
         const session = getSession(chatId);
-        const isVerified = await isUserFaydaVerified(chatId);
-        if (isVerified) {
-          const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
-          const mergedDraft = {
-            ...session.draft_data,
-            age: p?.age || session.draft_data.age || 24,
-            gender: p?.gender || session.draft_data.gender || 'Member',
-            roommate_traits: session.draft_data.preferred_roommate || session.draft_data.roommate_traits || p?.roommate_traits || 'Roommate available with a room in Addis Ababa.',
-            preferred_roommate: session.draft_data.preferred_roommate || session.draft_data.roommate_traits || p?.preferred_roommate,
-          };
-          await sendSpacePreviewCard(chatId, mergedDraft, msgId);
-          return NextResponse.json({ ok: true });
-        }
-        await sendDynamicCardStep1Age(chatId, { ...session.draft_data, mode: 'post_space' }, msgId);
+        const { data: p } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
+        const mergedDraft = {
+          ...session.draft_data,
+          age: p?.age || session.draft_data.age || 24,
+          gender: p?.gender || session.draft_data.gender || session.draft_data.owner_gender || 'Member',
+          roommate_traits: session.draft_data.preferred_roommate || session.draft_data.roommate_traits || p?.roommate_traits || 'Roommate available with a room in Addis Ababa.',
+          preferred_roommate: session.draft_data.preferred_roommate || session.draft_data.roommate_traits || p?.preferred_roommate,
+        };
+        await sendSpacePreviewCard(chatId, mergedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -5850,23 +5970,54 @@ ${res.message}
 
         // 1. Check if requester is Fayda verified and has profile
         const isVerified = await isUserFaydaVerified(chatId);
-          const { data: myProfile } = await supabaseAdmin
-            .from('profiles')
-            .select('*')
-            .eq('telegram_id', chatId)
-            .maybeSingle();
+        const { data: myProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
 
-          const hasCompleteProfile = myProfile && myProfile.religion && myProfile.job && myProfile.preferred_gender;
+        const session = getSession(chatId);
+        const existingDraft = session?.draft_data || {};
 
-          if (!isVerified || !myProfile || !hasCompleteProfile) {
-          await sendDynamicCardStep1Age(chatId, { target_id: targetProfileId }, msgId);
+        // Seed draft from user's existing search criteria and profile so nothing is discarded
+        const seededDraft: Record<string, any> = {
+          ...existingDraft,
+          target_id: targetProfileId,
+          age: myProfile?.age || existingDraft.age,
+          gender: myProfile?.gender || existingDraft.my_gender || existingDraft.gender,
+          my_gender: myProfile?.gender || existingDraft.my_gender || existingDraft.gender,
+          preferred_gender: myProfile?.preferred_gender || existingDraft.preferred_gender,
+          budget_max: myProfile?.budget_max || existingDraft.budget_max,
+          budget_min: myProfile?.budget_min || existingDraft.budget_min || 0,
+          preferred_subcity: (myProfile?.locations && myProfile.locations.length > 0)
+            ? myProfile.locations
+            : (existingDraft.match_subcities && existingDraft.match_subcities.length > 0)
+            ? existingDraft.match_subcities
+            : (existingDraft.preferred_subcity && existingDraft.preferred_subcity.length > 0)
+            ? existingDraft.preferred_subcity
+            : ['Bole'],
+          religion: myProfile?.religion || existingDraft.religion,
+          job: myProfile?.job || existingDraft.job,
+          roommate_traits: myProfile?.roommate_traits || existingDraft.roommate_traits || existingDraft.lifestyle_bio,
+        };
+
+        const hasCompleteProfile = !!(
+          (myProfile?.religion || existingDraft.religion) &&
+          (myProfile?.job || existingDraft.job) &&
+          (myProfile?.preferred_gender || existingDraft.preferred_gender) &&
+          (myProfile?.gender || existingDraft.my_gender || existingDraft.gender) &&
+          (myProfile?.age || existingDraft.age)
+        );
+
+        if (isVerified && hasCompleteProfile) {
+          // 2. Verified user with complete profile -> send anonymous connection request directly without re-prompting
+          const syntheticCallback = `confirm_match:${targetProfileId}`;
+          callbackData = syntheticCallback;
+        } else {
+          // Pre-fill and seed profile draft from existing search choices and route to next missing step
+          await routeNextMissingSeekerStep(chatId, seededDraft, msgId, callback.from);
           return NextResponse.json({ ok: true });
         }
-
-        // 2. Verified user -> send anonymous connection request directly
-        // Reuse confirm_match flow
-        const syntheticCallback = `confirm_match:${targetProfileId}`;
-        callbackData = syntheticCallback;
       }
 
       // 24-Hour Follow-Up: Owner closes listing after match
@@ -5923,8 +6074,12 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
       if (callbackData.startsWith('dyn_gender:')) {
         const gender = callbackData.split(':')[1];
         const session = getSession(chatId);
-        const updatedDraft = { ...session.draft_data, gender };
-        await sendDynamicCardStep3Religion(chatId, updatedDraft, msgId);
+        const updatedDraft: Record<string, any> = { ...session.draft_data, gender, my_gender: gender };
+        if (!updatedDraft.religion) {
+          await sendDynamicCardStep3Religion(chatId, updatedDraft, msgId);
+        } else {
+          await routeNextMissingSeekerStep(chatId, updatedDraft, msgId, callback.from);
+        }
         return NextResponse.json({ ok: true });
       }
 
@@ -5998,8 +6153,12 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
       if (callbackData.startsWith('dyn_religion:')) {
         const religion = callbackData.split(':')[1];
         const session = getSession(chatId);
-        const updatedDraft = { ...session.draft_data, religion };
-        await sendDynamicCardStep4Job(chatId, updatedDraft, msgId);
+        const updatedDraft: Record<string, any> = { ...session.draft_data, religion };
+        if (!updatedDraft.job) {
+          await sendDynamicCardStep4Job(chatId, updatedDraft, msgId);
+        } else {
+          await routeNextMissingSeekerStep(chatId, updatedDraft, msgId, callback.from);
+        }
         return NextResponse.json({ ok: true });
       }
 
@@ -6018,8 +6177,12 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
       if (callbackData.startsWith('dyn_pref_gender:')) {
         const preferred_gender = callbackData.split(':')[1];
         const session = getSession(chatId);
-        const updatedDraft = { ...session.draft_data, preferred_gender };
-        await sendDynamicCardStep7Traits(chatId, updatedDraft, msgId);
+        const updatedDraft: Record<string, any> = { ...session.draft_data, preferred_gender };
+        if (!updatedDraft.roommate_traits && !updatedDraft.traits && !updatedDraft.description && !updatedDraft.lifestyle_bio && !updatedDraft.preferred_roommate) {
+          await sendDynamicCardStep7Traits(chatId, updatedDraft, msgId);
+        } else {
+          await routeNextMissingSeekerStep(chatId, updatedDraft, msgId, callback.from);
+        }
         return NextResponse.json({ ok: true });
       }
 
@@ -6551,16 +6714,16 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
 
 ይህንን የክፍል ጓደኝነት ለመቀበል ሁለቱም ወገኖች በፋይዳ መረጋገጥ አለባቸው።
 
-• <b>አማራጭ ሀ:</b> የ <b>12 ወይም 16 ዲጂት ፋይዳ ቁጥርዎን (FAN)</b> እዚህ ይጻፉ:
-<i>ምሳሌ: <code>1234 5678 9012</code></i>
+• <b>የፎቶ ማስረጃ:</b> እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ ይላኩ።
+<i>⚠️ ለደህንነት ሲባል የፋይዳ ቁጥርን በጽሁፍ ማስገባት አይቻልም።</i>
             `.trim()
             : `
 🛡️ <b>Fayda ID Verification Required</b>
 
 Before accepting this roommate connection, SpaceMatch requires both parties to be Fayda verified for maximum safety.
 
-• <b>Option A:</b> Reply here with your <b>12-digit or 16-digit FAN number</b>:
-<i>Example: <code>1234 5678 9012</code></i>
+• <b>Photo Upload Required:</b> Please upload a clear photo or image document of the back of your Fayda ID card showing the QR code.
+<i>⚠️ Manual typing of FAN numbers is no longer accepted for security reasons.</i>
             `.trim();
 
           const inlineKeyboard = [
@@ -6674,11 +6837,6 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
       }
 
       // MATCHMAKER WIZARD CALLBACK HANDLERS (In-Place Single Card Flow)
-      if (callbackData === 'matchmaker_start' || callbackData === 'execute_matchmaking') {
-        const session = getSession(chatId);
-        await sendMatchmakerSubcityStep(chatId, session.draft_data, msgId);
-        return NextResponse.json({ ok: true });
-      }
 
       if (callbackData === 'match_select_all_subs') {
         const session = getSession(chatId);
@@ -8101,38 +8259,15 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const lang = getLanguage(session.draft_data, chatId);
         const isAm = lang === 'am';
 
-        // Check if user sent a photo of their Fayda QR code
-        const photo = update.message?.photo;
-        if (photo && Array.isArray(photo) && photo.length > 0) {
-          const photoResult = await verifyFaydaPhotoFromTelegram(photo);
-          if (!photoResult.success || !photoResult.fan) {
-            const retryGuidance = isAm
-              ? `⚠️ <b>የፋይዳ QR ኮድ ማንበብ አልተቻለም</b>\n\n• ፎቶው በቂ ብርሃን ያለው፣ ከነጸብራቅ የጸዳ እና ጥራት ያለው መሆኑን ያረጋግጡ።\n• የካሜራ መደብዘዝ ወይም አንግል ማጋደል እንዳይኖር ያድርጉ።\n• በመታወቂያው ጀርባ ያለውን QR ኮድ በሙሉ ግልጽ አድርገው ያንሱ።\n\n💡 <i>እንዲሁም ባለ 16 አሃዝ የፋይዳ (FAN) ቁጥርዎን በቀጥታ እዚህ መጻፍ ይችላሉ:</i>`
-              : `⚠️ <b>Could not verify Fayda QR code</b>\n\n• Ensure the photo is clear, well-lit, and glare-free.\n• Avoid steep angles, shadows, or motion blur.\n• Make sure the QR code on the back of your Fayda card is completely visible and sharp.\n\n💡 <i>You can also type your 16-digit Fayda FAN number manually:</i>`;
-
+        // Check if user uploaded a photo or image document of their Fayda QR code
+        const media = extractMediaFileFromMessage(update.message);
+        if (media) {
+          const photoResult = await verifyFaydaMediaFromTelegram(update.message, chatId);
+          if (!photoResult.success) {
             await sendOrEditCard(
               chatId,
-              retryGuidance,
+              isAm ? photoResult.messageAm : photoResult.messageEn,
               [[{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }]],
-              activeMsgId
-            );
-            return NextResponse.json({ ok: true });
-          }
-
-          const { data: existingUser } = await supabaseAdmin
-            .from('users')
-            .select('id, telegram_id')
-            .eq('fayda_id_number', photoResult.fan)
-            .neq('telegram_id', chatId)
-            .maybeSingle();
-
-          if (existingUser) {
-            await sendOrEditCard(
-              chatId,
-              isAm
-                ? `⚠️ <b>ይህ የፋይዳ ቁጥር ቀደም ሲል ተመዝግቧል</b>\n\nይህ የፋይዳ ብሔራዊ መታወቂያ በሌላ አካውንት ስም ተመዝግቧል።`
-                : `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda National ID is already registered to another account.`,
-              [[{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]],
               activeMsgId
             );
             return NextResponse.json({ ok: true });
@@ -8183,82 +8318,12 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           return NextResponse.json({ ok: true });
         }
 
-        const fanResult = await verifyFaydaFan(text, chatId);
-
-        if (!fanResult.valid || !fanResult.fanNumber) {
-          await sendOrEditCard(
-            chatId,
-            isAm
-              ? `🛡️ <b>ስፔስማች አዲስ · የፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል</b>\n\n⚠️ <b>${fanResult.error || 'ትክክለኛ የፋይዳ ቁጥር አይደለም። እባክዎ ቁጥሩን በትክክል ያስገቡ (12 ወይም 16 ዲጂት):'}</b>\n\nየእርስዎን 12 ወይም 16 ዲጂት የፋይዳ ቁጥር (FAN) እዚህ ይጻፉ:`
-              : `🛡️ <b>SpaceMatch · Fayda ID Verification Required</b>\n\n⚠️ <b>${fanResult.error || 'Invalid Fayda FAN number. Please check the digits and try again.'}</b>\n\nPlease reply with your 12-digit or 16-digit FAN number:`,
-            [
-              // [{ text: isAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
-              [{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }],
-            ],
-            activeMsgId
-          );
-          return NextResponse.json({ ok: true });
-        }
-
-        const { data: existingUser } = await supabaseAdmin
-          .from('users')
-          .select('id, telegram_id')
-          .eq('fayda_id_number', fanResult.fanNumber)
-          .neq('telegram_id', chatId)
-          .maybeSingle();
-
-        if (existingUser) {
-          await sendOrEditCard(
-            chatId,
-            isAm
-              ? `⚠️ <b>ይህ የፋይዳ ቁጥር ቀደም ሲል ተመዝግቧል</b>\n\nይህ የፋይዳ ብሔራዊ መታወቂያ በሌላ አካውንት ስም ተመዝግቧል።`
-              : `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda National ID is already registered to another account.`,
-            [[{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]],
-            activeMsgId
-          );
-          return NextResponse.json({ ok: true });
-        }
-
-        await persistFaydaVerification(chatId, fanResult.fanNumber, fanResult.fullName, {
-          gender: fanResult.gender,
-          verifiedSource: 'telegram_manual_fan_verhoeff',
-          from: update.message?.from,
-        });
-
-        setFaydaStatusCache(chatId, true);
-
-        await clearSession(chatId);
-
-        const verifiedText = isAm
-          ? `
-🎉 <b>የፋይዳ ብሔራዊ መታወቂያዎ ተረጋግጧል!</b>
-🛡️ <b>ሁኔታ:</b> የተረጋገጠ ✅
-
-• <b>የፋይዳ መለያ:</b> <code>•••• •••• ${fanResult.fanNumber.slice(-4)}</code>
-• <b>ፈቃድ:</b> ሙሉ አገልግሎት (ማዛመጃ፣ የፈላጊ መገለጫ፣ የጋራ ግንኙነት)
-• <b>ማረጋገጫ:</b> የቬርሆፍ ቼክሰም የተረጋገጠ ✅
-
-<blockquote>በአዲስ አበባ ውስጥ በሙሉ እምነት እና ደህንነት መፈለግ እና መገናኘት ይችላሉ።</blockquote>
-          `.trim()
-          : `
-🎉 <b>FAYDA NATIONAL ID VERIFIED!</b>
-🛡️ <b>Status:</b> VERIFIED ✅
-
-• <b>Fayda ID:</b> <code>•••• •••• ${fanResult.fanNumber.slice(-4)}</code>
-• <b>Access:</b> Full Platform Access (Matchmaker, Seeker Profiles, Mutual Connections)
-• <b>Validation:</b> Instant Offline Dihedral Checksum Validated ✅
-
-<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
-          `.trim();
-
+        // Reject manual text or digits with bilingual guidance
+        const manualGuidance = FAYDA_ERROR_GUIDANCE.MANUAL_TEXT_ENTERED;
         await sendOrEditCard(
           chatId,
-          verifiedText,
-          [
-            [{ text: isAm ? '⚡ የክፍል ጓደኛ ፈልግ · ማዛመጃ 🔍' : '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
-            [{ text: isAm ? '📢 መረጃህን ቻናል ላይ ልጠፍ ↗️' : '📢 Post Your Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
-            [{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }],
-          ],
+          isAm ? manualGuidance.am : manualGuidance.en,
+          [[{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }]],
           activeMsgId
         );
         return NextResponse.json({ ok: true });
@@ -8552,8 +8617,12 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           return NextResponse.json({ ok: true });
         }
 
-        const updatedDraft = { ...session.draft_data, age: ageVal, lang };
-        await sendDynamicCardStep2Gender(chatId, updatedDraft, activeMsgId);
+        const updatedDraft: Record<string, any> = { ...session.draft_data, age: ageVal, lang };
+        if (!updatedDraft.gender && !updatedDraft.my_gender) {
+          await sendDynamicCardStep2Gender(chatId, updatedDraft, activeMsgId);
+        } else {
+          await routeNextMissingSeekerStep(chatId, updatedDraft, activeMsgId, update.message?.from);
+        }
         return NextResponse.json({ ok: true });
       }
 
@@ -8579,7 +8648,7 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         }
 
         const updatedDraft = { ...session.draft_data, job: jobVal, lang };
-        await sendDynamicCardStep5Budget(chatId, updatedDraft, activeMsgId);
+        await routeNextMissingSeekerStep(chatId, updatedDraft, activeMsgId, update.message?.from);
         return NextResponse.json({ ok: true });
       }
 
@@ -8605,7 +8674,7 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         }
 
         const updatedDraft = { ...session.draft_data, budget_min: budgetRange.min, budget_max: budgetRange.max, lang };
-        await sendDynamicCardStep6PrefGender(chatId, updatedDraft, activeMsgId);
+        await routeNextMissingSeekerStep(chatId, updatedDraft, activeMsgId, update.message?.from);
         return NextResponse.json({ ok: true });
       }
 
@@ -8639,7 +8708,7 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           details: traitsVal,
           lang,
         };
-        await sendDynamicCardStep8Subcities(chatId, updatedDraft, activeMsgId);
+        await routeNextMissingSeekerStep(chatId, updatedDraft, activeMsgId, update.message?.from);
         return NextResponse.json({ ok: true });
       }
 
@@ -8652,39 +8721,16 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         const lang = getLanguage(session.draft_data, chatId);
         const isAm = lang === 'am';
 
-        // Check if user uploaded a photo of Fayda QR
-        const photo = update.message?.photo;
-        if (photo && Array.isArray(photo) && photo.length > 0) {
-          const photoResult = await verifyFaydaPhotoFromTelegram(photo);
-          if (!photoResult.success || !photoResult.fan) {
-            const retryGuidance = isAm
-              ? `⚠️ <b>የፋይዳ QR ኮድ ማንበብ አልተቻለም</b>\n\n• ፎቶው በቂ ብርሃን ያለው፣ ከነጸብራቅ የጸዳ እና ጥራት ያለው መሆኑን ያረጋግጡ።\n• የካሜራ መደብዘዝ ወይም አንግል ማጋደል እንዳይኖር ያድርጉ።\n• በመታወቂያው ጀርባ ያለውን QR ኮድ በሙሉ ግልጽ አድርገው ያንሱ።\n\n💡 <i>እንዲሁም ባለ 16 አሃዝ የፋይዳ (FAN) ቁጥርዎን በቀጥታ እዚህ መጻፍ ይችላሉ:</i>`
-              : `⚠️ <b>Could not verify Fayda QR code</b>\n\n• Ensure the photo is clear, well-lit, and glare-free.\n• Avoid steep angles, shadows, or motion blur.\n• Make sure the QR code on the back of your Fayda card is completely visible and sharp.\n\n💡 <i>You can also type your 16-digit Fayda FAN number manually:</i>`;
-
+        // Check if user uploaded a photo or image document of Fayda QR
+        const media = extractMediaFileFromMessage(update.message);
+        if (media) {
+          const photoResult = await verifyFaydaMediaFromTelegram(update.message, chatId);
+          if (!photoResult.success) {
             await sendDynamicCardStep9FaydaFan(
               chatId,
               session.draft_data,
               activeMsgId,
-              retryGuidance
-            );
-            return NextResponse.json({ ok: true });
-          }
-
-          const { data: existingUser } = await supabaseAdmin
-            .from('users')
-            .select('id, telegram_id')
-            .eq('fayda_id_number', photoResult.fan)
-            .neq('telegram_id', chatId)
-            .maybeSingle();
-
-          if (existingUser) {
-            await sendDynamicCardStep9FaydaFan(
-              chatId,
-              session.draft_data,
-              activeMsgId,
-              isAm
-                ? 'ይህ የፋይዳ ብሔራዊ መታወቂያ በሌላ አካውንት ስም ተመዝግቧል።'
-                : 'This Fayda National ID is already registered to another account.'
+              isAm ? photoResult.messageAm : photoResult.messageEn
             );
             return NextResponse.json({ ok: true });
           }
@@ -8710,27 +8756,14 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           return NextResponse.json({ ok: true });
         }
 
-        const fanResult = await verifyFaydaFan(text, chatId);
-
-        if (!fanResult.valid || !fanResult.fanNumber) {
-          await sendDynamicCardStep9FaydaFan(
-            chatId,
-            session.draft_data,
-            activeMsgId,
-            fanResult.error || (isAm ? 'ትክክለኛ የፋይዳ ቁጥር አይደለም። እባክዎ ቁጥሩን በትክክል ያስገቡ (12 ወይም 16 ዲጂት):' : 'Invalid Fayda FAN number. Please check the digits and try again.')
-          );
-          return NextResponse.json({ ok: true });
-        }
-
-        await persistFaydaVerification(chatId, fanResult.fanNumber, fanResult.fullName, {
-          gender: fanResult.gender,
-          verifiedSource: 'telegram_manual_fan_verhoeff',
-          from: message.from,
-        });
-
-        setFaydaStatusCache(chatId, true);
-
-        await completeSeekerOnboarding(chatId, { ...session.draft_data, lang, fayda_number: fanResult.fanNumber, fayda_status: 'verified' }, activeMsgId, message.from);
+        // Reject manual typing with bilingual guidance
+        const manualGuidance = FAYDA_ERROR_GUIDANCE.MANUAL_TEXT_ENTERED;
+        await sendDynamicCardStep9FaydaFan(
+          chatId,
+          session.draft_data,
+          activeMsgId,
+          isAm ? manualGuidance.am : manualGuidance.en
+        );
         return NextResponse.json({ ok: true });
       }
 
@@ -8744,37 +8777,14 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         const lang = getLanguage(session.draft_data, chatId);
         const isAm = lang === 'am';
 
-        // Check if user uploaded a photo of Fayda QR
-        const photo = update.message?.photo;
-        if (photo && Array.isArray(photo) && photo.length > 0) {
-          const photoResult = await verifyFaydaPhotoFromTelegram(photo);
-          if (!photoResult.success || !photoResult.fan) {
-            const retryGuidance = isAm
-              ? `⚠️ <b>የፋይዳ QR ኮድ ማንበብ አልተቻለም</b>\n\n• ፎቶው በቂ ብርሃን ያለው፣ ከነጸብራቅ የጸዳ እና ጥራት ያለው መሆኑን ያረጋግጡ።\n• የካሜራ መደብዘዝ ወይም አንግል ማጋደል እንዳይኖር ያድርጉ።\n• በመታወቂያው ጀርባ ያለውን QR ኮድ በሙሉ ግልጽ አድርገው ያንሱ።\n\n💡 <i>እንዲሁም ባለ 16 አሃዝ የፋይዳ (FAN) ቁጥርዎን በቀጥታ እዚህ መጻፍ ይችላሉ:</i>`
-              : `⚠️ <b>Could not verify Fayda QR code</b>\n\n• Ensure the photo is clear, well-lit, and glare-free.\n• Avoid steep angles, shadows, or motion blur.\n• Make sure the QR code on the back of your Fayda card is completely visible and sharp.\n\n💡 <i>You can also type your 16-digit Fayda FAN number manually:</i>`;
-
+        // Check if user uploaded a photo or image document of Fayda QR
+        const media = extractMediaFileFromMessage(update.message);
+        if (media) {
+          const photoResult = await verifyFaydaMediaFromTelegram(update.message, chatId);
+          if (!photoResult.success) {
             await sendOrEditCard(
               chatId,
-              retryGuidance,
-              [[{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }]],
-              activeMsgId
-            );
-            return NextResponse.json({ ok: true });
-          }
-
-          const { data: existingUser } = await supabaseAdmin
-            .from('users')
-            .select('id, telegram_id')
-            .eq('fayda_id_number', photoResult.fan)
-            .neq('telegram_id', chatId)
-            .maybeSingle();
-
-          if (existingUser) {
-            await sendOrEditCard(
-              chatId,
-              isAm
-                ? `⚠️ <b>ይህ የፋይዳ ቁጥር ቀደም ሲል ተመዝግቧል</b>\n\nይህ የፋይዳ መታወቂያ በሌላ አካውንት ስም ተመዝግቧል። እባክዎ የራስዎን የፋይዳ ቁጥር ይጠቀሙ።`
-                : `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda ID is already associated with another account. Please use your own Fayda ID.`,
+              isAm ? photoResult.messageAm : photoResult.messageEn,
               [[{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }]],
               activeMsgId
             );
@@ -8806,66 +8816,14 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           return NextResponse.json({ ok: true });
         }
 
-        const fanResult = await verifyFaydaFan(text, chatId);
-
-        if (!fanResult.valid || !fanResult.fanNumber) {
-          const errMsg = fanResult.error || (isAm ? 'ትክክለኛ የፋይዳ ቁጥር አይደለም። እባክዎ ቁጥሩን በትክክል ያስገቡ (12 ወይም 16 ዲጂት):' : 'Invalid Fayda FAN number. Please check the digits and try again.');
-          await sendOrEditCard(
-            chatId,
-            isAm
-              ? `🛡️ <b>ስፔስማች አዲስ · የፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል</b>\n\n⚠️ <b>${errMsg}</b>\n\nየእርስዎን 12 ወይም 16 ዲጂት የፋይዳ ቁጥር (FAN) እዚህ ይጻፉ:`
-              : `🛡️ <b>Fayda ID Verification Required</b>\n\n⚠️ <b>${errMsg}</b>\n\nPlease reply with your 12-digit or 16-digit FAN number:`,
-            [
-              // [{ text: isAm ? '📷 ካሜራ በመክፈት ፋይዳ QR ስካን አድርግ ↗️' : '📷 Open Camera to Scan Fayda QR ↗️', web_app: { url: `${appUrl}?startapp=verify_fayda` } }],
-              [{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }],
-            ],
-            activeMsgId
-          );
-          return NextResponse.json({ ok: true });
-        }
-
-        const { data: existingUser } = await supabaseAdmin
-          .from('users')
-          .select('id, telegram_id')
-          .eq('fayda_id_number', fanResult.fanNumber)
-          .neq('telegram_id', chatId)
-          .maybeSingle();
-
-        if (existingUser) {
-          await sendOrEditCard(
-            chatId,
-            isAm
-              ? `⚠️ <b>ይህ የፋይዳ ቁጥር ቀደም ሲል ተመዝግቧል</b>\n\nይህ የፋይዳ መታወቂያ በሌላ አካውንት ስም ተመዝግቧል። እባክዎ የራስዎን የፋይዳ ቁጥር ይጠቀሙ።`
-              : `⚠️ <b>Fayda ID Already Registered</b>\n\nThis Fayda ID is already associated with another account. Please use your own Fayda ID.`,
-            [[{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }]],
-            activeMsgId
-          );
-          return NextResponse.json({ ok: true });
-        }
-
-        await persistFaydaVerification(chatId, fanResult.fanNumber, fanResult.fullName, {
-          gender: fanResult.gender,
-          verifiedSource: 'telegram_manual_fan_verhoeff',
-          from: update.message?.from,
-        });
-
-        setFaydaStatusCache(chatId, true);
-
-        await clearSession(chatId);
-
-        const { data: match } = await supabaseAdmin
-          .from('matches')
-          .select('*, requester:requester_id(telegram_id, gender, budget_min, budget_max, locations, display_code), target:target_id(telegram_id, display_code)')
-          .eq('id', matchId)
-          .single();
-
-        if (!match || match.status !== 'pending_acceptance') {
-          await sendOrEditCard(chatId, isAm ? `✅ <b>ፋይዳ ተረጋግጧል!</b> ነገር ግን ይህ የግንኙነት ጥያቄ በአሁኑ ሰዓት ንቁ አይደለም።` : `✅ <b>Fayda Verified!</b> However, this match request is no longer pending.`, [[{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]], activeMsgId);
-          return NextResponse.json({ ok: true });
-        }
-
-        // Instant Mutual Contact Dossier Reveal
-        await revealMutualMatchContacts(matchId, chatId, activeMsgId);
+        // Reject manual typing with bilingual guidance
+        const manualGuidance = FAYDA_ERROR_GUIDANCE.MANUAL_TEXT_ENTERED;
+        await sendOrEditCard(
+          chatId,
+          isAm ? manualGuidance.am : manualGuidance.en,
+          [[{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }]],
+          activeMsgId
+        );
         return NextResponse.json({ ok: true });
       }
 
@@ -9000,6 +8958,60 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
 
         const updatedDraft = { ...session.draft_data, contact_phone: cleaned, lang };
         await sendSeekerFaydaStep(chatId, updatedDraft, targetMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Seeker Wizard: Fayda Upload / Review Handler (Resolves Dead-End State)
+      if (session.step === 'awaiting_seeker_fayda_upload') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const targetMsgId = session.draft_data?.card_msg_id;
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
+
+        const media = extractMediaFileFromMessage(update.message);
+        if (media) {
+          const photoResult = await verifyFaydaMediaFromTelegram(update.message, chatId);
+          if (!photoResult.success) {
+            await sendDynamicCardStep9FaydaFan(
+              chatId,
+              session.draft_data,
+              targetMsgId,
+              isAm ? photoResult.messageAm : photoResult.messageEn
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          await persistFaydaVerification(chatId, photoResult.fan, photoResult.fullName, {
+            gender: photoResult.gender,
+            dob: photoResult.dob,
+            verifiedSource: 'telegram_photo_rs256_qr',
+            from: update.message?.from,
+          });
+
+          setFaydaStatusCache(chatId, true);
+
+          const updatedDraft = {
+            ...session.draft_data,
+            lang,
+            fayda_number: photoResult.fan,
+            fayda_status: 'verified',
+            full_name: photoResult.fullName || session.draft_data?.full_name,
+            gender: photoResult.gender || session.draft_data?.gender,
+          };
+          await sendSeekerFaydaStep(chatId, updatedDraft, targetMsgId);
+          return NextResponse.json({ ok: true });
+        }
+
+        // Reject manual text or digits with bilingual guidance
+        const manualGuidance = FAYDA_ERROR_GUIDANCE.MANUAL_TEXT_ENTERED;
+        await sendDynamicCardStep9FaydaFan(
+          chatId,
+          session.draft_data,
+          targetMsgId,
+          isAm ? manualGuidance.am : manualGuidance.en
+        );
         return NextResponse.json({ ok: true });
       }
 
@@ -9309,8 +9321,8 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           ]);
           const myProfile = profileRes.data;
 
-          if (!isVerified || !myProfile) {
-            // Unverified or new user: automatically lock target and launch dynamic card onboarding
+          if (!myProfile) {
+            // New user without a profile: automatically lock target and launch dynamic card onboarding
             await sendDynamicCardStep1Age(chatId, {
               target_id: targetProfile.id,
               target_code: targetProfile.display_code || lookupCode,
@@ -9318,6 +9330,33 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
               target_budget: targetBudgetStr,
               lang: reqLang,
             });
+            return NextResponse.json({ ok: true });
+          }
+
+          if (!isVerified) {
+            // User already has a profile in profiles, but lacks Fayda verification:
+            // Preserve their existing fields and route only to missing steps or Fayda verification
+            const seededDraft = {
+              ...myProfile,
+              target_id: targetProfile.id,
+              target_code: targetProfile.display_code || lookupCode,
+              target_locations: targetLocations,
+              target_budget: targetBudgetStr,
+              lang: reqLang,
+              preferred_subcity: (Array.isArray(myProfile.locations) && myProfile.locations.length > 0)
+                ? myProfile.locations
+                : ['Bole'],
+              gender: myProfile.gender,
+              my_gender: myProfile.gender,
+              age: myProfile.age,
+              religion: myProfile.religion,
+              job: myProfile.job,
+              budget_min: myProfile.budget_min,
+              budget_max: myProfile.budget_max,
+              preferred_gender: myProfile.preferred_gender,
+              roommate_traits: myProfile.roommate_traits,
+            };
+            await routeNextMissingSeekerStep(chatId, seededDraft);
             return NextResponse.json({ ok: true });
           }
 

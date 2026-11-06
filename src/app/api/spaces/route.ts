@@ -71,13 +71,18 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const q = (searchParams.get('query') || '').trim().toLowerCase();
     const hood = (searchParams.get('neighborhood') || '').trim().toLowerCase();
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
+    const rawLimit = parseInt(searchParams.get('limit') || '50', 10) || 50;
+    const limit = Math.min(50, Math.max(1, rawLimit));
+    const offset = (page - 1) * limit;
 
-    // Attempt Supabase fetch safely
+    // Attempt Supabase fetch safely with bounded pagination
     try {
       const { data: viewData } = await supabaseClient
         .from('public_spaces_view')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
 
       if (viewData && viewData.length > 0) {
         spaces = viewData;
@@ -92,7 +97,8 @@ export async function GET(request: Request) {
           .from('spaces')
           .select('*, space_images(*)')
           .eq('status', 'published')
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .range(offset, offset + limit - 1);
 
         if (spacesData && spacesData.length > 0) {
           spaces = spacesData;
@@ -124,7 +130,8 @@ export async function GET(request: Request) {
     spaces = FALLBACK_SPACES;
   }
 
-  const sanitizedSpaces = spaces.map((space: Record<string, any>) => {
+  const pagedSpaces = spaces.slice(0, 50);
+  const sanitizedSpaces = pagedSpaces.map((space: Record<string, any>) => {
     const clean = { ...space };
     delete clean.exact_address;
     delete clean.latitude;
@@ -134,9 +141,16 @@ export async function GET(request: Request) {
     return clean;
   });
 
-  return NextResponse.json({
-    success: true,
-    count: sanitizedSpaces.length,
-    spaces: sanitizedSpaces,
-  });
+  return NextResponse.json(
+    {
+      success: true,
+      count: sanitizedSpaces.length,
+      spaces: sanitizedSpaces,
+    },
+    {
+      headers: {
+        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120',
+      },
+    }
+  );
 }

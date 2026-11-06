@@ -15,9 +15,13 @@
 
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { saveSession } from '@/lib/bot-session-store';
-import { decodeImage } from 'fayda-decoder';
-import { verifySignature } from 'fayda-decoder/verify';
-import { persistFaydaVerification } from '@/lib/fayda-verification';
+import {
+  verifyFaydaPhotoUpload,
+  extractMediaFileFromMessage,
+  downloadTelegramFile,
+  FAYDA_ERROR_GUIDANCE,
+  applyVerifiedFayda,
+} from '@/lib/bot/fayda-photo-verifier';
 import {
   sendMessage,
   editMessageText,
@@ -292,7 +296,7 @@ async function sendKycStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `🔒 <b>Step 7 of 7 — Fayda ID Verification</b>\n\nSpaceMatch Addis requires all members to verify their identity.\n\n<blockquote>Please upload a photo of your Fayda card or enter your 16-digit Fayda number directly in chat for instant offline verification.</blockquote>`,
+    `🔒 <b>Step 7 of 7 — Fayda ID Verification</b>\n\nSpaceMatch Addis requires all members to verify their identity with an authentic Ethiopian National Fayda ID.\n\n<blockquote>📸 Please take and upload a clear photo or document of the back of your Fayda ID card showing the QR code.\n\n⚠️ <i>Manual typing of FAN numbers is not accepted for security reasons.</i></blockquote>`,
     {
       inline_keyboard: [
         // Mini App camera scanning hidden for pure bot experience:
@@ -511,61 +515,51 @@ export async function handleOnboardingMessage(
     return true;
   }
 
-  // ── KYC photo upload (In-memory extraction only - 0 bytes saved to storage) ────────
-  if (step === 'kyc' && message.photo && message.photo.length > 0) {
-    // Pick highest-resolution photo
-    const bestPhoto = message.photo.reduce((a, b) =>
-      (b.file_size ?? 0) > (a.file_size ?? 0) ? b : a
-    );
+  // ── KYC photo & document upload (In-memory extraction only - 0 bytes saved to storage) ──
+  const kycMedia = extractMediaFileFromMessage(message);
+
+  // Reject any non-media message during KYC with bilingual guidance
+  if (step === 'kyc' && !kycMedia) {
+    const guidance = FAYDA_ERROR_GUIDANCE.MANUAL_TEXT_ENTERED;
+    await sendMessage(chatId, `${guidance.en}\n\n${guidance.am}`);
+    return true;
+  }
+
+  if (step === 'kyc' && kycMedia) {
+    if ('error' in kycMedia) {
+      await sendMessage(chatId, `${kycMedia.messageEn}\n\n${kycMedia.messageAm}`);
+      return true;
+    }
 
     try {
       await sendMessage(chatId, `⏳ <b>Processing your identity document in memory...</b>`);
 
-      // 1. Download into RAM buffer
-      const fileBuffer = await getFile(bestPhoto.file_id);
+      // 1. Download into RAM buffer (Zero persistent storage)
+      const fileBuffer = await downloadTelegramFile(kycMedia.fileId);
 
-      // 2. Extract data in memory (Zero storage policy to protect free tier database)
-      let faydaVerified = false;
-      let extractedFan = '';
-      let extractedName = '';
+      // 2. Decode & verify cryptographically
+      const verifyResult = await verifyFaydaPhotoUpload(fileBuffer, chatId);
 
-      try {
-        const decodeResult = await decodeImage(new Uint8Array(fileBuffer), { includeFace: false });
-        if (decodeResult.ok && decodeResult.fields.fan) {
-          const sigResult = await verifySignature(decodeResult, {
-            publicKeyPem: process.env.FAYDA_PUBLIC_KEY_PEM,
-          });
-          if (sigResult.verified) {
-            faydaVerified = true;
-            extractedFan = decodeResult.fields.fan;
-            extractedName = decodeResult.fields.full_name || '';
-            const extractedGender = decodeResult.fields.gender === 'M' ? 'Male' : decodeResult.fields.gender === 'F' ? 'Female' : (decodeResult.fields.gender || undefined);
-            const extractedDob = decodeResult.fields.date_of_birth || undefined;
-
-            await persistFaydaVerification(chatId, extractedFan, extractedName || undefined, {
-              gender: extractedGender,
-              dob: extractedDob,
-              verifiedSource: 'onboarding_photo_rs256_qr',
-              from: message.from,
-            });
-          }
-        }
-      } catch (decodeErr) {
-        console.warn('[onboarding] In-memory Fayda QR decode note:', decodeErr);
+      if (!verifyResult.success) {
+        await sendMessage(chatId, `${verifyResult.messageEn}\n\n${verifyResult.messageAm}`);
+        return true;
       }
 
-      // 3. Generate display code and finalise profile (NO files stored in storage)
+      // 3. Persist verified status across users, profiles, roommate_profiles
+      await applyVerifiedFayda(chatId, verifyResult, message.from);
+
+      // 4. Generate display code and finalize profile
       const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
       const displayCode: string = codeRow || `RM${Date.now()}`;
 
       const updatedProfile = await updateProfile(chatId, {
         kyc_doc_path: null, // ZERO STORAGE: Free tier database safe (no images stored)
-        kyc_status: faydaVerified ? 'verified' : 'pending',
+        kyc_status: 'verified',
         status: 'active',
         onboarding_step: 'completed',
         display_code: displayCode,
         telegram_username: telegramUsername || null,
-        full_name: extractedName || undefined,
+        full_name: verifyResult.fullName || undefined,
       });
 
       if (!updatedProfile) {
@@ -573,7 +567,7 @@ export async function handleOnboardingMessage(
         return true;
       }
 
-      // 4. Publish listing to the channel
+      // 5. Publish listing to the channel
       try {
         const channelMsgId = await publishListingToChannel(updatedProfile);
         await supabaseAdmin
@@ -582,10 +576,9 @@ export async function handleOnboardingMessage(
           .eq('telegram_id', chatId);
       } catch (publishErr) {
         console.error('[onboarding] Channel publish failed:', publishErr);
-        // Non-fatal — profile is saved, just not posted yet
       }
 
-      // 5. Confirmation message
+      // 6. Confirmation message
       await sendMessage(
         chatId,
         `🎉 <b>Profile Approved &amp; Posted!</b>
@@ -601,16 +594,12 @@ We will alert you here the moment someone wants to connect!
           ],
         }
       );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error('[onboarding] KYC handler error:', msg);
-      await sendMessage(
-        chatId,
-        `❌ <b>Something went wrong.</b> Please send your ID photo again.`
-      );
+      return true;
+    } catch (err: any) {
+      console.error('[onboarding] KYC handler error:', err);
+      await sendMessage(chatId, `⚠️ <b>Verification Error</b>\n\nCould not process the uploaded file. Please try again with a clear photo of your Fayda card.`);
+      return true;
     }
-
-    return true;
   }
 
   // Not handled by onboarding
