@@ -241,7 +241,7 @@ async function sendMoveInStep(chatId: number) {
 async function sendTraitsStep(chatId: number) {
   await sendMessage(
     chatId,
-    `🏠 <b>Step 5 of 7 — About You &amp; House Rules</b>\n\nTell us about your habits, lifestyle, or house rules.\n\n<blockquote><i>Example: Non-smoker, quiet, student, tidy, no late-night guests, etc.</i></blockquote>\n\nType your answer in chat below:`
+    `🏠 <b>Step 5 of 7 — About You &amp; House Rules</b>\n\nTell us about your habits, lifestyle, or house rules.\n\n<blockquote>Example: Non-smoker, quiet, student, tidy, no late-night guests, etc.</blockquote>\n\nType your answer in chat below:`
   );
 }
 
@@ -296,7 +296,7 @@ async function sendKycStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `🔒 <b>Step 7 of 7 — Fayda ID Verification</b>\n\nSpaceMatch Addis requires all members to verify their identity with an authentic Ethiopian National Fayda ID.\n\n<blockquote>📸 Please take and upload a clear photo or document of the back of your Fayda ID card showing the QR code.\n\n⚠️ <i>Manual typing of FAN numbers is not accepted for security reasons.</i></blockquote>`,
+    `🔒 <b>Step 7 of 7 — Fayda ID Verification</b>\n\nSpaceMatch Addis requires all members to verify their identity with an authentic Ethiopian National Fayda ID.\n\n<blockquote>📸 Please take and upload a clear photo or document of the back of your Fayda ID card showing the QR code.\n\n⚠️ <b>Manual typing of FAN numbers is not accepted for security reasons.</b></blockquote>`,
     {
       inline_keyboard: [
         // Mini App camera scanning hidden for pure bot experience:

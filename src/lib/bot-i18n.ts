@@ -47,6 +47,17 @@ export const I18N = {
     btnBranchSpace: '🏠 I have a space and want a roommate',
     btnBranchSeeker: '👥 I want a roommate and we look for space together',
 
+    // Section Badges
+    section1Badge: '👤 <b>Section 1: Personal Profile</b>',
+    section2Badge: '🏠 <b>Section 2: Roommate Criteria</b>',
+
+    // Interstitial Transition (Personal Registration -> Preferences)
+    interstitialTitle: '🎉 <b>Personal Profile Successfully Registered!</b>',
+    interstitialSub: '✅ Your personal details have been saved.',
+    interstitialNote: '<blockquote>The following questions are to define your Roommate Preferences (the type of roommate and budget you are searching for).</blockquote>',
+    interstitialAction: '🔍 Tap below to set your roommate criteria and budget:',
+    btnContinuePreferences: '➡️ Continue to Roommate Preferences',
+
     // Questionnaire Steps (Dynamic Seeker & Matchmaker)
     stepAge: '🎂 <b>What is your age?</b> (e.g. 24)',
     errAge: 'Please enter a valid numerical age between 18 and 85 (e.g. 24):',
@@ -72,16 +83,16 @@ export const I18N = {
     btnPrefFemale: '👩 Female Only',
     btnPrefAny: '👥 Any Gender',
 
-    stepTraits: '✨ <b>Describe your preferred roommate:</b>\n<i>(Please include preferred gender, religion, job/occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed)</i>',
+    stepTraits: '✨ <b>Describe your preferred roommate:</b>\n<blockquote>Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed</blockquote>',
     errTraits: 'Please describe your preferred roommate (e.g. Female, preferably Orthodox, clean, and employed):',
 
     stepLocations: '📍 <b>Select preferred areas:</b>',
     btnSelectAll: '🌐 Select ALL Sub-Cities & Proceed ➡️',
     btnAllSelected: '✅ All Selected (Proceed ➡️)',
 
-    stepFayda: '🛡️ <b>Upload Fayda ID Card Photo:</b>\nPlease upload a clear photo or image document of the back of your Fayda ID card showing the QR code.',
+    stepFayda: '🛡️ <b>Upload Fayda ID Card Photo:</b>\n<blockquote>Please upload a clear photo or image document of the back of your Fayda ID card showing the QR code.</blockquote>',
     btnScanQr: '📷 Upload Fayda Photo ↗️',
-    errFayda: '⚠️ Manual typing is not accepted. Please upload a clear photo or document of your Fayda ID card showing the QR code:',
+    errFayda: '⚠️ <b>Photo Upload Required</b>\n<blockquote>Manual typing of FAN numbers is not accepted for security reasons. Please upload a clear photo or document of your Fayda ID card showing the QR code.</blockquote>',
 
     // Space Owner Questionnaire Steps
     spaceStepType: '🛏️ <b>What type of space are you offering?</b> (e.g. Master Bedroom)',
@@ -105,7 +116,7 @@ export const I18N = {
     spaceBtnPrefFemale: '👩 Female Only',
     spaceBtnPrefAny: '👥 Any Gender',
 
-    spaceStepPrefRoommate: '✨ <b>Describe your preferred roommate:</b>\n<i>(Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed)</i>',
+    spaceStepPrefRoommate: '✨ <b>Describe your preferred roommate:</b>\n<blockquote>Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed</blockquote>',
     errSpacePrefRoommate: 'Please describe your preferred roommate (e.g. Female, preferably Orthodox, clean, and employed):',
 
     spaceStepSubcity: '📍 <b>Select sub-city where the space is located:</b>',
@@ -124,8 +135,8 @@ export const I18N = {
     connectTitle: '🤝 <b>Connect with Roommate</b>',
     matchRequestSent: '✅ <b>Match Request Delivered!</b>\n\nYour request has been sent to the roommate. You will be notified the moment they accept!',
     bothConnectedTitle: '🎉 <b>You Both Want to Connect!</b>',
-    paymentInstructions: `SpaceMatch Addis 30-Day All-Access Pass (<b>300 ETB</b>).\n\n🏦 <b>Payment Options (Account: Wahid):</b>\n• 📱 <b>Telebirr:</b> <code>0987310978</code> (Wahid)\n• 🏦 <b>Bank of Abyssinia:</b> <code>256861771</code> (Wahid)\n• 🏦 <b>Dashen Bank:</b> <code>2922175078411</code> (Wahid)\n\n<i>Unlocks 30 days of channel posting and unlimited connection requests with zero per-contact fees.</i>\n\nOnce transferred, send your transaction reference:\n<code>/verify telebirr YOUR_REF</code>\nor\n<code>/verify abyssinia YOUR_REF</code>\nor\n<code>/verify dashen YOUR_REF</code>`,
-    privacyShieldNote: '🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock.</i>',
+    paymentInstructions: `<b>SpaceMatch Addis · 30-Day All-Access Pass (300 ETB)</b>\n\n🏦 <b>Payment Options (Account Holder: Wahid):</b>\n• 📱 <b>Telebirr:</b> <code>0987310978</code> (Wahid)\n• 🏦 <b>Bank of Abyssinia:</b> <code>256861771</code> (Wahid)\n• 🏦 <b>Dashen Bank:</b> <code>2922175078411</code> (Wahid)\n\n<blockquote>Unlocks 30 days of channel posting and unlimited connection requests with zero per-contact fees.</blockquote>\n\nOnce transferred, send your transaction reference:\n<code>/verify telebirr YOUR_REF</code>\nor\n<code>/verify abyssinia YOUR_REF</code>\nor\n<code>/verify dashen YOUR_REF</code>`,
+    privacyShieldNote: '<blockquote>🔒 <b>Personal identity & direct contact remain sealed until mutual match unlock.</b></blockquote>',
   },
 
   am: {
@@ -148,6 +159,17 @@ export const I18N = {
     postBranchTitle: '📢 <b>የመረጃዎን አይነት ይምረጡ:</b>',
     btnBranchSpace: '🏠 የሚከራይ ክፍል አለኝ እና የቤት ጓደኛ እፈልጋለሁ',
     btnBranchSeeker: '👥 የቤት ጓደኛ እፈልጋለሁ አብረን ቤት እንፈልጋለን',
+
+    // Section Badges
+    section1Badge: '👤 <b>ክፍል ፩: የግል መረጃ | Personal Profile</b>',
+    section2Badge: '🏠 <b>ክፍል ፪: የክፍል ጓደኛ ምርጫ | Roommate Criteria</b>',
+
+    // Interstitial Transition (Personal Registration -> Preferences)
+    interstitialTitle: '🎉 <b>የግል መረጃዎ በተሳካ ሁኔታ ተመዝግቧል!</b>',
+    interstitialSub: '✅ የእርስዎ መገለጫ ተቀምጧል።',
+    interstitialNote: '<blockquote>ቀጥሎ የምንጠይቃቸው ጥያቄዎች የሚፈልጉትን የክፍል ጓደኛ (Roommate) ምርጫዎች እና በጀት ለመወሰን የሚረዱ ናቸው።</blockquote>',
+    interstitialAction: '🔍 የሚፈልጉትን የክፍል ጓደኛ እና በጀት ለመምረጥ ይቀጥሉ:',
+    btnContinuePreferences: '➡️ የክፍል ጓደኛ ምርጫዎችን አስገባ',
 
     // Questionnaire Steps (Dynamic Seeker & Matchmaker)
     stepAge: '🎂 <b>ዕድሜዎ ስንት ነው?</b> (ምሳሌ: 24)',
@@ -174,16 +196,16 @@ export const I18N = {
     btnPrefFemale: '👩 ሴት ብቻ',
     btnPrefAny: '👥 ማናቸውም',
 
-    stepTraits: '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ:</b>\n<i>(ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ)</i>',
+    stepTraits: '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ:</b>\n<blockquote>ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ</blockquote>',
     errTraits: 'እባክዎ የሚፈልጉትን የቤት ጓደኛ ይግለጹ (ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ):',
 
     stepLocations: '📍 <b>የሚመርጡትን የመኖሪያ አካባቢዎች ይምረጡ:</b>',
     btnSelectAll: '🌐 ሁሉንም ምረጥ & ቀጥል ➡️',
     btnAllSelected: '✅ ሁሉም ተመርጠዋል (ቀጥል ➡️)',
 
-    stepFayda: '🛡️ <b>የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\nእባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ ይላኩ።',
+    stepFayda: '🛡️ <b>የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\n<blockquote>እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ ይላኩ።</blockquote>',
     btnScanQr: '📷 የፋይዳ ፎቶ ይላኩ ↗️',
-    errFayda: '⚠️ የፋይዳ ቁጥርን በጽሁፍ ማስገባት አይቻልም። እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም ሰነድ ይላኩ:',
+    errFayda: '⚠️ <b>የፎቶ ማስረጃ ያስፈልጋል</b>\n<blockquote>የፋይዳ ቁጥርን በጽሁፍ ማስገባት አይቻልም። እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም ሰነድ ይላኩ።</blockquote>',
 
     // Space Owner Questionnaire Steps
     spaceStepType: '🛏️ <b>የሚከራየው ክፍል ምን አይነት ነው?</b> (ምሳሌ: ዋና መኝታ ቤት)',
@@ -207,7 +229,7 @@ export const I18N = {
     spaceBtnPrefFemale: '👩 ሴት ብቻ',
     spaceBtnPrefAny: '👥 ማናቸውም',
 
-    spaceStepPrefRoommate: '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ (Preferred Roommate):</b>\n<i>(ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ)</i>',
+    spaceStepPrefRoommate: '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ (Preferred Roommate):</b>\n<blockquote>ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ</blockquote>',
     errSpacePrefRoommate: 'እባክዎ የሚፈልጉትን የቤት ጓደኛ ይግለጹ (ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ):',
 
     spaceStepSubcity: '📍 <b>ቤቱ የሚገኝበትን ክፍለ ከተማ ይምረጡ:</b>',
@@ -226,8 +248,8 @@ export const I18N = {
     connectTitle: '🤝 <b>ከቤት ጓደኛ ጋር ይገናኙ</b>',
     matchRequestSent: '✅ <b>የግንኙነት ጥያቄዎ በተሳካ ሁኔታ ደርሷል!</b>\n\nጥያቄዎ ለተጠቃሚው ተልኳል። ጥያቄዎን እንደተቀበሉ ወዲያውኑ መልዕክት ይደርስዎታል!',
     bothConnectedTitle: '🎉 <b>ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>',
-    paymentInstructions: `የስፔስማች አዲስ የ30 ቀን ሙሉ አባልነት ፓስ (<b>300 ብር</b>)።\n\n🏦 <b>የክፍያ አማራጮች (ዋሂድ / Wahid):</b>\n• 📱 <b>ቴሌብር:</b> <code>0987310978</code> (Wahid)\n• 🏦 <b>አቢሲኒያ ባንክ:</b> <code>256861771</code> (Wahid)\n• 🏦 <b>ዳሽን ባንክ:</b> <code>2922175078411</code> (Wahid)\n\n<i>ለ 30 ቀናት ማስታወቂያ ለመለጠፍና ያለምንም ተጨማሪ ክፍያ ያለገደብ ከማንኛውም ፈላጊ ጋር ለመገናኘት ያስችላል።</i>\n\nክፍያውን እንደፈጸሙ የደረሰኝ ቁጥርዎን እንደሚከተለው ይላኩ:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\nወይም\n<code>/verify abyssinia የደረሰኝ_ቁጥር</code>\nወይም\n<code>/verify dashen የደረሰኝ_ቁጥር</code>`,
-    privacyShieldNote: '🔒 <i>የእርስዎ ትክክለኛ ስም እና ስልክ ቁጥር በሙሉ ሚስጥራዊነቱ የተጠበቀ ነው።</i>',
+    paymentInstructions: `<b>የስፔስማች አዲስ የ30 ቀን ሙሉ አባልነት ፓስ (300 ብር)</b>\n\n🏦 <b>የክፍያ አማራጮች (ዋሂድ / Wahid):</b>\n• 📱 <b>ቴሌብር:</b> <code>0987310978</code> (Wahid)\n• 🏦 <b>አቢሲኒያ ባንክ:</b> <code>256861771</code> (Wahid)\n• 🏦 <b>ዳሽን ባንክ:</b> <code>2922175078411</code> (Wahid)\n\n<blockquote>ለ 30 ቀናት ማስታወቂያ ለመለጠፍና ያለምንም ተጨማሪ ክፍያ ያለገደብ ከማንኛውም ፈላጊ ጋር ለመገናኘት ያስችላል።</blockquote>\n\nክፍያውን እንደፈጸሙ የደረሰኝ ቁጥርዎን እንደሚከተለው ይላኩ:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\nወይም\n<code>/verify abyssinia የደረሰኝ_ቁጥር</code>\nወይም\n<code>/verify dashen የደረሰኝ_ቁጥር</code>`,
+    privacyShieldNote: '<blockquote>🔒 <b>የእርስዎ ትክክለኛ ስም እና ስልክ ቁጥር በሙሉ ሚስጥራዊነቱ የተጠበቀ ነው።</b></blockquote>',
   },
 } as const;
 

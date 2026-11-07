@@ -110,6 +110,10 @@ export async function runTier4Tests(collector: TestExecutionCollector): Promise<
       res = await dispatchWebhookUpdate(createTelegramMessageUpdate(chatId, 'Accountant at CBE'));
       if (res.status !== 200) throw new Error('Failed at Step 7 (Job)');
 
+      // Interstitial Step: Transition from Personal Profile to Roommate Preferences
+      res = await dispatchWebhookUpdate(createTelegramCallbackUpdate(chatId, 'dyn_card_to_preferences'));
+      if (res.status !== 200) throw new Error('Failed at Interstitial Step (dyn_card_to_preferences)');
+
       // Step 8: Budget Range
       res = await dispatchWebhookUpdate(createTelegramMessageUpdate(chatId, '8000 - 14000'));
       if (res.status !== 200) throw new Error('Failed at Step 8 (Budget)');

@@ -1253,11 +1253,14 @@ It has been 24 hours since your roommate contact was unlocked!
       const cleanCode = (draft.target_code || '').replace(/^#/, '');
       const header = cleanCode
         ? (isAm
-            ? `ℹ️ <b>ከማስታወቂያ #${cleanCode} ጋር እየተገናኙ ነው</b>\n<i>(ማስታወሻ: #${cleanCode} የዚህ ማስታወቂያ መለያ ኮድ ነው። ከአስተዳዳሪዎች ጋር ሲነጋገሩ ይህንን ኮድ በመጥቀስ ማስታወቂያውን ማሳወቅ ይችላሉ።)</i>\n\n━━━━━━━━━━━━━━━━━━━━━\n🤝 <b>ከቤት ጓደኛ #${cleanCode} ጋር ይገናኙ</b>\n\n`
-            : `ℹ️ <b>You are interacting with post #${cleanCode}</b>\n<i>(Note: #${cleanCode} is the unique identification code for this listing. If you contact admin support, quote this code to identify which post you are referring to.)</i>\n\n━━━━━━━━━━━━━━━━━━━━━\n🤝 <b>Connect with #${cleanCode}</b>\n\n`)
+            ? `ℹ️ <b>ከማስታወቂያ #${cleanCode} ጋር እየተገናኙ ነው</b>\n<blockquote>ማስታወሻ: #${cleanCode} የዚህ ማስታወቂያ መለያ ኮድ ነው። ከአስተዳዳሪዎች ጋር ሲነጋገሩ ይህንን ኮድ በመጥቀስ ማስታወቂያውን ማሳወቅ ይችላሉ።</blockquote>\n\n━━━━━━━━━━━━━━━━━━━━━\n🤝 <b>ከቤት ጓደኛ #${cleanCode} ጋር ይገናኙ</b>\n\n`
+            : `ℹ️ <b>You are interacting with post #${cleanCode}</b>\n<blockquote>Note: #${cleanCode} is the unique identification code for this listing. If you contact admin support, quote this code to identify which post you are referring to.</blockquote>\n\n━━━━━━━━━━━━━━━━━━━━━\n🤝 <b>Connect with #${cleanCode}</b>\n\n`)
         : '';
+      const sectionBadge = isAm
+        ? '👤 <b>ክፍል ፩: የግል መረጃ | Personal Profile</b>'
+        : '👤 <b>Section 1: Personal Profile</b>';
       const question = isAm ? '🎂 <b>ዕድሜዎ ስንት ነው?</b> (ምሳሌ: 24)' : '🎂 <b>What is your age?</b> (e.g. 24)';
-      const text = `${header}${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${question}`.trim();
+      const text = `${header}${sectionBadge}\n\n${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${question}`.trim();
 
       const inlineKeyboard = [
         ...(draft.target_code
@@ -1292,7 +1295,11 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
-      const text = isAm ? '👤 <b>ጾታዎን ይምረጡ:</b>' : '👤 <b>Select your gender:</b>';
+      const sectionBadge = isAm
+        ? '👤 <b>ክፍል ፩: የግል መረጃ | Personal Profile</b>'
+        : '👤 <b>Section 1: Personal Profile</b>';
+      const prompt = isAm ? '👤 <b>ጾታዎን ይምረጡ:</b>' : '👤 <b>Select your gender:</b>';
+      const text = `${sectionBadge}\n\n${prompt}`;
 
       const inlineKeyboard = [
         [
@@ -1325,7 +1332,11 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
-      const text = isAm ? '⛪ <b>እምነትዎን ይምረጡ:</b>' : '⛪ <b>Select your religion:</b>';
+      const sectionBadge = isAm
+        ? '👤 <b>ክፍል ፩: የግል መረጃ | Personal Profile</b>'
+        : '👤 <b>Section 1: Personal Profile</b>';
+      const prompt = isAm ? '⛪ <b>እምነትዎን ይምረጡ:</b>' : '⛪ <b>Select your religion:</b>';
+      const text = `${sectionBadge}\n\n${prompt}`;
 
       const inlineKeyboard = [
         [
@@ -1363,14 +1374,65 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
+      const sectionBadge = isAm
+        ? '👤 <b>ክፍል ፩: የግል መረጃ | Personal Profile</b>'
+        : '👤 <b>Section 1: Personal Profile</b>';
       const promptText = isAm
         ? '💼 <b>የስራ ሁኔታዎ ወይም ሙያዎ ምንድን ነው?</b> (ምሳሌ: አካውንታንት)'
         : '💼 <b>What is your job / occupation?</b> (e.g. Accountant)';
-      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+      const text = `${sectionBadge}\n\n${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
         [
           { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_religion' },
+          { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
+        ],
+      ];
+
+      await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    };
+
+    // Dedicated Interstitial Transition Card (Personal Profile -> Roommate Preferences)
+    const sendPersonalRegistrationSuccessCard = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'dyn_card_interstitial',
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+        updated_at: new Date().toISOString(),
+      });
+
+      const header = isAm
+        ? '🎉 <b>የግል መረጃዎ በተሳካ ሁኔታ ተመዝግቧል!</b>'
+        : '🎉 <b>Personal Profile Successfully Registered!</b>';
+      const subtitle = isAm
+        ? '✅ የእርስዎ መገለጫ ተቀምጧል።'
+        : '✅ Your personal details have been saved.';
+      const explanation = isAm
+        ? '<blockquote>ቀጥሎ የምንጠይቃቸው ጥያቄዎች የሚፈልጉትን የክፍል ጓደኛ (Roommate) ምርጫዎች እና በጀት ለመወሰን የሚረዱ ናቸው።</blockquote>'
+        : '<blockquote>The following questions are to define your Roommate Preferences (the type of roommate and budget you are searching for).</blockquote>';
+      const prompt = isAm
+        ? '🔍 የሚፈልጉትን የክፍል ጓደኛ እና በጀት ለመምረጥ ይቀጥሉ:'
+        : '🔍 Tap below to set your roommate criteria and budget:';
+
+      const text = `${header}\n\n${subtitle}\n\n${explanation}\n\n${prompt}`;
+
+      const inlineKeyboard = [
+        [
+          {
+            text: isAm ? '➡️ የክፍል ጓደኛ ምርጫዎችን አስገባ' : '➡️ Continue to Roommate Preferences',
+            callback_data: 'dyn_card_to_preferences',
+          },
+        ],
+        [
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_job' },
           { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
         ],
       ];
@@ -1396,10 +1458,13 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
+      const sectionBadge = isAm
+        ? '🏠 <b>ክፍል ፪: የክፍል ጓደኛ ምርጫ | Roommate Criteria</b>'
+        : '🏠 <b>Section 2: Roommate Criteria</b>';
       const promptText = isAm
         ? '💰 <b>የወርሃዊ የኪራይ በጀትዎ ከስንት እስከ ስንት ነው?</b> (ምሳሌ: 8000 - 15000)'
         : '💰 <b>What is your monthly budget range in ETB?</b> (e.g. 8000 - 15000)';
-      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+      const text = `${sectionBadge}\n\n${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
         [
@@ -1428,7 +1493,10 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
-      const text = isAm ? '👥 <b>ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ?</b>' : '👥 <b>Who do you prefer to live with?</b>';
+      const sectionBadge = isAm
+        ? '🏠 <b>ክፍል ፪: የክፍል ጓደኛ ምርጫ | Roommate Criteria</b>'
+        : '🏠 <b>Section 2: Roommate Criteria</b>';
+      const text = `${sectionBadge}\n\n${isAm ? '👥 <b>ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ?</b>' : '👥 <b>Who do you prefer to live with?</b>'}`;
 
       const inlineKeyboard = [
         [
@@ -1463,10 +1531,13 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
+      const sectionBadge = isAm
+        ? '🏠 <b>ክፍል ፪: የክፍል ጓደኛ ምርጫ | Roommate Criteria</b>'
+        : '🏠 <b>Section 2: Roommate Criteria</b>';
       const promptText = isAm
-        ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ:</b>\n<i>(ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ)</i>'
-        : '✨ <b>Describe your preferred roommate:</b>\n<i>(Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed)</i>';
-      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+        ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ:</b>\n<blockquote>ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ</blockquote>'
+        : '✨ <b>Describe your preferred roommate:</b>\n<blockquote>Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed</blockquote>';
+      const text = `${sectionBadge}\n\n${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
         [
@@ -1535,9 +1606,12 @@ It has been 24 hours since your roommate contact was unlocked!
         { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
       ]);
 
+      const sectionBadge = isAm
+        ? '🏠 <b>ክፍል ፪: የክፍል ጓደኛ ምርጫ | Roommate Criteria</b>'
+        : '🏠 <b>Section 2: Roommate Criteria</b>';
       const text = isAm
-        ? `📍 <b>የሚመርጡትን የመኖሪያ አካባቢዎች ይምረጡ:</b>\n<code>${selectedList.join(', ')}</code>`
-        : `📍 <b>Select preferred areas:</b>\n<code>${selectedList.join(', ')}</code>`;
+        ? `${sectionBadge}\n\n📍 <b>የሚመርጡትን የመኖሪያ አካባቢዎች ይምረጡ:</b>\n<blockquote>የተመረጡ: <code>${selectedList.join(', ')}</code></blockquote>`
+        : `${sectionBadge}\n\n📍 <b>Select preferred areas:</b>\n<blockquote>Selected: <code>${selectedList.join(', ')}</code></blockquote>`;
 
       await sendOrEditCard(chatId, text, gridRows, activeMsgId);
     };
@@ -1560,19 +1634,15 @@ It has been 24 hours since your roommate contact was unlocked!
         updated_at: new Date().toISOString(),
       });
 
+      const sectionBadge = isAm
+        ? '🛡️ <b>የፋይዳ መታወቂያ ማረጋገጫ | Identity Verification</b>'
+        : '🛡️ <b>Identity Verification: Fayda National ID</b>';
       const promptText = isAm
-        ? '🛡️ <b>የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\nየQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም የምስል ሰነድ ይላኩ።'
-        : '🛡️ <b>Upload Fayda ID Card Photo:</b>\nPlease upload a clear photo or image document of the back of your Fayda ID card showing the QR code.';
-      const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+        ? '📸 <b>የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\n<blockquote>የQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም የምስል ሰነድ ይላኩ።</blockquote>'
+        : '📸 <b>Upload Fayda ID Card Photo:</b>\n<blockquote>Please upload a clear photo or image document of the back of your Fayda ID card showing the QR code.</blockquote>';
+      const text = `${sectionBadge}\n\n${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
-        // Mini App camera scan hidden for pure bot experience:
-        // [
-        //   {
-        //     text: isAm ? '📷 በካሜራ የፋይዳ QR ኮድ ይቃኙ ↗️' : '📷 Scan Fayda QR ↗️',
-        //     web_app: { url: `${appUrl}?startapp=verify_fayda` },
-        //   },
-        // ],
         [
           { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_subs' },
           { text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' },
@@ -2185,6 +2255,10 @@ A verified roommate saw your listing and wants to connect!
         await sendDynamicCardStep4Job(chatId, normalizedDraft, activeMsgId);
         return;
       }
+      if (!normalizedDraft.interstitial_seen && !normalizedDraft.budget_max) {
+        await sendPersonalRegistrationSuccessCard(chatId, normalizedDraft, activeMsgId);
+        return;
+      }
       if (!normalizedDraft.budget_max) {
         await sendDynamicCardStep5Budget(chatId, normalizedDraft, activeMsgId);
         return;
@@ -2478,8 +2552,8 @@ A verified roommate saw your listing and wants to connect!
       });
 
       const promptText = isAm
-        ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ (Preferred Roommate):</b>\n<i>(ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ)</i>'
-        : '✨ <b>Describe your preferred roommate:</b>\n<i>(Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed)</i>';
+        ? '✨ <b>የሚፈልጉትን የቤት ጓደኛ ይግለጹ (Preferred Roommate):</b>\n<blockquote>ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ — ምሳሌ: ሴት፣ ኦርቶዶክስ፣ ጽዱ እና ተቀጣሪ</blockquote>'
+        : '✨ <b>Describe your preferred roommate:</b>\n<blockquote>Please specify preferred gender, religion, occupation, and lifestyle habits — e.g. Female, preferably Orthodox, clean, and employed</blockquote>';
       const text = `${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
       const inlineKeyboard = [
@@ -6174,6 +6248,13 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
         return NextResponse.json({ ok: true });
       }
 
+      if (callbackData === 'dyn_card_to_preferences') {
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, interstitial_seen: true };
+        await sendDynamicCardStep5Budget(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
       if (callbackData.startsWith('dyn_pref_gender:')) {
         const preferred_gender = callbackData.split(':')[1];
         const session = getSession(chatId);
@@ -8652,6 +8733,22 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         return NextResponse.json({ ok: true });
       }
 
+      // Interstitial Step Text Input: Transition to Preferences
+      if (session.step === 'dyn_card_interstitial') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const budgetRange = parseBudgetRangeInput(text);
+        if (budgetRange && budgetRange.max >= 500 && budgetRange.max <= 1000000) {
+          const updatedDraft = { ...session.draft_data, budget_min: budgetRange.min, budget_max: budgetRange.max, interstitial_seen: true };
+          await routeNextMissingSeekerStep(chatId, updatedDraft, activeMsgId, update.message?.from);
+          return NextResponse.json({ ok: true });
+        }
+        await sendPersonalRegistrationSuccessCard(chatId, session.draft_data, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
       // Step 5 Text Input: Monthly Budget Range
       if (session.step === 'dyn_card_budget') {
         if (update.message?.message_id) {
@@ -9406,7 +9503,7 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           const inspectionCard = reqIsAm
             ? `
 ℹ️ <b>ከማስታወቂያ #${cleanTargetCode} ጋር እየተገናኙ ነው</b>
-<i>(ማስታወሻ: #${cleanTargetCode} የዚህ ማስታወቂያ መለያ ኮድ ነው። ከአስተዳዳሪዎች ጋር ሲነጋገሩ ይህንን ኮድ በመጥቀስ ማስታወቂያውን ማሳወቅ ይችላሉ።)</i>
+<blockquote>ማስታወሻ: #${cleanTargetCode} የዚህ ማስታወቂያ መለያ ኮድ ነው። ከአስተዳዳሪዎች ጋር ሲነጋገሩ ይህንን ኮድ በመጥቀስ ማስታወቂያውን ማሳወቅ ይችላሉ።</blockquote>
 
 ━━━━━━━━━━━━━━━━━━━━━
 🤝 <b>ከክፍል ጓደኛ #${cleanTargetCode} ጋር ይገናኙ</b>
@@ -9421,7 +9518,7 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
             `.trim()
             : `
 ℹ️ <b>You are interacting with post #${cleanTargetCode}</b>
-<i>(Note: #${cleanTargetCode} is the unique identification code for this listing. If you contact admin support, quote this code to identify which post you are referring to.)</i>
+<blockquote>Note: #${cleanTargetCode} is the unique identification code for this listing. If you contact admin support, quote this code to identify which post you are referring to.</blockquote>
 
 ━━━━━━━━━━━━━━━━━━━━━
 🤝 <b>Connect with Roommate #${cleanTargetCode}</b>
@@ -9648,8 +9745,8 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           await tgSend(
             chatId,
             payerIsAm
-              ? `⚠️ <b>የተሳሳተ አጻጻፍ።</b>\n\nአጠቃቀም:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\n<code>/verify cbe የደረሰኝ_ቁጥር</code>\n<code>/verify abyssinia የደረሰኝ_ቁጥር</code>\n<code>/verify dashen የደረሰኝ_ቁጥር</code>\n\n<i>ምሳሌ: /verify cbe FT260920042</i>`
-              : `⚠️ <b>Invalid format.</b>\n\nUsage:\n<code>/verify telebirr YOUR_REF</code>\n<code>/verify cbe YOUR_REF</code>\n<code>/verify abyssinia YOUR_REF</code>\n<code>/verify dashen YOUR_REF</code>\n\n<i>Example: /verify cbe FT260920042</i>`
+              ? `⚠️ <b>የተሳሳተ አጻጻፍ።</b>\n\nአጠቃቀም:\n<code>/verify telebirr የደረሰኝ_ቁጥር</code>\n<code>/verify cbe የደረሰኝ_ቁጥር</code>\n<code>/verify abyssinia የደረሰኝ_ቁጥር</code>\n<code>/verify dashen የደረሰኝ_ቁጥር</code>\n\n<blockquote>ምሳሌ: <code>/verify cbe FT260920042</code></blockquote>`
+              : `⚠️ <b>Invalid format.</b>\n\nUsage:\n<code>/verify telebirr YOUR_REF</code>\n<code>/verify cbe YOUR_REF</code>\n<code>/verify abyssinia YOUR_REF</code>\n<code>/verify dashen YOUR_REF</code>\n\n<blockquote>Example: <code>/verify cbe FT260920042</code></blockquote>`
           );
           return NextResponse.json({ ok: true });
         }

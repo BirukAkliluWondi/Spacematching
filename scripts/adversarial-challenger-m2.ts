@@ -183,8 +183,22 @@ async function runAdversarialTests() {
       'Invalid job gives justified retry without looping to Age/Gender'
     );
 
-    // Step 7: Valid Job
+    // Step 7: Valid Job -> triggers dedicated interstitial transition card
     await stepAndRecord(createTelegramMessageUpdate(chatId, 'Civil Engineer'), 'Submit valid job');
+    const interstitialPrompt = promptHistory[promptHistory.length - 1];
+    assert(
+      interstitialPrompt.rawText.includes('ተመዝግቧል') ||
+      interstitialPrompt.rawText.includes('Successfully Registered') ||
+      interstitialPrompt.rawText.includes('Preferences') ||
+      interstitialPrompt.rawText.includes('ምርጫዎች'),
+      'Personal profile registration complete displays dedicated interstitial card'
+    );
+
+    // Transition from Personal Profile to Roommate Preferences
+    await stepAndRecord(
+      createTelegramCallbackUpdate(chatId, 'dyn_card_to_preferences'),
+      'Proceed from Personal Profile to Roommate Preferences'
+    );
 
     // Step 8: Invalid Budget (-500) -> must be rejected
     await stepAndRecord(createTelegramMessageUpdate(chatId, '-500'), 'Submit negative budget -500');
