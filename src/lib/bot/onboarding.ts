@@ -296,7 +296,7 @@ async function sendKycStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `🔒 <b>Step 7 of 7 — Fayda ID Verification</b>\n\nSpaceMatch Addis requires all members to verify their identity with an authentic Ethiopian National Fayda ID.\n\n<blockquote>📸 Please take and upload a clear photo or document of the back of your Fayda ID card showing the QR code.\n\n⚠️ <b>Manual typing of FAN numbers is not accepted for security reasons.</b></blockquote>`,
+    `🔒 <b>Step 7 of 7 — Fayda ID Verification</b>\n\nSpaceMatch Addis requires all members to verify their identity with an authentic Ethiopian National Fayda ID.\n\n<blockquote>📸 Please take and upload a clear photo or document of the back of your Fayda ID card showing the QR code.</blockquote>`,
     {
       inline_keyboard: [
         // Mini App camera scanning hidden for pure bot experience:

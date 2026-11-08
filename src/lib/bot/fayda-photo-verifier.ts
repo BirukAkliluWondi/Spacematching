@@ -94,9 +94,9 @@ export const FAYDA_ERROR_GUIDANCE: Record<
   },
   DUPLICATE_FAN: {
     en: `⚠️ <b>Fayda ID Already Registered</b>\n\n<blockquote>This National ID is already linked to another SpaceMatch account. Each citizen may only register one account.</blockquote>`,
-    am: `⚠️ <b>ይህ የፋይዳ ቁጥር ቀደም ሲል ተመዝግቧል</b>\n\n<blockquote>ይህ ብሔራዊ መታወቂያ በሌላ የስፔስማች አካውንት ላይ ተመዝግቧል። እያንዳንዱ ዜጋ መመዝገብ የሚችለው አንድ አካውንት ብቻ ነው።</blockquote>`,
+    am: `⚠️ <b>ይህ የፋይዳ መታወቂያ ቀደም ሲል ተመዝግቧል</b>\n\n<blockquote>ይህ ብሔራዊ መታወቂያ በሌላ የስፔስማች አካውንት ላይ ተመዝግቧል። እያንዳንዱ ዜጋ መመዝገብ የሚችለው አንድ አካውንት ብቻ ነው።</blockquote>`,
     shortEn: 'This Fayda ID is already registered to another account.',
-    shortAm: 'ይህ የፋይዳ ቁጥር ቀደም ሲል በሌላ አካውንት ተመዝግቧል።',
+    shortAm: 'ይህ የፋይዳ መታወቂያ ቀደም ሲል በሌላ አካውንት ተመዝግቧል።',
   },
   FILE_TOO_LARGE: {
     en: `⚠️ <b>File Too Large</b>\n\n<blockquote>The uploaded file exceeds the 10MB size limit. Please upload a compressed photo or smaller image.</blockquote>`,
@@ -105,10 +105,10 @@ export const FAYDA_ERROR_GUIDANCE: Record<
     shortAm: 'የፋይሉ መጠን ከ 10MB በላይ ነው።',
   },
   MANUAL_TEXT_ENTERED: {
-    en: `⚠️ <b>Photo Upload Required</b>\n\n<blockquote>Manual typing of Fayda FAN digits is no longer accepted for security reasons.</blockquote>\n\n📸 <b>Please send a photo or document of your Fayda ID card showing the QR code:</b>`,
-    am: `⚠️ <b>የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>ለደህንነት ሲባል የፋይዳ ቁጥርን በጽሁፍ ማስገባት አይፈቀድም።</blockquote>\n\n📸 <b>እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም ሰነድ ይላኩ:</b>`,
-    shortEn: 'Manual typing rejected. Photo upload is required.',
-    shortAm: 'በጽሁፍ ማስገባት አይፈቀድም። ፎቶ መላክ ግዴታ ነው።',
+    en: `⚠️ <b>Photo Upload Required</b>\n\n<blockquote>Verification requires a photo of your official Fayda ID card showing the QR code.</blockquote>\n\n📸 <b>Please send a clear photo or document of your Fayda ID card:</b>`,
+    am: `⚠️ <b>የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>ማረጋገጫ የሚከናወነው በኦፊሴላዊው የፋይዳ መታወቂያ ካርድ ፎቶ ብቻ ነው።</blockquote>\n\n📸 <b>እባክዎ የQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም ሰነድ ይላኩ:</b>`,
+    shortEn: 'Photo upload required. Please send a photo of your Fayda card.',
+    shortAm: 'የካርድ ፎቶ መላክ ግዴታ ነው። እባክዎ የመታወቂያዎን ፎቶ ይላኩ።',
   },
 };
 

@@ -92,7 +92,7 @@ export const I18N = {
 
     stepFayda: '🛡️ <b>Upload Fayda ID Card Photo:</b>\n<blockquote>Please upload a clear photo or image document of the back of your Fayda ID card showing the QR code.</blockquote>',
     btnScanQr: '📷 Upload Fayda Photo ↗️',
-    errFayda: '⚠️ <b>Photo Upload Required</b>\n<blockquote>Manual typing of FAN numbers is not accepted for security reasons. Please upload a clear photo or document of your Fayda ID card showing the QR code.</blockquote>',
+    errFayda: '⚠️ <b>Photo Upload Required</b>\n<blockquote>Please upload a clear photo or document of your Fayda ID card showing the QR code.</blockquote>',
 
     // Space Owner Questionnaire Steps
     spaceStepType: '🛏️ <b>What type of space are you offering?</b> (e.g. Master Bedroom)',
@@ -205,7 +205,7 @@ export const I18N = {
 
     stepFayda: '🛡️ <b>የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\n<blockquote>እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ ይላኩ።</blockquote>',
     btnScanQr: '📷 የፋይዳ ፎቶ ይላኩ ↗️',
-    errFayda: '⚠️ <b>የፎቶ ማስረጃ ያስፈልጋል</b>\n<blockquote>የፋይዳ ቁጥርን በጽሁፍ ማስገባት አይቻልም። እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም ሰነድ ይላኩ።</blockquote>',
+    errFayda: '⚠️ <b>የፎቶ ማስረጃ ያስፈልጋል</b>\n<blockquote>እባክዎ የQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም ሰነድ ይላኩ።</blockquote>',
 
     // Space Owner Questionnaire Steps
     spaceStepType: '🛏️ <b>የሚከራየው ክፍል ምን አይነት ነው?</b> (ምሳሌ: ዋና መኝታ ቤት)',

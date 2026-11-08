@@ -1167,8 +1167,8 @@ It has been 24 hours since your roommate contact was unlocked!
       });
 
       const gateText = isAm
-        ? `🛡️ <b>የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\n\nእባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ ይላኩ።\n\n⚠️ <i>ለደህንነት ሲባል የፋይዳ ቁጥርን በጽሁፍ ማስገባት አይቻልም።</i>`
-        : `🛡️ <b>Upload Fayda ID Card Photo:</b>\n\nPlease upload a clear photo or image document of the back of your Fayda ID card showing the QR code.\n\n⚠️ <i>Manual typing of FAN numbers is no longer accepted for security reasons.</i>`;
+        ? `🛡️ <b>የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\n\n<blockquote>የQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ ይላኩ።</blockquote>`
+        : `🛡️ <b>Upload Fayda ID Card Photo:</b>\n\n<blockquote>Please upload a clear photo or image document of the back of your Fayda ID card showing the QR code.</blockquote>`;
 
       const inlineKeyboard = [
         // Mini App camera scan hidden for pure bot experience:
@@ -4102,12 +4102,6 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       currentDraft: Record<string, any> = {},
       messageIdToEdit?: number
     ) => {
-      // Universal Gate: Fayda Verification required before matching/finding roommates
-      if (!(await isUserFaydaVerified(chatId))) {
-        await sendFaydaGateCard(chatId, 'use the Smart Matchmaker to find a roommate', messageIdToEdit);
-        return;
-      }
-
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
       const selectedList: string[] = currentDraft.match_subcities || [];
@@ -6795,16 +6789,14 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
 
 ይህንን የክፍል ጓደኝነት ለመቀበል ሁለቱም ወገኖች በፋይዳ መረጋገጥ አለባቸው።
 
-• <b>የፎቶ ማስረጃ:</b> እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ ይላኩ።
-<i>⚠️ ለደህንነት ሲባል የፋይዳ ቁጥርን በጽሁፍ ማስገባት አይቻልም።</i>
+<blockquote>📸 እባክዎ የQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ ይላኩ።</blockquote>
             `.trim()
             : `
 🛡️ <b>Fayda ID Verification Required</b>
 
 Before accepting this roommate connection, SpaceMatch requires both parties to be Fayda verified for maximum safety.
 
-• <b>Photo Upload Required:</b> Please upload a clear photo or image document of the back of your Fayda ID card showing the QR code.
-<i>⚠️ Manual typing of FAN numbers is no longer accepted for security reasons.</i>
+<blockquote>📸 Please upload a clear photo or image document of the back of your Fayda ID card showing the QR code.</blockquote>
             `.trim();
 
           const inlineKeyboard = [
