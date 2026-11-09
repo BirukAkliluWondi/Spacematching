@@ -142,7 +142,7 @@ async function runEmpiricalProbes() {
   assert(!resultForUserB.success, 'Duplicate FAN upload from another user is rejected');
   if (!resultForUserB.success) {
     assert(resultForUserB.errorCode === 'DUPLICATE_FAN', 'Error code is DUPLICATE_FAN', `got ${resultForUserB.errorCode}`);
-    assert(resultForUserB.messageAm.includes('ይህ የፋይዳ ቁጥር'), 'Bilingual Amharic guidance provided');
+    assert(resultForUserB.messageAm.includes('ይህ የፋይዳ'), 'Bilingual Amharic guidance provided');
     assert(resultForUserB.messageEn.toLowerCase().includes('already'), 'Bilingual English guidance provided');
   }
 

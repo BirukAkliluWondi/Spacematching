@@ -14,43 +14,63 @@ export async function GET(request: Request) {
     const cleanDigits = cleanText.replace(/[\s-]/g, '');
     const isPureNumeric = /^\d+$/.test(cleanDigits);
 
+    // Sanitize search string so PostgREST filter delimiters (,()":) do not break query syntax
+    const safeText = cleanText.replace(/[,()":]/g, ' ').replace(/\s+/g, ' ').trim();
+
     let userPromise: any;
     let profilePromise: any;
 
-    if (cleanText) {
-      if (isPureNumeric) {
-        const num = Number(cleanDigits);
-        userPromise = supabaseAdmin.from('users').select('*').eq('telegram_id', num).limit(limit);
-        profilePromise = supabaseAdmin.from('profiles').select('*').eq('telegram_id', num).limit(limit);
-      } else {
-        const userOrFilters = [
-          `first_name.ilike.%${cleanText}%`,
-          `last_name.ilike.%${cleanText}%`,
-          `username.ilike.%${cleanText}%`,
-          cleanDigits.length >= 3 ? `fayda_id_number.ilike.%${cleanDigits}%` : null,
-          `fayda_document_url.ilike.%${cleanText}%`,
-        ]
-          .filter(Boolean)
-          .join(',');
+    if (safeText) {
+      const userFilters: string[] = [];
+      const profileFilters: string[] = [];
 
-        userPromise = supabaseAdmin
-          .from('users')
-          .select('*')
-          .or(userOrFilters)
-          .range(offset, offset + limit - 1);
-
-        const profileOrFilters = [
-          `full_name.ilike.%${cleanText}%`,
-          `telegram_username.ilike.%${cleanText}%`,
-          `display_code.ilike.%${cleanText}%`,
-        ].join(',');
-
-        profilePromise = supabaseAdmin
-          .from('profiles')
-          .select('*')
-          .or(profileOrFilters)
-          .range(offset, offset + limit - 1);
+      // 1. Digits search: Fayda ID number (FAN/VID), partial FAN, or Telegram numeric ID
+      if (cleanDigits.length >= 3) {
+        userFilters.push(`fayda_id_number.ilike.%${cleanDigits}%`);
+        userFilters.push(`fayda_document_url.ilike.%${cleanDigits}%`);
       }
+
+      if (isPureNumeric && cleanDigits.length <= 15) {
+        const num = Number(cleanDigits);
+        userFilters.push(`telegram_id.eq.${num}`);
+        profileFilters.push(`telegram_id.eq.${num}`);
+      }
+
+      // 2. Full text / phrase match across resident names and usernames
+      userFilters.push(`first_name.ilike.%${safeText}%`);
+      userFilters.push(`last_name.ilike.%${safeText}%`);
+      userFilters.push(`username.ilike.%${safeText}%`);
+      userFilters.push(`fayda_document_url.ilike.%${safeText}%`);
+
+      profileFilters.push(`full_name.ilike.%${safeText}%`);
+      profileFilters.push(`telegram_username.ilike.%${safeText}%`);
+      profileFilters.push(`display_code.ilike.%${safeText}%`);
+
+      // 3. Multi-word name token matching (e.g. "Biruk Aklilu" -> search "Biruk" and "Aklilu")
+      const tokens = safeText.split(/\s+/).filter((t) => t.length >= 2);
+      if (tokens.length > 1) {
+        for (const token of tokens.slice(0, 4)) {
+          userFilters.push(`first_name.ilike.%${token}%`);
+          userFilters.push(`last_name.ilike.%${token}%`);
+          userFilters.push(`fayda_document_url.ilike.%${token}%`);
+          profileFilters.push(`full_name.ilike.%${token}%`);
+        }
+      }
+
+      const userOrFilters = Array.from(new Set(userFilters)).join(',');
+      const profileOrFilters = Array.from(new Set(profileFilters)).join(',');
+
+      userPromise = supabaseAdmin
+        .from('users')
+        .select('*')
+        .or(userOrFilters)
+        .range(offset, offset + limit - 1);
+
+      profilePromise = supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .or(profileOrFilters)
+        .range(offset, offset + limit - 1);
     } else {
       userPromise = supabaseAdmin
         .from('users')
@@ -65,7 +85,17 @@ export async function GET(request: Request) {
         .range(offset, offset + limit - 1);
     }
 
-    const [userRes, profileRes] = await Promise.all([userPromise, profilePromise]);
+    const [userRes, profileRes] = await Promise.all([
+      userPromise,
+      profilePromise,
+    ]);
+
+    if (userRes?.error) {
+      console.warn('[AdminUsers] userRes query warning:', userRes.error.message);
+    }
+    if (profileRes?.error) {
+      console.warn('[AdminUsers] profileRes query warning:', profileRes.error.message);
+    }
 
     const usersMap = new Map<number, any>();
     const profilesMap = new Map<number, any>();
