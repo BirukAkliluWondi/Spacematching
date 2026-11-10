@@ -151,10 +151,17 @@ export function extractMediaFileFromMessage(
 
   // 1. Check compressed photo array
   if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
-    // Select largest resolution item
-    const bestPhoto = message.photo.reduce((prev: any, curr: any) =>
-      (curr?.file_size ?? 0) > (prev?.file_size ?? 0) ? curr : prev
-    );
+    // Select largest resolution item by pixel area (width * height), falling back to the last element.
+    // In Telegram Bot API, file_size is optional and often undefined on the highest resolution photo,
+    // which previously caused reduce to mistakenly pick a low-resolution 320px thumbnail.
+    const getArea = (p: any) => (Number(p?.width) || 0) * (Number(p?.height) || 0);
+    const bestPhoto = message.photo.reduce((prev: any, curr: any) => {
+      const prevArea = getArea(prev);
+      const currArea = getArea(curr);
+      if (currArea > prevArea) return curr;
+      if (currArea === prevArea && (Number(curr?.file_size) || 0) > (Number(prev?.file_size) || 0)) return curr;
+      return prev;
+    }, message.photo[message.photo.length - 1]);
 
     if (!bestPhoto || !bestPhoto.file_id) {
       return null;

@@ -8417,9 +8417,14 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             return NextResponse.json({ ok: true });
           }
         } else if (update.message?.photo && Array.isArray(update.message.photo) && update.message.photo.length > 0) {
-          const best = update.message.photo.reduce((prev: any, curr: any) =>
-            (curr?.file_size ?? 0) > (prev?.file_size ?? 0) ? curr : prev
-          );
+          const getArea = (p: any) => (Number(p?.width) || 0) * (Number(p?.height) || 0);
+          const best = update.message.photo.reduce((prev: any, curr: any) => {
+            const prevArea = getArea(prev);
+            const currArea = getArea(curr);
+            if (currArea > prevArea) return curr;
+            if (currArea === prevArea && (Number(curr?.file_size) || 0) > (Number(prev?.file_size) || 0)) return curr;
+            return prev;
+          }, update.message.photo[update.message.photo.length - 1]);
           liveFileId = best?.file_id || null;
         } else if (update.message?.document) {
           const doc = update.message.document;
