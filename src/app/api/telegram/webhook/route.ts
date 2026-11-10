@@ -1362,6 +1362,7 @@ It has been 24 hours since your roommate contact was unlocked!
         const buffer = await downloadTelegramFile(media.fileId);
         return await verifyFaydaPhotoUpload(buffer, targetChatId);
       } catch (err: any) {
+        console.error('[verifyFaydaMediaFromTelegram] download or verify error:', err);
         if (err?.message === 'FILE_TOO_LARGE') {
           return {
             success: false,

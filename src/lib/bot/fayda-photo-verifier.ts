@@ -17,10 +17,43 @@
  * 8. Rejection of manual typed FAN numbers across all user workflows.
  */
 
-import { decodeImage, type FaydaResult } from 'fayda-decoder';
+import { decodeImage, prepareQrEngine, type FaydaResult } from 'fayda-decoder';
 import { verifySignature } from 'fayda-decoder/verify';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { persistFaydaVerification } from '@/lib/fayda-verification';
+
+// ─── WebAssembly Pre-Initialization (Vercel & Node Resilience) ─────────────
+let _wasmReadyPromise: Promise<void> | null = null;
+export async function ensureZXingReady(): Promise<void> {
+  if (_wasmReadyPromise) return _wasmReadyPromise;
+  _wasmReadyPromise = (async () => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const candidatePaths = [
+        path.resolve(process.cwd(), 'node_modules/zxing-wasm/dist/reader/zxing_reader.wasm'),
+        path.resolve(process.cwd(), 'node_modules/fayda-decoder/node_modules/zxing-wasm/dist/reader/zxing_reader.wasm'),
+      ];
+      for (const p of candidatePaths) {
+        if (fs.existsSync(/*turbopackIgnore: true*/ p)) {
+          const wasmBinary = fs.readFileSync(/*turbopackIgnore: true*/ p).buffer;
+          await prepareQrEngine({ overrides: { wasmBinary }, fireImmediately: true });
+          return;
+        }
+      }
+      // If not present on disk in serverless runtime, load from pinned CDN
+      const cdnUrl = 'https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.6/dist/reader/zxing_reader.wasm';
+      const res = await fetch(cdnUrl, { signal: AbortSignal.timeout(10000) });
+      if (res.ok) {
+        const wasmBinary = await res.arrayBuffer();
+        await prepareQrEngine({ overrides: { wasmBinary }, fireImmediately: true });
+      }
+    } catch (err) {
+      console.warn('[fayda-photo-verifier] ensureZXingReady notice:', err);
+    }
+  })();
+  return _wasmReadyPromise;
+}
 
 // ─── Types & Interfaces ──────────────────────────────────────────────────────
 
@@ -306,9 +339,11 @@ export async function verifyFaydaPhotoUpload(
   // 1. Barcode reading & payload extraction
   let decodeResult: FaydaResult;
   try {
+    await ensureZXingReady();
     const uint8 = new Uint8Array(buffer);
     decodeResult = await decodeImage(uint8, { includeFace: true });
   } catch (err: any) {
+    console.error('[fayda-photo-verifier] decodeImage failed:', err);
     // Sharp or WebAssembly decoding error on corrupt headers / malformed bytes
     return {
       success: false,
