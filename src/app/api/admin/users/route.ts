@@ -12,6 +12,7 @@ export async function GET(request: Request) {
 
     const cleanText = rawQuery.replace(/^[@#]/, '').trim();
     const cleanDigits = cleanText.replace(/[\s-]/g, '');
+    const digitOnly = cleanText.replace(/\D/g, '');
     const isPureNumeric = /^\d+$/.test(cleanDigits);
 
     // Sanitize search string so PostgREST filter delimiters (,()":) do not break query syntax
@@ -28,6 +29,10 @@ export async function GET(request: Request) {
       if (cleanDigits.length >= 3) {
         userFilters.push(`fayda_id_number.ilike.%${cleanDigits}%`);
         userFilters.push(`fayda_document_url.ilike.%${cleanDigits}%`);
+      }
+      if (digitOnly.length >= 3 && digitOnly !== cleanDigits) {
+        userFilters.push(`fayda_id_number.ilike.%${digitOnly}%`);
+        userFilters.push(`fayda_document_url.ilike.%${digitOnly}%`);
       }
 
       if (isPureNumeric && cleanDigits.length <= 15) {

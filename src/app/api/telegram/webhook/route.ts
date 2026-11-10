@@ -1126,21 +1126,14 @@ It has been 24 hours since your roommate contact was unlocked!
         _faydaStatusCache.delete(chatId);
       }
 
-      // Check current in-memory session draft_data before hitting Supabase
-      const session = getSession(chatId);
-      if (session.draft_data?.fayda_status === 'verified') {
-        setFaydaStatusCache(chatId, true);
-        return true;
-      }
-
       try {
-        // Query users and profiles in parallel for maximum speed
-        const [userRes, profileRes] = await Promise.all([
-          supabaseAdmin.from('users').select('fayda_status').eq('telegram_id', chatId).maybeSingle(),
-          supabaseAdmin.from('profiles').select('kyc_status').eq('telegram_id', chatId).maybeSingle(),
-        ]);
+        const userRes = await supabaseAdmin
+          .from('users')
+          .select('fayda_status, fayda_id_number')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
 
-        const isVerified = userRes.data?.fayda_status === 'verified' || profileRes.data?.kyc_status === 'verified';
+        const isVerified = userRes.data?.fayda_status === 'verified' && Boolean(userRes.data?.fayda_id_number?.trim());
         setFaydaStatusCache(chatId, isVerified);
         return isVerified;
       } catch (err) {
@@ -1171,13 +1164,6 @@ It has been 24 hours since your roommate contact was unlocked!
         : `🛡️ <b>Upload Fayda ID Card Photo:</b>\n\n<blockquote>Please upload a clear photo or image document of the back of your Fayda ID card showing the QR code.</blockquote>`;
 
       const inlineKeyboard = [
-        // Mini App camera scan hidden for pure bot experience:
-        // [
-        //   {
-        //     text: isAm ? '📷 በካሜራ የፋይዳ QR ኮድ ይቃኙ ↗️' : '📷 Scan Fayda QR ↗️',
-        //     web_app: { url: `${appUrl}?startapp=verify_fayda` },
-        //   },
-        // ],
         [
           {
             text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu',
@@ -1187,6 +1173,166 @@ It has been 24 hours since your roommate contact was unlocked!
       ];
 
       return await sendOrEditCard(chatId, gateText, inlineKeyboard, messageIdToEdit);
+    };
+
+    const calculateAgeFromDob = (dobStr?: string | null): number | null => {
+      if (!dobStr) return null;
+      const clean = dobStr.trim();
+      let birthDate: Date | null = null;
+      if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(clean)) {
+        const parts = clean.split(/[-/.]/);
+        birthDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      } else if (/^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}/.test(clean)) {
+        const parts = clean.split(/[-/.]/);
+        const p0 = parseInt(parts[0], 10);
+        const p1 = parseInt(parts[1], 10);
+        const year = parseInt(parts[2], 10);
+        if (p1 > 12 && p0 <= 12) {
+          birthDate = new Date(year, p0 - 1, p1);
+        } else {
+          birthDate = new Date(year, p1 - 1, p0);
+        }
+      } else {
+        const parsed = Date.parse(clean);
+        if (!isNaN(parsed)) birthDate = new Date(parsed);
+      }
+      if (!birthDate || isNaN(birthDate.getTime())) return null;
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      return age >= 0 && age < 130 ? age : null;
+    };
+
+    const sendVerifiedFaydaDossierCard = async (
+      chatId: number,
+      lang: string = 'en',
+      messageIdToEdit?: number
+    ): Promise<number | undefined> => {
+      const isAm = lang === 'am';
+
+      const [userRes, profileRes] = await Promise.all([
+        supabaseAdmin
+          .from('users')
+          .select('fayda_id_number, fayda_status, fayda_document_url, gender, first_name, last_name')
+          .eq('telegram_id', chatId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from('profiles')
+          .select('full_name, gender, age')
+          .eq('telegram_id', chatId)
+          .maybeSingle(),
+      ]);
+
+      const user = userRes.data;
+      const prof = profileRes.data;
+
+      // Strict Database Guard: Do not display verified card unless row exists in database with verified status and non-empty FAN
+      if (!user || user.fayda_status !== 'verified' || !user.fayda_id_number?.trim()) {
+        console.warn(`[sendVerifiedFaydaDossierCard] Refusing to render verified card for unverified or unpersisted user tgId ${chatId}`);
+        return await sendFaydaGateCard(chatId, 'access all SpaceMatch verified features', messageIdToEdit);
+      }
+
+      let faydaMeta: any = null;
+      if (user?.fayda_document_url && typeof user.fayda_document_url === 'string' && user.fayda_document_url.startsWith('{')) {
+        try {
+          faydaMeta = JSON.parse(user.fayda_document_url);
+        } catch {}
+      }
+
+      const officialName =
+        faydaMeta?.full_name ||
+        prof?.full_name ||
+        [user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
+        (isAm ? 'የተረጋገጠ ነዋሪ' : 'Verified Resident');
+
+      const rawDob = faydaMeta?.date_of_birth || faydaMeta?.dob;
+      const computedAge = calculateAgeFromDob(rawDob);
+      const effectiveAge = computedAge !== null ? computedAge : (prof?.age || null);
+      let dobDisplay = isAm ? 'ያልተገለጸ' : 'Not recorded';
+      if (rawDob && effectiveAge !== null) {
+        dobDisplay = `${rawDob} (${isAm ? `ዕድሜ ${effectiveAge}` : `Age ${effectiveAge}`})`;
+      } else if (rawDob) {
+        dobDisplay = rawDob;
+      } else if (effectiveAge !== null) {
+        dobDisplay = isAm ? `ዕድሜ ${effectiveAge}` : `Age ${effectiveAge}`;
+      }
+
+      const rawGender = faydaMeta?.gender || prof?.gender || user?.gender || '';
+      let genderDisplay = isAm ? 'ያልተገለጸ' : 'Not specified';
+      if (rawGender) {
+        const gLow = rawGender.toLowerCase();
+        if (gLow.startsWith('m') || gLow.startsWith('ወ')) {
+          genderDisplay = isAm ? 'ወንድ' : 'Male';
+        } else if (gLow.startsWith('f') || gLow.startsWith('ሴ')) {
+          genderDisplay = isAm ? 'ሴት' : 'Female';
+        } else {
+          genderDisplay = rawGender;
+        }
+      }
+
+      const rawFan = (faydaMeta?.fan || user?.fayda_id_number || '').replace(/\D/g, '');
+      let maskedFan = '•••• •••• ••••';
+      if (rawFan.length >= 8) {
+        maskedFan = `${rawFan.slice(0, 4)} •••• •••• ${rawFan.slice(-4)}`;
+      } else if (rawFan.length >= 4) {
+        maskedFan = `•••• •••• ${rawFan.slice(-4)}`;
+      } else if (rawFan) {
+        maskedFan = rawFan;
+      }
+
+      const cardText = isAm
+        ? `
+🛡️ <b>SpaceMatch Addis · Fayda ID Verified</b> ✅
+
+👤 <b>ሙሉ ስም:</b> <b>${officialName}</b>
+🎂 <b>የትውልድ ቀን:</b> ${dobDisplay}
+⚧ <b>ጾታ:</b> ${genderDisplay}
+🆔 <b>የፋይዳ ቁጥር (FAN):</b> <code>${maskedFan}</code>
+🛡️ <b>ሁኔታ:</b> 🟢 <b>የተረጋገጠ ነዋሪ</b>
+🔐 <b>ማረጋገጫ:</b> ይፋዊ NIDP RS256 ዲጂታል ፊርማ ✅
+💾 <b>ምዝገባ:</b> በስፔስማች ዳታቤዝ ውስጥ በሚገባ ተመዝግቧል ✅
+
+<blockquote>በአዲስ አበባ ውስጥ በሙሉ እምነት እና ደህንነት መፈለግ እና መገናኘት ይችላሉ።</blockquote>
+        `.trim()
+        : `
+🛡️ <b>SpaceMatch Addis · Fayda ID Verified</b> ✅
+
+👤 <b>Full Name:</b> <b>${officialName}</b>
+🎂 <b>Date of Birth:</b> ${dobDisplay}
+⚧ <b>Gender:</b> ${genderDisplay}
+🆔 <b>Fayda FAN:</b> <code>${maskedFan}</code>
+🛡️ <b>Status:</b> 🟢 <b>Verified Resident</b>
+🔐 <b>Validation:</b> Official NIDP RS256 Digital Signature ✅
+💾 <b>Registry:</b> Securely Registered in SpaceMatch Database ✅
+
+<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
+        `.trim();
+
+      const inlineKeyboard = [
+        [
+          {
+            text: isAm ? '⚡ የክፍል ጓደኛ ፈልግ · ማዛመጃ 🔍' : '⚡ Find a Roommate · Matchmaker 🔍',
+            callback_data: 'matchmaker_start',
+          },
+        ],
+        [
+          {
+            text: isAm ? '📢 መረጃህን ቻናል ላይ ልጠፍ ↗️' : '📢 Post Profile to Channel ↗️',
+            callback_data: 'post_to_channel_start',
+          },
+        ],
+        [
+          {
+            text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu',
+            callback_data: 'nav_start',
+          },
+        ],
+      ];
+
+      return await sendOrEditCard(chatId, cardText, inlineKeyboard, messageIdToEdit);
     };
 
     // Helper: Unified Fayda Photo & Document Verification using fayda-photo-verifier
@@ -7344,22 +7490,9 @@ Please send a message or photo in chat with:
       if (callbackData === 'verify_fayda') {
         const isVerified = await isUserFaydaVerified(chatId);
         if (isVerified) {
-          const verifiedText = `
-🛡️ <b>SpaceMatch</b> · <b>Fayda ID Verified</b>
-
-✅ <b>Your Fayda National ID is Verified!</b>
-
-• <b>Status:</b> 🛡️ Verified Resident
-• <b>Access:</b> Full Platform Access (Matchmaker, Seeker Profiles, Contact Unlocks)
-• <b>Security:</b> Offline Verhoeff Checksum Validated
-
-<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
-          `.trim();
-          await sendOrEditCard(chatId, verifiedText, [
-            [{ text: '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
-            [{ text: '👥 Post Seeker Profile', callback_data: 'seeker_flow' }],
-            [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
-          ], msgId);
+          const session = getSession(chatId);
+          const lang = getLanguage(session.draft_data, chatId);
+          await sendVerifiedFaydaDossierCard(chatId, lang, msgId);
           return NextResponse.json({ ok: true });
         }
 
@@ -8353,41 +8486,33 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             from: update.message?.from,
           });
 
+          // Strict Database Read-Back Guard:
+          const cleanExpectedFan = photoResult.fan.replace(/\D/g, '');
+          const { data: dbCheck } = await supabaseAdmin
+            .from('users')
+            .select('fayda_status, fayda_id_number')
+            .eq('telegram_id', chatId)
+            .maybeSingle();
+
+          const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
+          const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
+
+          if (!isReadBackValid) {
+            console.error(`[Fayda Verification] Read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
+            await sendOrEditCard(
+              chatId,
+              isAm
+                ? `❌ <b>የማረጋገጫ ምዝገባ አልተሳካም</b>\n\n<blockquote>የፋይዳ መረጃዎ በስርዓቱ ውስጥ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ ወይም አስተዳዳሪን ያነጋግሩ።</blockquote>`
+                : `❌ <b>Verification Registry Failed</b>\n\n<blockquote>Your Fayda verification could not be confirmed in the database. Please try again or contact support.</blockquote>`,
+              [[{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }]],
+              activeMsgId
+            );
+            return NextResponse.json({ ok: true });
+          }
+
           setFaydaStatusCache(chatId, true);
           await clearSession(chatId);
-
-          const verifiedText = isAm
-            ? `
-🎉 <b>የፋይዳ ብሔራዊ መታወቂያዎ ተረጋግጧል!</b>
-🛡️ <b>ሁኔታ:</b> የተረጋገጠ ✅
-
-• <b>የፋይዳ መለያ:</b> <code>•••• •••• ${photoResult.fan.slice(-4)}</code>
-${photoResult.fullName ? `• <b>ስም:</b> <b>${photoResult.fullName}</b>\n` : ''}${photoResult.gender ? `• <b>ጾታ:</b> ${photoResult.gender}\n` : ''}• <b>ፈቃድ:</b> ሙሉ አገልግሎት (ማዛመጃ፣ የፈላጊ መገለጫ፣ የጋራ ግንኙነት)
-• <b>ማረጋገጫ:</b> ይፋዊ የዲጂታል ፊርማ (RS256) የተረጋገጠ ✅
-
-<blockquote>በአዲስ አበባ ውስጥ በሙሉ እምነት እና ደህንነት መፈለግ እና መገናኘት ይችላሉ።</blockquote>
-            `.trim()
-            : `
-🎉 <b>FAYDA NATIONAL ID VERIFIED!</b>
-🛡️ <b>Status:</b> VERIFIED ✅
-
-• <b>Fayda ID:</b> <code>•••• •••• ${photoResult.fan.slice(-4)}</code>
-${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</b>\n` : ''}${photoResult.gender ? `• <b>Gender:</b> ${photoResult.gender}\n` : ''}• <b>Access:</b> Full Platform Access (Matchmaker, Seeker Profiles, Mutual Connections)
-• <b>Validation:</b> Official RS256 Digital Signature Validated ✅
-
-<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
-            `.trim();
-
-          await sendOrEditCard(
-            chatId,
-            verifiedText,
-            [
-              [{ text: isAm ? '⚡ የክፍል ጓደኛ ፈልግ · ማዛመጃ 🔍' : '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
-              [{ text: isAm ? '📢 መረጃህን ቻናል ላይ ልጠፍ ↗️' : '📢 Post Your Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
-              [{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }],
-            ],
-            activeMsgId
-          );
+          await sendVerifiedFaydaDossierCard(chatId, lang, activeMsgId);
           return NextResponse.json({ ok: true });
         }
 
@@ -8831,6 +8956,30 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
             from: message.from,
           });
 
+          // Strict Database Read-Back Guard:
+          const cleanExpectedFan = photoResult.fan.replace(/\D/g, '');
+          const { data: dbCheck } = await supabaseAdmin
+            .from('users')
+            .select('fayda_status, fayda_id_number')
+            .eq('telegram_id', chatId)
+            .maybeSingle();
+
+          const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
+          const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
+
+          if (!isReadBackValid) {
+            console.error(`[Dyn Card Fayda] Read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
+            await sendDynamicCardStep9FaydaFan(
+              chatId,
+              session.draft_data,
+              activeMsgId,
+              isAm
+                ? 'የፋይዳ መረጃዎ በስርዓቱ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ።'
+                : 'Fayda verification database sync failed. Please try again.'
+            );
+            return NextResponse.json({ ok: true });
+          }
+
           setFaydaStatusCache(chatId, true);
 
           const updatedDraft = {
@@ -8886,6 +9035,30 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
             verifiedSource: 'telegram_photo_rs256_qr',
             from: update.message?.from,
           });
+
+          // Strict Database Read-Back Guard:
+          const cleanExpectedFan = photoResult.fan.replace(/\D/g, '');
+          const { data: dbCheck } = await supabaseAdmin
+            .from('users')
+            .select('fayda_status, fayda_id_number')
+            .eq('telegram_id', chatId)
+            .maybeSingle();
+
+          const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
+          const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
+
+          if (!isReadBackValid) {
+            console.error(`[Target Fayda] Read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
+            await sendOrEditCard(
+              chatId,
+              isAm
+                ? '❌ <b>የማረጋገጫ ምዝገባ አልተሳካም</b>\n\n<blockquote>የፋይዳ መረጃዎ በስርዓቱ ውስጥ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ።</blockquote>'
+                : '❌ <b>Verification Registry Failed</b>\n\n<blockquote>Your Fayda verification could not be confirmed in the database. Please try again.</blockquote>',
+              [[{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }]],
+              activeMsgId
+            );
+            return NextResponse.json({ ok: true });
+          }
 
           setFaydaStatusCache(chatId, true);
           await clearSession(chatId);
@@ -9079,17 +9252,33 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
             from: update.message?.from,
           });
 
-          setFaydaStatusCache(chatId, true);
+          // Strict Database Read-Back Guard:
+          const cleanExpectedFan = photoResult.fan.replace(/\D/g, '');
+          const { data: dbCheck } = await supabaseAdmin
+            .from('users')
+            .select('fayda_status, fayda_id_number')
+            .eq('telegram_id', chatId)
+            .maybeSingle();
 
-          const updatedDraft = {
-            ...session.draft_data,
-            lang,
-            fayda_number: photoResult.fan,
-            fayda_status: 'verified',
-            full_name: photoResult.fullName || session.draft_data?.full_name,
-            gender: photoResult.gender || session.draft_data?.gender,
-          };
-          await sendSeekerFaydaStep(chatId, updatedDraft, targetMsgId);
+          const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
+          const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
+
+          if (!isReadBackValid) {
+            console.error(`[Seeker Fayda] Read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
+            await sendDynamicCardStep9FaydaFan(
+              chatId,
+              session.draft_data,
+              targetMsgId,
+              isAm
+                ? 'የፋይዳ መረጃዎ በስርዓቱ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ።'
+                : 'Fayda verification database sync failed. Please try again.'
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          setFaydaStatusCache(chatId, true);
+          await clearSession(chatId);
+          await sendVerifiedFaydaDossierCard(chatId, lang, targetMsgId);
           return NextResponse.json({ ok: true });
         }
 
@@ -9683,29 +9872,24 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
         return NextResponse.json({ ok: true });
       }
 
-      if (text === '/fayda' || text === '/verify_fayda') {
-        await clearSession(chatId);
+      const isBareVerifyOrFayda =
+        text === '/verify' ||
+        text === '/fayda' ||
+        text === '/verify_fayda' ||
+        text.startsWith('/verify@') ||
+        text.startsWith('/fayda@') ||
+        text.startsWith('/verify_fayda@');
+
+      if (isBareVerifyOrFayda) {
         const isVerified = await isUserFaydaVerified(chatId);
         if (isVerified) {
-          const verifiedText = `
-🛡️ <b>SpaceMatch</b> · <b>Fayda ID Verified</b>
-
-✅ <b>Your Fayda National ID is Verified!</b>
-
-• <b>Status:</b> 🛡️ Verified Resident
-• <b>Access:</b> Full Platform Access (Matchmaker, Seeker Profiles, Contact Unlocks)
-• <b>Security:</b> Offline Verhoeff Checksum Validated
-
-<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
-          `.trim();
-          await sendOrEditCard(chatId, verifiedText, [
-            [{ text: '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
-            [{ text: '👥 Post Seeker Profile', callback_data: 'seeker_flow' }],
-            [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
-          ]);
+          const session = getSession(chatId);
+          const lang = getLanguage(session.draft_data, chatId);
+          await sendVerifiedFaydaDossierCard(chatId, lang);
           return NextResponse.json({ ok: true });
         }
 
+        await clearSession(chatId);
         await sendFaydaGateCard(chatId, 'access all SpaceMatch verified features');
         return NextResponse.json({ ok: true });
       }
@@ -9874,16 +10058,6 @@ ${photoResult.fullName ? `• <b>Verified Name:</b> <b>${photoResult.fullName}</
           });
         }
 
-        return NextResponse.json({ ok: true });
-      }
-
-      // ── Legacy: /verify (fayda) or bare /verify ────────────────────────────
-      if (text === '/verify' || text === '/fayda') {
-        await sendTelegram('sendMessage', {
-          chat_id: chatId,
-          text: `<b>🛡️ Fayda National ID Verification</b>\n\nPlease attach and send a photo of your Fayda National ID in chat now for verification!`,
-          parse_mode: 'HTML',
-        });
         return NextResponse.json({ ok: true });
       }
 

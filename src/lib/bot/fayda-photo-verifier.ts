@@ -63,10 +63,10 @@ export const FAYDA_ERROR_GUIDANCE: Record<
   { en: string; am: string; shortEn: string; shortAm: string }
 > = {
   NO_QR_FOUND: {
-    en: `⚠️ <b>No QR Code Detected</b>\n\n<blockquote>• Please flip your card over: the QR code is on the <b>back of the Fayda card</b>.\n• Ensure the entire card is clearly visible inside the photo frame.</blockquote>\n\n📸 <b>Please take a new photo of the back of your card:</b>`,
-    am: `⚠️ <b>የፋይዳ QR ኮድ አልተገኘም</b>\n\n<blockquote>• እባክዎ የመታወቂያዎን ጀርባ ይመልከቱ: የQR ኮዱ የሚገኘው በ<b>ፋይዳ ካርድ ጀርባ</b> ላይ ነው።\n• ሙሉው ካርድ በፎቶው ውስጥ በግልጽ እንዲታይ ያድርጉ።</blockquote>\n\n📸 <b>እባክዎ የመታወቂያዎን ጀርባ አዲስ ፎቶ ያንሱ:</b>`,
-    shortEn: 'No QR code detected. Please photograph the back of your card.',
-    shortAm: 'የፋይዳ QR ኮድ አልተገኘም። እባክዎ የመታወቂያዎን ጀርባ ፎቶ ያንሱ።',
+    en: `⚠️ <b>No QR Code Detected</b>\n\n<blockquote>• The official square QR code is on the <b>BACK</b> of your Fayda ID card.\n• Please flip your card over and take a clear photo of the back.\n• Your session is still active — please upload the back photo now without restarting.</blockquote>\n\n📸 <b>Please flip your card and upload a photo of the back:</b>`,
+    am: `⚠️ <b>የፋይዳ QR ኮድ አልተገኘም</b>\n\n<blockquote>• ይፋዊው ካሬ የQR ኮድ የሚገኘው በፋይዳ መታወቂያዎ <b>ጀርባ (BACK)</b> ላይ ነው።\n• እባክዎ ካርድዎን ገልብጠው የጀርባውን ጥራት ያለው ፎቶ ያንሱ።\n• ሂደቱ አልተቋረጠም — እባክዎ እንደገና ሳይጀምሩ የጀርባውን ፎቶ አሁኑኑ ይላኩ።</blockquote>\n\n📸 <b>እባክዎ ካርድዎን ገልብጠው የጀርባውን ፎቶ ይላኩ:</b>`,
+    shortEn: 'No QR code detected. The official QR code is on the BACK of the card. Please flip and upload.',
+    shortAm: 'የፋይዳ QR ኮድ አልተገኘም። የQR ኮዱ ያለው በመታወቂያው ጀርባ ላይ ነው። እባክዎ ገልብጠው ይላኩ።',
   },
   QR_UNREADABLE: {
     en: `⚠️ <b>QR Code Unreadable (Blurry or Glare)</b>\n\n<blockquote>• Avoid glare or flash reflections on the card.\n• Move to a well-lit area and hold your phone steady.\n• Get close enough so the QR squares look sharp and crisp.</blockquote>\n\n📸 <b>Please retake a clear, well-lit photo:</b>`,

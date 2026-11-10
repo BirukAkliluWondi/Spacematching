@@ -135,13 +135,40 @@ export function setupTelegramFetchMock() {
     // 3. WebAssembly local file loading
     if (urlStr.includes('.wasm') || urlStr.endsWith('.wasm')) {
       try {
-        const cleaned = urlStr.replace(/^file:\/\/\/?/, '');
-        if (fs.existsSync(cleaned)) {
-          const wasmBuffer = fs.readFileSync(cleaned);
+        let filePath = '';
+        if (urlStr.startsWith('file://')) {
+          try {
+            filePath = new URL(urlStr).pathname;
+            if (process.platform === 'win32' && filePath.startsWith('/')) {
+              filePath = filePath.slice(1);
+            }
+          } catch {}
+        } else {
+          filePath = urlStr;
+        }
+        if (filePath && fs.existsSync(filePath)) {
+          const wasmBuffer = fs.readFileSync(filePath);
           return new Response(new Uint8Array(wasmBuffer), {
             status: 200,
             headers: { 'Content-Type': 'application/wasm' },
           });
+        }
+        // Fallback to known paths in node_modules
+        const wasmName = path.basename(urlStr.split('?')[0]);
+        const candidatePaths = [
+          path.resolve('node_modules/zxing-wasm/dist/writer', wasmName),
+          path.resolve('node_modules/zxing-wasm/dist/reader', wasmName),
+          path.resolve('node_modules/fayda-decoder/node_modules/zxing-wasm/dist/writer', wasmName),
+          path.resolve('node_modules/fayda-decoder/node_modules/zxing-wasm/dist/reader', wasmName),
+        ];
+        for (const cp of candidatePaths) {
+          if (fs.existsSync(cp)) {
+            const wasmBuffer = fs.readFileSync(cp);
+            return new Response(new Uint8Array(wasmBuffer), {
+              status: 200,
+              headers: { 'Content-Type': 'application/wasm' },
+            });
+          }
         }
       } catch {}
       return await originalFetch(input, init);

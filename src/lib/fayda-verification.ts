@@ -493,9 +493,11 @@ export async function persistFaydaVerification(
 
     if (userErr) {
       console.error('[fayda-verification] Supabase users upsert error for tgId', telegramId, userErr);
+      return false;
     }
   } catch (userErr) {
     console.error('[fayda-verification] Exception updating users table:', userErr);
+    return false;
   }
 
   // Sync to profiles table
