@@ -66,6 +66,8 @@ async function runEmpiricalProbes() {
   console.log(' 🔬 CHALLENGER 3: EMPIRICAL AUDIT & TARGETED VERIFICATION HARNESS');
   console.log('========================================================================\n');
 
+  setupTelegramFetchMock();
+
   // ─── 1. Amharic Budget Range Parsing & Negative Input Hardening ────────────
   console.log('▶ [Probe 1] Testing Amharic Budget Range Parsing & Strict Negative Rejections...');
 
@@ -155,8 +157,6 @@ async function runEmpiricalProbes() {
 
   // ─── 3. Contact Dossier Reveal Placeholder Sanitization ─────────────────────
   console.log('\n▶ [Probe 3] Testing Contact Reveal Dossier Sanitization (Zero Placeholder Leaks)...');
-
-  setupTelegramFetchMock();
 
   const requesterTgId = 88001;
   const conciergeTgId = -100;

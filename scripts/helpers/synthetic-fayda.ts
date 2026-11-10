@@ -68,6 +68,10 @@ export function getSyntheticTestKeyPair(): SyntheticKeyPair {
   return _cachedKeyPair;
 }
 
+// Valid minimal WebP base64url string with RIFF header for in-memory biometric testing
+export const DEFAULT_SYNTHETIC_FACE_WEBP_BASE64URL =
+  'UklGRjIAAABXRUJQVlA4ICYAAADQAgCdASogACAAPm0ylkekIyIhKAgAgA2JaQAAPaOgAP7r1IAAAA';
+
 /**
  * Generates an authentic NIDP V4 Fayda QR payload string and compact detached JWS.
  */
@@ -91,7 +95,7 @@ export function createAuthenticFaydaPayload(options: SyntheticFaydaOptions = {})
   const fan = options.fan || '6140987654321098';
   const gender = options.gender || 'F';
   const dob = options.dob || '1998/05/12';
-  const face = options.faceBase64Url || 'fakefacebase64url';
+  const face = options.faceBase64Url !== undefined ? options.faceBase64Url : DEFAULT_SYNTHETIC_FACE_WEBP_BASE64URL;
 
   // Base payload format: <face>:DLT:<fullName>:V:4:G:<gender>:A:<fan>:D:<dob>
   const basePayload = `${face}:DLT:${fullName}:V:4:G:${gender}:A:${fan}:D:${dob}`;

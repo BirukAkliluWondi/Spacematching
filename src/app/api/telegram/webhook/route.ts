@@ -56,7 +56,9 @@ import {
   downloadTelegramFile,
   FAYDA_ERROR_GUIDANCE,
   type FaydaVerificationResult,
+  type FaydaSuccessResult,
 } from '@/lib/bot/fayda-photo-verifier';
+import { compareFaceToThumbnail } from '@/lib/bot/face-matcher';
 import { getLanguage, I18N, SupportedLang } from '@/lib/bot-i18n';
 
 const ALL_SUBCITIES = [
@@ -1376,6 +1378,64 @@ It has been 24 hours since your roommate contact was unlocked!
           error: err?.message,
         };
       }
+    };
+
+    // Helper: Initiate Step 2/2 In-Memory Liveness Verification (Selfie / Video Note)
+    const initiateFaydaLivenessStep2 = async (
+      chatId: number,
+      photoResult: FaydaSuccessResult,
+      originStep: string,
+      currentDraft: Record<string, any> = {},
+      activeMsgId?: number,
+      extraParams: Record<string, any> = {}
+    ): Promise<number | undefined> => {
+      const lang = getLanguage(currentDraft, chatId);
+      const isAm = lang === 'am';
+
+      if (!photoResult.faceBase64) {
+        console.warn(`[Liveness] Fayda card for tgId ${chatId} missing face thumbnail`);
+        const noFaceGuidance = isAm
+          ? `⚠️ <b>የፋይዳ ፎቶ መረጃ አልተገኘም</b>\n\n<blockquote>በመታወቂያው ላይ የፊት ገጽታ ፎቶ አልተገኘም። እባክዎ ይፋዊውን የፋይዳ ብሔራዊ መታወቂያ ካርድ ጀርባ በድጋሚ ጥራት ባለው ሁኔታ ያንሱ።</blockquote>`
+          : `⚠️ <b>Fayda Reference Face Not Found</b>\n\n<blockquote>The scanned Fayda card does not contain a readable face photo. Please upload a clear photo of the back of your official Fayda ID card.</blockquote>`;
+        return await sendOrEditCard(
+          chatId,
+          noFaceGuidance,
+          [[{ text: isAm ? '🏠 ዋና ማውጫ / ሰርዝ' : '🏠 Main Menu / Cancel', callback_data: 'nav_start' }]],
+          activeMsgId
+        );
+      }
+
+      const updatedDraft = {
+        ...currentDraft,
+        ...extraParams,
+        lang,
+        fullName: photoResult.fullName,
+        full_name: photoResult.fullName,
+        fan: photoResult.fan,
+        fayda_number: photoResult.fan,
+        dob: photoResult.dob,
+        gender: photoResult.gender,
+        temp_fayda_face: photoResult.faceBase64,
+        fayda_origin_step: originStep,
+        card_msg_id: activeMsgId || currentDraft.card_msg_id,
+      };
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'awaiting_fayda_liveness_selfie',
+        draft_data: updatedDraft,
+        updated_at: new Date().toISOString(),
+      });
+
+      const step2Text = isAm
+        ? `✅ <b>የፋይዳ መታወቂያው ትክክለኛነት ተረጋግጧል! (ደረጃ 2/2)</b>\n\n<blockquote>የመታወቂያው ባለቤት እርሶ መሆንዎን ለማረጋገጥ እባክዎ ፈጣን የፊት <b>ሴልፊ (Selfie)</b> ፎቶ ወይም የቴሌግራም ክብ የቪዲዮ መልዕክት (Video Note) አሁን ይላኩ።</blockquote>`
+        : `✅ <b>Fayda ID Authenticated! (Step 2/2)</b>\n\n<blockquote>To confirm that you are the legitimate owner of this Fayda ID, please take a quick front-facing <b>selfie photo</b> or send a Telegram round <b>video note</b> now.</blockquote>`;
+
+      const inlineKeyboard = [
+        [{ text: isAm ? '🏠 ዋና ማውጫ / ሰርዝ' : '🏠 Main Menu / Cancel', callback_data: 'nav_start' }],
+      ];
+
+      return await sendOrEditCard(chatId, step2Text, inlineKeyboard, activeMsgId);
     };
 
     // Helper to format dynamic context header
@@ -8328,9 +8388,217 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         return NextResponse.json({ ok: true });
       }
 
+      // ── Step 2/2: In-Memory Liveness Verification (Selfie / Video Note) ───────
+      if (session.step === 'awaiting_fayda_liveness_selfie') {
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
+        const activeMsgId = session.draft_data?.card_msg_id;
+        const draft = session.draft_data || {};
+
+        // 1. Extract file_id from message (video_note, photo, or image document)
+        let liveFileId: string | null = null;
+        let isVideoNote = false;
+
+        if (update.message?.video_note) {
+          const vn = update.message.video_note;
+          if (vn.thumbnail?.file_id) {
+            liveFileId = vn.thumbnail.file_id;
+            isVideoNote = true;
+          } else {
+            // Unofficial Telegram client omitting video note thumbnail: request standard selfie
+            await sendOrEditCard(
+              chatId,
+              isAm
+                ? `⚠️ <b>የቪዲዮ ምስል ማግኘት አልተቻለም</b>\n\n<blockquote>የተላከው ቪዲዮ የፊት ገጽታ ቅድመ-ዕይታ አልያዘም። እባክዎ መደበኛ የፊት <b>ሴልፊ (Selfie)</b> ፎቶ ይላኩ።</blockquote>`
+                : `⚠️ <b>Video Note Preview Unavailable</b>\n\n<blockquote>Your video note did not include a valid image thumbnail. Please send a standard front-facing <b>selfie photo</b> instead.</blockquote>`,
+              [[{ text: isAm ? '🏠 ዋና ማውጫ / ሰርዝ' : '🏠 Main Menu / Cancel', callback_data: 'nav_start' }]],
+              activeMsgId
+            );
+            return NextResponse.json({ ok: true });
+          }
+        } else if (update.message?.photo && Array.isArray(update.message.photo) && update.message.photo.length > 0) {
+          const best = update.message.photo.reduce((prev: any, curr: any) =>
+            (curr?.file_size ?? 0) > (prev?.file_size ?? 0) ? curr : prev
+          );
+          liveFileId = best?.file_id || null;
+        } else if (update.message?.document) {
+          const doc = update.message.document;
+          const mime = (doc.mime_type || '').toLowerCase();
+          const fileName = (doc.file_name || '').toLowerCase();
+          const isImg =
+            mime.startsWith('image/') ||
+            fileName.endsWith('.jpg') ||
+            fileName.endsWith('.jpeg') ||
+            fileName.endsWith('.png') ||
+            fileName.endsWith('.webp');
+          if (isImg) {
+            liveFileId = doc.file_id || null;
+          }
+        }
+
+        // 2. Reject non-media or manual text input with bilingual guidance
+        if (!liveFileId) {
+          await sendOrEditCard(
+            chatId,
+            isAm
+              ? `📸 <b>የፊት ሴልፊ ወይም ቪዲዮ ያስፈልጋል (ደረጃ 2/2)</b>\n\n<blockquote>የመታወቂያው ባለቤት እርሶ መሆንዎን ለማረጋገጥ እባክዎ ፈጣን የፊት <b>ሴልፊ (Selfie)</b> ፎቶ ወይም የቴሌግራም ክብ የቪዲዮ መልዕክት (Video Note) ይላኩ።</blockquote>`
+              : `📸 <b>Selfie Photo or Video Note Required (Step 2/2)</b>\n\n<blockquote>To confirm that you are the legitimate owner of this Fayda ID, please take a quick front-facing <b>selfie photo</b> or send a Telegram round <b>video note</b> now.</blockquote>`,
+            [[{ text: isAm ? '🏠 ዋና ማውጫ / ሰርዝ' : '🏠 Main Menu / Cancel', callback_data: 'nav_start' }]],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        // 3. Check reference face thumbnail extracted in Step 1
+        const qrFaceBase64 = draft.temp_fayda_face;
+        if (!qrFaceBase64) {
+          console.warn(`[Liveness] Missing temp_fayda_face for tgId ${chatId}`);
+          await sendOrEditCard(
+            chatId,
+            isAm
+              ? `⚠️ <b>የፋይዳ ፎቶ መረጃ አልተገኘም</b>\n\n<blockquote>እባክዎ መጀመሪያ የመታወቂያዎን ጀርባ ፎቶ በድጋሚ ይላኩ።</blockquote>`
+              : `⚠️ <b>Fayda Reference Face Not Found</b>\n\n<blockquote>Please restart verification by uploading your Fayda ID card photo first.</blockquote>`,
+            [[{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        // 4. Download live media directly into volatile RAM (Zero Persistent Storage)
+        let liveBuffer: Buffer;
+        try {
+          liveBuffer = await downloadTelegramFile(liveFileId);
+        } catch (downloadErr: any) {
+          console.error('[Liveness] Failed to download live media:', downloadErr);
+          const isTooLarge = downloadErr?.message === 'FILE_TOO_LARGE';
+          const errorText = isTooLarge
+            ? (isAm ? FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.am : FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.en)
+            : (isAm
+                ? `⚠️ <b>ፋይሉን ማውረድ አልተቻለም</b>\n\n<blockquote>እባክዎ አዲስ ሴልፊ ወይም ቪዲዮ በድጋሚ ይላኩ።</blockquote>`
+                : `⚠️ <b>Failed to download image</b>\n\n<blockquote>Please take and send a new selfie photo or video note.</blockquote>`);
+          await sendOrEditCard(
+            chatId,
+            errorText,
+            [[{ text: isAm ? '🏠 ዋና ማውጫ / ሰርዝ' : '🏠 Main Menu / Cancel', callback_data: 'nav_start' }]],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        // 5. In-memory zero-storage biometric comparison
+        const matchResult = await compareFaceToThumbnail(liveBuffer, qrFaceBase64);
+
+        // 6. Handle Rejection (< 65%)
+        if (!matchResult.matched) {
+          const scorePct = Math.round(matchResult.score <= 1 ? matchResult.score * 100 : matchResult.score);
+          const guidanceText = isAm
+            ? `⚠️ <b>የፊት ማረጋገጫው አልተሳካም (ውጤት: ${scorePct}%)</b>\n\n<blockquote>የተላከው ፎቶ በመታወቂያው ላይ ካለው የፊት ገጽታ ጋር በበቂ ሁኔታ አልተዛመደም (ቢያንስ 65% ያስፈልጋል)።\n\n• እባክዎ በቂ ብርሃን ባለበት ቦታ ይሁኑ\n• የጸሐይ መነጽር ወይም ባርኔጣ ያውልቁ\n• ፊትዎን ቀጥታ ወደ ካሜራው አድርገው በድጋሚ ሴልፊ ወይም ክብ ቪዲዮ ይላኩ።</blockquote>`
+            : `⚠️ <b>Face Match Unsuccessful (Score: ${scorePct}%)</b>\n\n<blockquote>The uploaded face did not sufficiently match the photo on the Fayda ID (minimum 65% required).\n\n• Ensure your face is clearly lit without strong shadows\n• Remove sunglasses, hats, or face coverings\n• Look straight at the camera and retake your selfie or video note now.</blockquote>`;
+
+          await sendOrEditCard(
+            chatId,
+            guidanceText,
+            [[{ text: isAm ? '🏠 ዋና ማውጫ / ሰርዝ' : '🏠 Main Menu / Cancel', callback_data: 'nav_start' }]],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        // 7. Match Successful (>= 65%): Persist verified status across DB
+        const cleanFan = String(draft.fan || draft.fayda_number || '').replace(/[\s-]/g, '').trim();
+        const fullName = draft.fullName || draft.full_name || '';
+
+        await persistFaydaVerification(chatId, cleanFan, fullName, {
+          gender: draft.gender,
+          dob: draft.dob,
+          verifiedSource: isVideoNote
+            ? 'telegram_video_note_rs256_liveness'
+            : 'telegram_photo_rs256_liveness',
+          from: update.message?.from,
+        });
+
+        // Strict Database Read-Back Guard
+        const cleanExpectedFan = cleanFan.replace(/\D/g, '');
+        const { data: dbCheck } = await supabaseAdmin
+          .from('users')
+          .select('fayda_status, fayda_id_number')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
+
+        const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
+        const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
+
+        if (!isReadBackValid) {
+          console.error(`[Liveness] DB read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
+          await sendOrEditCard(
+            chatId,
+            isAm
+              ? `❌ <b>የማረጋገጫ ምዝገባ አልተሳካም</b>\n\n<blockquote>የፋይዳ መረጃዎ በስርዓቱ ውስጥ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ።</blockquote>`
+              : `❌ <b>Verification Registry Failed</b>\n\n<blockquote>Your Fayda verification could not be confirmed in the database. Please try again.</blockquote>`,
+            [[{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }]],
+            activeMsgId
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        setFaydaStatusCache(chatId, true);
+
+        // Clean temp_fayda_face from draft (Zero-Storage Invariant)
+        const cleanedDraft = { ...draft };
+        delete cleanedDraft.temp_fayda_face;
+
+        // Route according to origin workflow
+        if (draft.target_match_id) {
+          await clearSession(chatId);
+          const { data: match } = await supabaseAdmin
+            .from('matches')
+            .select('*, requester:requester_id(telegram_id, gender, budget_min, budget_max, locations, display_code), target:target_id(telegram_id, display_code)')
+            .eq('id', draft.target_match_id)
+            .single();
+
+          if (!match || match.status !== 'pending_acceptance') {
+            await sendOrEditCard(
+              chatId,
+              isAm
+                ? `✅ <b>ፋይዳ ተረጋግጧል!</b> ነገር ግን ይህ የግንኙነት ጥያቄ በአሁኑ ሰዓት ንቁ አይደለም።`
+                : `✅ <b>Fayda Verified!</b> However, this match request is no longer pending.`,
+              [[{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]],
+              activeMsgId
+            );
+            return NextResponse.json({ ok: true });
+          }
+
+          await revealMutualMatchContacts(draft.target_match_id, chatId, activeMsgId);
+          return NextResponse.json({ ok: true });
+        }
+
+        const isSeekerFlow =
+          draft.is_seeker_wizard ||
+          draft.fayda_origin_step === 'dyn_card_fayda_fan' ||
+          (draft.fayda_origin_step === 'awaiting_seeker_fayda_upload' && (draft.budget_min || draft.locations || draft.age));
+
+        if (isSeekerFlow) {
+          const updatedSeekerDraft = {
+            ...cleanedDraft,
+            lang,
+            fayda_number: cleanFan,
+            fayda_status: 'verified',
+            full_name: fullName || cleanedDraft.full_name,
+            gender: draft.gender || cleanedDraft.gender,
+          };
+          await completeSeekerOnboarding(chatId, updatedSeekerDraft, activeMsgId, update.message?.from);
+          return NextResponse.json({ ok: true });
+        }
+
+        // Standalone or universal photo: display verified dossier card
+        await clearSession(chatId);
+        await sendVerifiedFaydaDossierCard(chatId, lang, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
       // ── Universal Photo / Image Handler (Fayda QR Code Verification) ───────
       const uploadedMedia = extractMediaFileFromMessage(message);
-      if (uploadedMedia && session.step !== 'space_input_photos') {
+      if (uploadedMedia && session.step !== 'space_input_photos' && session.step !== 'awaiting_fayda_liveness_selfie') {
         const lang = getLanguage(session.draft_data, chatId);
         const isAm = lang === 'am';
         const activeMsgId = session.draft_data?.card_msg_id;
@@ -8338,44 +8606,13 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const photoResult = await verifyFaydaMediaFromTelegram(message, chatId);
 
         if (photoResult.success) {
-          await persistFaydaVerification(chatId, photoResult.fan, photoResult.fullName, {
-            gender: photoResult.gender,
-            dob: photoResult.dob,
-            verifiedSource: 'telegram_photo_rs256_qr',
-            from: message.from,
-          });
-
-          // Strict Database Read-Back Guard:
-          const cleanExpectedFan = photoResult.fan.replace(/\D/g, '');
-          const { data: dbCheck } = await supabaseAdmin
-            .from('users')
-            .select('fayda_status, fayda_id_number')
-            .eq('telegram_id', chatId)
-            .maybeSingle();
-
-          const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
-          const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
-
-          if (!isReadBackValid) {
-            console.error(`[Universal Fayda Verification] Read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
-            await sendTelegram('sendMessage', {
-              chat_id: chatId,
-              text: isAm
-                ? `❌ <b>የማረጋገጫ ምዝገባ አልተሳካም</b>\n\n<blockquote>የፋይዳ መረጃዎ በስርዓቱ ውስጥ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ ወይም አስተዳዳሪን ያነጋግሩ።</blockquote>`
-                : `❌ <b>Verification Registry Failed</b>\n\n<blockquote>Your Fayda verification could not be confirmed in the database. Please try again or contact support.</blockquote>`,
-              parse_mode: 'HTML',
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }],
-                ],
-              },
-            });
-            return NextResponse.json({ ok: true });
-          }
-
-          setFaydaStatusCache(chatId, true);
-          await clearSession(chatId);
-          await sendVerifiedFaydaDossierCard(chatId, lang, activeMsgId);
+          await initiateFaydaLivenessStep2(
+            chatId,
+            photoResult,
+            session.step || 'universal_photo',
+            session.draft_data,
+            activeMsgId
+          );
           return NextResponse.json({ ok: true });
         }
 
@@ -8626,40 +8863,13 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             return NextResponse.json({ ok: true });
           }
 
-          await persistFaydaVerification(chatId, photoResult.fan, photoResult.fullName, {
-            gender: photoResult.gender,
-            dob: photoResult.dob,
-            verifiedSource: 'telegram_photo_rs256_qr',
-            from: update.message?.from,
-          });
-
-          // Strict Database Read-Back Guard:
-          const cleanExpectedFan = photoResult.fan.replace(/\D/g, '');
-          const { data: dbCheck } = await supabaseAdmin
-            .from('users')
-            .select('fayda_status, fayda_id_number')
-            .eq('telegram_id', chatId)
-            .maybeSingle();
-
-          const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
-          const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
-
-          if (!isReadBackValid) {
-            console.error(`[Fayda Verification] Read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
-            await sendOrEditCard(
-              chatId,
-              isAm
-                ? `❌ <b>የማረጋገጫ ምዝገባ አልተሳካም</b>\n\n<blockquote>የፋይዳ መረጃዎ በስርዓቱ ውስጥ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ ወይም አስተዳዳሪን ያነጋግሩ።</blockquote>`
-                : `❌ <b>Verification Registry Failed</b>\n\n<blockquote>Your Fayda verification could not be confirmed in the database. Please try again or contact support.</blockquote>`,
-              [[{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }]],
-              activeMsgId
-            );
-            return NextResponse.json({ ok: true });
-          }
-
-          setFaydaStatusCache(chatId, true);
-          await clearSession(chatId);
-          await sendVerifiedFaydaDossierCard(chatId, lang, activeMsgId);
+          await initiateFaydaLivenessStep2(
+            chatId,
+            photoResult,
+            'awaiting_standalone_fayda_fan',
+            session.draft_data,
+            activeMsgId
+          );
           return NextResponse.json({ ok: true });
         }
 
@@ -9106,48 +9316,14 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             return NextResponse.json({ ok: true });
           }
 
-          await persistFaydaVerification(chatId, photoResult.fan, photoResult.fullName, {
-            gender: photoResult.gender,
-            dob: photoResult.dob,
-            verifiedSource: 'telegram_photo_rs256_qr',
-            from: message.from,
-          });
-
-          // Strict Database Read-Back Guard:
-          const cleanExpectedFan = photoResult.fan.replace(/\D/g, '');
-          const { data: dbCheck } = await supabaseAdmin
-            .from('users')
-            .select('fayda_status, fayda_id_number')
-            .eq('telegram_id', chatId)
-            .maybeSingle();
-
-          const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
-          const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
-
-          if (!isReadBackValid) {
-            console.error(`[Dyn Card Fayda] Read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
-            await sendDynamicCardStep9FaydaFan(
-              chatId,
-              session.draft_data,
-              activeMsgId,
-              isAm
-                ? 'የፋይዳ መረጃዎ በስርዓቱ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ።'
-                : 'Fayda verification database sync failed. Please try again.'
-            );
-            return NextResponse.json({ ok: true });
-          }
-
-          setFaydaStatusCache(chatId, true);
-
-          const updatedDraft = {
-            ...session.draft_data,
-            lang,
-            fayda_number: photoResult.fan,
-            fayda_status: 'verified',
-            full_name: photoResult.fullName || session.draft_data?.full_name,
-            gender: photoResult.gender || session.draft_data?.gender,
-          };
-          await completeSeekerOnboarding(chatId, updatedDraft, activeMsgId, message.from);
+          await initiateFaydaLivenessStep2(
+            chatId,
+            photoResult,
+            'dyn_card_fayda_fan',
+            session.draft_data,
+            activeMsgId,
+            { is_seeker_wizard: true }
+          );
           return NextResponse.json({ ok: true });
         }
 
@@ -9186,52 +9362,14 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             return NextResponse.json({ ok: true });
           }
 
-          await persistFaydaVerification(chatId, photoResult.fan, photoResult.fullName, {
-            gender: photoResult.gender,
-            dob: photoResult.dob,
-            verifiedSource: 'telegram_photo_rs256_qr',
-            from: update.message?.from,
-          });
-
-          // Strict Database Read-Back Guard:
-          const cleanExpectedFan = photoResult.fan.replace(/\D/g, '');
-          const { data: dbCheck } = await supabaseAdmin
-            .from('users')
-            .select('fayda_status, fayda_id_number')
-            .eq('telegram_id', chatId)
-            .maybeSingle();
-
-          const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
-          const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
-
-          if (!isReadBackValid) {
-            console.error(`[Target Fayda] Read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
-            await sendOrEditCard(
-              chatId,
-              isAm
-                ? '❌ <b>የማረጋገጫ ምዝገባ አልተሳካም</b>\n\n<blockquote>የፋይዳ መረጃዎ በስርዓቱ ውስጥ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ።</blockquote>'
-                : '❌ <b>Verification Registry Failed</b>\n\n<blockquote>Your Fayda verification could not be confirmed in the database. Please try again.</blockquote>',
-              [[{ text: isAm ? '🏠 ሰርዝ' : '🏠 Cancel', callback_data: 'nav_start' }]],
-              activeMsgId
-            );
-            return NextResponse.json({ ok: true });
-          }
-
-          setFaydaStatusCache(chatId, true);
-          await clearSession(chatId);
-
-          const { data: match } = await supabaseAdmin
-            .from('matches')
-            .select('*, requester:requester_id(telegram_id, gender, budget_min, budget_max, locations, display_code), target:target_id(telegram_id, display_code)')
-            .eq('id', matchId)
-            .single();
-
-          if (!match || match.status !== 'pending_acceptance') {
-            await sendOrEditCard(chatId, isAm ? `✅ <b>ፋይዳ ተረጋግጧል!</b> ነገር ግን ይህ የግንኙነት ጥያቄ በአሁኑ ሰዓት ንቁ አይደለም።` : `✅ <b>Fayda Verified!</b> However, this match request is no longer pending.`, [[{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }]], activeMsgId);
-            return NextResponse.json({ ok: true });
-          }
-
-          await revealMutualMatchContacts(matchId, chatId, activeMsgId);
+          await initiateFaydaLivenessStep2(
+            chatId,
+            photoResult,
+            `awaiting_target_fayda_fan:${matchId}`,
+            session.draft_data,
+            activeMsgId,
+            { target_match_id: matchId }
+          );
           return NextResponse.json({ ok: true });
         }
 
@@ -9402,40 +9540,14 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             return NextResponse.json({ ok: true });
           }
 
-          await persistFaydaVerification(chatId, photoResult.fan, photoResult.fullName, {
-            gender: photoResult.gender,
-            dob: photoResult.dob,
-            verifiedSource: 'telegram_photo_rs256_qr',
-            from: update.message?.from,
-          });
-
-          // Strict Database Read-Back Guard:
-          const cleanExpectedFan = photoResult.fan.replace(/\D/g, '');
-          const { data: dbCheck } = await supabaseAdmin
-            .from('users')
-            .select('fayda_status, fayda_id_number')
-            .eq('telegram_id', chatId)
-            .maybeSingle();
-
-          const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
-          const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
-
-          if (!isReadBackValid) {
-            console.error(`[Seeker Fayda] Read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
-            await sendDynamicCardStep9FaydaFan(
-              chatId,
-              session.draft_data,
-              targetMsgId,
-              isAm
-                ? 'የፋይዳ መረጃዎ በስርዓቱ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ።'
-                : 'Fayda verification database sync failed. Please try again.'
-            );
-            return NextResponse.json({ ok: true });
-          }
-
-          setFaydaStatusCache(chatId, true);
-          await clearSession(chatId);
-          await sendVerifiedFaydaDossierCard(chatId, lang, targetMsgId);
+          await initiateFaydaLivenessStep2(
+            chatId,
+            photoResult,
+            'awaiting_seeker_fayda_upload',
+            session.draft_data,
+            targetMsgId,
+            { is_seeker_wizard: true }
+          );
           return NextResponse.json({ ok: true });
         }
 

@@ -44,6 +44,7 @@ export interface FaydaSuccessResult {
   verifiedSource?: string;
   messageAm?: string;
   messageEn?: string;
+  faceBase64?: string;
 }
 
 export interface FaydaErrorResult {
@@ -299,7 +300,7 @@ export async function verifyFaydaPhotoUpload(
   let decodeResult: FaydaResult;
   try {
     const uint8 = new Uint8Array(buffer);
-    decodeResult = await decodeImage(uint8, { includeFace: false });
+    decodeResult = await decodeImage(uint8, { includeFace: true });
   } catch (err: any) {
     // Sharp or WebAssembly decoding error on corrupt headers / malformed bytes
     return {
@@ -414,6 +415,7 @@ export async function verifyFaydaPhotoUpload(
     gender: normalizedGender,
     isVerified: true,
     verifiedSource: 'telegram_photo_rs256_qr',
+    faceBase64: decodeResult.fields.face?.base64 || undefined,
   };
 }
 

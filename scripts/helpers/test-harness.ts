@@ -333,6 +333,46 @@ export function createTelegramDocumentUpdate(
   };
 }
 
+export function createTelegramVideoNoteUpdate(
+  chatId: number,
+  fileId: string,
+  options: { messageId?: number; username?: string; firstName?: string; thumbnailFileId?: string } = {}
+) {
+  const messageId = options.messageId || 9000 + Math.floor(Math.random() * 50000);
+  const thumbId = options.thumbnailFileId || `${fileId}_thumb`;
+  return {
+    update_id: 5000000 + Math.floor(Math.random() * 900000),
+    message: {
+      message_id: messageId,
+      from: {
+        id: chatId,
+        is_bot: false,
+        first_name: options.firstName || `User_${chatId}`,
+        username: options.username || `user_${chatId}`,
+      },
+      chat: {
+        id: chatId,
+        first_name: options.firstName || `User_${chatId}`,
+        type: 'private',
+      },
+      date: Math.floor(Date.now() / 1000),
+      video_note: {
+        file_id: fileId,
+        file_unique_id: `vn_${fileId}`,
+        length: 240,
+        duration: 3,
+        thumbnail: {
+          file_id: thumbId,
+          file_unique_id: `vn_thumb_${thumbId}`,
+          width: 240,
+          height: 240,
+          file_size: 8192,
+        },
+      },
+    },
+  };
+}
+
 // ─── Mini App initData Generator ─────────────────────────────────────────────
 
 export function createMockTelegramInitData(
