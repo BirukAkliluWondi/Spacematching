@@ -1762,6 +1762,64 @@ It has been 24 hours since your roommate contact was unlocked!
       await sendOrEditCard(chatId, text, gridRows, activeMsgId);
     };
 
+    // Dedicated Preferences Registration Success Interstitial (Roommate Criteria -> Next Step)
+    const sendPreferencesRegistrationSuccessCard = async (
+      chatId: number,
+      draft: Record<string, any>,
+      messageIdToEdit?: number
+    ) => {
+      const activeMsgId = messageIdToEdit || draft.card_msg_id;
+      const lang = getLanguage(draft, chatId);
+      const isAm = lang === 'am';
+
+      await saveSession({
+        telegram_id: chatId,
+        step: 'dyn_card_pref_interstitial',
+        draft_data: { ...draft, lang, card_msg_id: activeMsgId, preferences_seen: true },
+        updated_at: new Date().toISOString(),
+      });
+
+      const header = isAm
+        ? '🎉 <b>የክፍል ጓደኛ ምርጫዎችዎ በተሳካ ሁኔታ ተመዝግበዋል!</b>'
+        : '🎉 <b>Roommate Preferences Successfully Saved!</b>';
+      const subtitle = isAm
+        ? '✅ የመረጧቸው የክፍል ጓደኛ መስፈርቶች እና በጀት ተቀምጠዋል።'
+        : '✅ Your roommate criteria, budget, and locations have been saved.';
+
+      const minB = draft.budget_min ? `${Number(draft.budget_min).toLocaleString()} - ` : '';
+      const maxB = draft.budget_max ? `${Number(draft.budget_max).toLocaleString()} ETB` : 'Not set';
+      const prefG = draft.preferred_gender || 'Any';
+      const subs = Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity.join(', ') : (draft.preferred_subcity || 'Addis Ababa');
+
+      const summary = isAm
+        ? `📋 <b>የተመዘገቡ ምርጫዎች:</b>\n• 💰 <b>በጀት:</b> <code>${minB}${maxB}</code>\n• 👥 <b>የሚፈለግ ጾታ:</b> <code>${prefG}</code>\n• 📍 <b>አካባቢዎች:</b> <code>${subs}</code>`
+        : `📋 <b>Saved Criteria:</b>\n• 💰 <b>Budget:</b> <code>${minB}${maxB}</code>\n• 👥 <b>Preferred Gender:</b> <code>${prefG}</code>\n• 📍 <b>Areas:</b> <code>${subs}</code>`;
+
+      const prompt = isAm
+        ? '<blockquote>የክፍል ጓደኛ ምርጫዎን አጠናቀዋል። የሚስማሙዎትን ሰዎች ለማግኘት ወይም ማስታወቂያዎን ለማጠናቀቅ ይቀጥሉ:</blockquote>'
+        : '<blockquote>You have completed your roommate preferences. Tap below to find matching roommates or finalize your profile:</blockquote>';
+
+      const isVerified = await isUserFaydaVerified(chatId);
+      const nextBtnText = !isVerified
+        ? (isAm ? '🛡️ ወደ ፋይዳ ማረጋገጫ ቀጥል ➡️' : '🛡️ Proceed to Fayda Verification ➡️')
+        : (isAm ? '🔍 የሚስማሙ የክፍል ጓደኞችን ይመልከቱ ➡️' : '🔍 View Matching Roommates ➡️');
+
+      const inlineKeyboard = [
+        [
+          {
+            text: nextBtnText,
+            callback_data: 'dyn_pref_to_next',
+          },
+        ],
+        [
+          { text: isAm ? '⬅️ ተመለስ' : '⬅️ Back', callback_data: 'dyn_back_to_subs' },
+          { text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' },
+        ],
+      ];
+
+      await sendOrEditCard(chatId, `${header}\n\n${subtitle}\n\n${summary}\n\n${prompt}`, inlineKeyboard, activeMsgId);
+    };
+
     // Step 9: Fayda FAN Verification (Dual-Mode: Type or Camera Scan)
     const sendDynamicCardStep9FaydaFan = async (
       chatId: number,
@@ -2401,7 +2459,7 @@ A verified roommate saw your listing and wants to connect!
         await sendDynamicCardStep4Job(chatId, normalizedDraft, activeMsgId);
         return;
       }
-      if (!normalizedDraft.interstitial_seen && !normalizedDraft.budget_max) {
+      if (!normalizedDraft.interstitial_seen) {
         await sendPersonalRegistrationSuccessCard(chatId, normalizedDraft, activeMsgId);
         return;
       }
@@ -6327,12 +6385,7 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
       if (callbackData === 'dyn_sub_all') {
         const session = getSession(chatId);
         const updatedDraft = { ...session.draft_data, preferred_subcity: [...ALL_SUBCITIES] };
-        const isVerified = await isUserFaydaVerified(chatId);
-        if (isVerified) {
-          await completeSeekerOnboarding(chatId, updatedDraft, msgId, callback.from);
-        } else {
-          await sendDynamicCardStep9FaydaFan(chatId, updatedDraft, msgId);
-        }
+        await sendPreferencesRegistrationSuccessCard(chatId, updatedDraft, msgId);
         return NextResponse.json({ ok: true });
       }
 
@@ -6343,6 +6396,13 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
           ...session.draft_data,
           preferred_subcity: currentList.length > 0 ? currentList : ['Bole'],
         };
+        await sendPreferencesRegistrationSuccessCard(chatId, updatedDraft, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'dyn_pref_to_next') {
+        const session = getSession(chatId);
+        const updatedDraft = { ...session.draft_data, preferences_seen: true };
         const isVerified = await isUserFaydaVerified(chatId);
         if (isVerified) {
           await completeSeekerOnboarding(chatId, updatedDraft, msgId, callback.from);
@@ -6390,8 +6450,12 @@ Your profile <b>#${targetCode}</b> remains active on the channel. We will keep d
 
       if (callbackData === 'dyn_card_to_preferences') {
         const session = getSession(chatId);
-        const updatedDraft = { ...session.draft_data, interstitial_seen: true };
-        await sendDynamicCardStep5Budget(chatId, updatedDraft, msgId);
+        const updatedDraft: Record<string, any> = { ...session.draft_data, interstitial_seen: true };
+        if (!updatedDraft.budget_max) {
+          await sendDynamicCardStep5Budget(chatId, updatedDraft, msgId);
+        } else {
+          await routeNextMissingSeekerStep(chatId, updatedDraft, msgId, callback.from);
+        }
         return NextResponse.json({ ok: true });
       }
 
@@ -8255,25 +8319,108 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         await clearSession(chatId);
         const isVerified = await isUserFaydaVerified(chatId);
         if (isVerified) {
-          const verifiedText = `
-🛡️ <b>SpaceMatch</b> · <b>Fayda ID Verified</b>
-
-✅ <b>Your Fayda National ID is Verified!</b>
-
-• <b>Status:</b> 🛡️ Verified Resident
-• <b>Access:</b> Full Platform Access (Matchmaker, Seeker Profiles, Contact Unlocks)
-• <b>Security:</b> Offline Verhoeff Checksum Validated
-
-<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa.</blockquote>
-          `.trim();
-          await sendOrEditCard(chatId, verifiedText, [
-            [{ text: '⚡ Find a Roommate · Matchmaker 🔍', callback_data: 'matchmaker_start' }],
-            [{ text: '📢 Post Profile to Channel ↗️', callback_data: 'post_to_channel_start' }],
-            [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
-          ]);
+          const session = getSession(chatId);
+          const lang = getLanguage(session.draft_data, chatId);
+          await sendVerifiedFaydaDossierCard(chatId, lang);
           return NextResponse.json({ ok: true });
         }
         await sendFaydaGateCard(chatId, 'access all SpaceMatch verified features');
+        return NextResponse.json({ ok: true });
+      }
+
+      // ── Universal Photo / Image Handler (Fayda QR Code Verification) ───────
+      const uploadedMedia = extractMediaFileFromMessage(message);
+      if (uploadedMedia && session.step !== 'space_input_photos') {
+        const lang = getLanguage(session.draft_data, chatId);
+        const isAm = lang === 'am';
+        const activeMsgId = session.draft_data?.card_msg_id;
+
+        const photoResult = await verifyFaydaMediaFromTelegram(message, chatId);
+
+        if (photoResult.success) {
+          await persistFaydaVerification(chatId, photoResult.fan, photoResult.fullName, {
+            gender: photoResult.gender,
+            dob: photoResult.dob,
+            verifiedSource: 'telegram_photo_rs256_qr',
+            from: message.from,
+          });
+
+          // Strict Database Read-Back Guard:
+          const cleanExpectedFan = photoResult.fan.replace(/\D/g, '');
+          const { data: dbCheck } = await supabaseAdmin
+            .from('users')
+            .select('fayda_status, fayda_id_number')
+            .eq('telegram_id', chatId)
+            .maybeSingle();
+
+          const dbFan = (dbCheck?.fayda_id_number || '').replace(/\D/g, '');
+          const isReadBackValid = dbCheck?.fayda_status === 'verified' && dbFan === cleanExpectedFan;
+
+          if (!isReadBackValid) {
+            console.error(`[Universal Fayda Verification] Read-back failed for tgId ${chatId}. Expected ${cleanExpectedFan}, got ${dbFan}, status: ${dbCheck?.fayda_status}`);
+            await sendTelegram('sendMessage', {
+              chat_id: chatId,
+              text: isAm
+                ? `❌ <b>የማረጋገጫ ምዝገባ አልተሳካም</b>\n\n<blockquote>የፋይዳ መረጃዎ በስርዓቱ ውስጥ ሊረጋገጥ አልቻለም። እባክዎ እንደገና ይሞክሩ ወይም አስተዳዳሪን ያነጋግሩ።</blockquote>`
+                : `❌ <b>Verification Registry Failed</b>\n\n<blockquote>Your Fayda verification could not be confirmed in the database. Please try again or contact support.</blockquote>`,
+              parse_mode: 'HTML',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+                ],
+              },
+            });
+            return NextResponse.json({ ok: true });
+          }
+
+          setFaydaStatusCache(chatId, true);
+          await clearSession(chatId);
+          await sendVerifiedFaydaDossierCard(chatId, lang, activeMsgId);
+          return NextResponse.json({ ok: true });
+        }
+
+        // Photo did not contain a valid Fayda QR code
+        if (session.step === 'awaiting_seeker_fayda_upload') {
+          await sendDynamicCardStep9FaydaFan(
+            chatId,
+            session.draft_data,
+            activeMsgId,
+            isAm ? photoResult.messageAm : photoResult.messageEn
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        if (
+          session.step === 'awaiting_standalone_fayda_fan' ||
+          session.step === 'dyn_card_fayda_fan'
+        ) {
+          await sendTelegram('sendMessage', {
+            chat_id: chatId,
+            text: isAm ? photoResult.messageAm : photoResult.messageEn,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: isAm ? '🏠 ወደ ዋና ማውጫ' : '🏠 Back to Main Menu', callback_data: 'nav_start' }],
+              ],
+            },
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        // If in idle or any other step, guide the user clearly:
+        await sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: isAm
+            ? `📸 <b>ፎቶ ደርሶናል</b>\n\n<blockquote>ይህ ፎቶ ትክክለኛ የፋይዳ ብሔራዊ መታወቂያ QR ኮድ አልያዘም። የፋይዳ መታወቂያዎን ለማረጋገጥ የመታወቂያዎን <b>ጀርባ</b> (የካሬ QR ኮድ ያለበትን) በቅርብ እና በብርሃን ጥራት ያለው ፎቶ ይላኩ፣ ወይም /verify ብለው ይጻፉ።</blockquote>`
+            : `📸 <b>Photo Received</b>\n\n<blockquote>No authentic Fayda National ID QR code was detected in this photo. To verify your Fayda ID, please send a clear, close-up photo of the <b>BACK</b> of your physical card showing the square QR code, or send /verify.</blockquote>`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: isAm ? '🛡️ ፋይዳ አረጋግጥ' : '🛡️ Verify Fayda', callback_data: 'verify_fayda' }],
+              [{ text: isAm ? '🏠 ዋና ማውጫ' : '🏠 Main Menu', callback_data: 'nav_start' }],
+            ],
+          },
+        });
         return NextResponse.json({ ok: true });
       }
 
@@ -8863,6 +9010,16 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           return NextResponse.json({ ok: true });
         }
         await sendPersonalRegistrationSuccessCard(chatId, session.draft_data, activeMsgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Preferences Interstitial Step Text Input: Transition to Next Step
+      if (session.step === 'dyn_card_pref_interstitial') {
+        if (update.message?.message_id) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+        }
+        const activeMsgId = session.draft_data?.card_msg_id;
+        await sendPreferencesRegistrationSuccessCard(chatId, session.draft_data, activeMsgId);
         return NextResponse.json({ ok: true });
       }
 

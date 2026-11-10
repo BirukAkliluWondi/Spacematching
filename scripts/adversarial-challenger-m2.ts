@@ -404,6 +404,7 @@ async function runAdversarialTests() {
   {
     const chatId = 60005;
     await clearSession(chatId);
+    const testFan = `772910${Math.floor(1000000000 + Math.random() * 9000000000)}`;
 
     // Put session into awaiting_seeker_fayda_upload
     await saveSession({
@@ -416,7 +417,7 @@ async function runAdversarialTests() {
     // Prepare authentic photo fixture
     const fixture = await generateAuthenticFaydaQrBuffer({
       fullName: 'Abebech Gobena',
-      fan: '7729104728193845',
+      fan: testFan,
       gender: 'F',
     });
     registerMockTelegramPhoto('dead_end_resolution_photo', fixture.pngBuffer);
