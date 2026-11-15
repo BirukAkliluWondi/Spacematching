@@ -25,3 +25,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Never leak raw admin IDs, concierge placeholders (e.g., `admin:123456`, `admin_123456`), or invalid Telegram handles into match notification dossiers.
 - Validate Telegram handles against RFC rules (`^[a-zA-Z0-9_]{5,32}$`).
 - For synthetic, concierge, or admin listings, automatically route contact details to the verified SpaceMatch Coordinator (`@WWEHID`).
+
+## 4. Pure QR-Only Fayda Identity Verification (Zero Biometric / Zero Admin Friction)
+- Fayda National ID verification is 100% automated via cryptographic RS256 QR code extraction (`fayda-photo-verifier.ts` + `fayda-decoder`).
+- Never require secondary selfies, video notes, or facial biometrics to compare against low-resolution ID thumbnails.
+- Never place Fayda verification into a manual admin approval queue or waiting status; immediately persist verified status to Supabase upon successful cryptographic signature extraction and Verhoeff checksum validation.
+
+## 5. Simultaneous Bilingual Parity & Native Telegram Visual Styling
+- All user-facing bot prompts, questions, options, error messages, and buttons must present both English and Amharic simultaneously (`English Text / የአማርኛ ጽሁፍ`).
+- Detailed content, descriptions, and user inputs must be framed using Telegram's native `<blockquote>...</blockquote>` container styling (producing the pink/tinted highlighted card with vertical accent bar and quote mark).
+- Channel post layouts must strictly adhere to the unified visual hierarchy:
+  - Header: `<b>SpaceMatch Addis / ስፔስማች አዲስ</b>` & `<b>#DISPLAY_CODE</b>`
+  - Preferences: `<b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>`
+  - Details: `<b>DETAILS / ዝርዝር</b>` wrapped in `<blockquote>`
+  - About: `<b>ABOUT ME / ስለ እኔ</b>` with user bio wrapped in `<blockquote>`

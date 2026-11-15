@@ -85,6 +85,7 @@ export interface FaydaErrorResult {
   errorCode: FaydaErrorCode;
   messageAm: string;
   messageEn: string;
+  message: string;
   error?: string;
 }
 
@@ -149,17 +150,19 @@ export const FAYDA_ERROR_GUIDANCE: Record<
 /**
  * Returns user guidance text for a given Fayda error code in the specified language.
  */
-export function getFaydaGuidance(code: FaydaErrorCode, lang: 'am' | 'en' = 'en'): string {
+export function getFaydaGuidance(code: FaydaErrorCode, _lang?: 'am' | 'en' | string): string {
   const item = FAYDA_ERROR_GUIDANCE[code] || FAYDA_ERROR_GUIDANCE.QR_UNREADABLE;
-  return lang === 'am' ? item.am : item.en;
+  return `${item.en}\n\n${item.am}`;
 }
 
 /**
  * Returns user guidance text pair { messageAm, messageEn } for a given Fayda error code.
+ * Both fields are enriched with simultaneous bilingual presentation.
  */
 export function getFaydaGuidancePair(code: FaydaErrorCode): { messageAm: string; messageEn: string } {
   const item = FAYDA_ERROR_GUIDANCE[code] || FAYDA_ERROR_GUIDANCE.QR_UNREADABLE;
-  return { messageAm: item.am, messageEn: item.en };
+  const combined = `${item.en}\n\n${item.am}`;
+  return { messageAm: combined, messageEn: combined };
 }
 
 // ─── Telegram File Ingestion (Zero Disk Storage) ─────────────────────────────
@@ -322,6 +325,7 @@ export async function verifyFaydaPhotoUpload(
       errorCode: 'NO_QR_FOUND',
       messageAm: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.am,
       messageEn: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.en,
+      message: `${FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.en}\n\n${FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.am}`,
       error: 'Empty image buffer received.',
     };
   }
@@ -332,6 +336,7 @@ export async function verifyFaydaPhotoUpload(
       errorCode: 'FILE_TOO_LARGE',
       messageAm: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.am,
       messageEn: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.en,
+      message: `${FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.en}\n\n${FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.am}`,
       error: `Uploaded file size (${(buffer.byteLength / 1024 / 1024).toFixed(2)}MB) exceeds 10MB limit.`,
     };
   }
@@ -350,6 +355,7 @@ export async function verifyFaydaPhotoUpload(
       errorCode: 'QR_UNREADABLE',
       messageAm: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.am,
       messageEn: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.en,
+      message: `${FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.en}\n\n${FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.am}`,
       error: err?.message || 'Failed to process image buffer.',
     };
   }
@@ -369,6 +375,7 @@ export async function verifyFaydaPhotoUpload(
       errorCode: mappedCode,
       messageAm: FAYDA_ERROR_GUIDANCE[mappedCode].am,
       messageEn: FAYDA_ERROR_GUIDANCE[mappedCode].en,
+      message: `${FAYDA_ERROR_GUIDANCE[mappedCode].en}\n\n${FAYDA_ERROR_GUIDANCE[mappedCode].am}`,
       error: decodeResult.error.message,
     };
   }
@@ -381,6 +388,7 @@ export async function verifyFaydaPhotoUpload(
       errorCode: 'NOT_FAYDA',
       messageAm: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.am,
       messageEn: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.en,
+      message: `${FAYDA_ERROR_GUIDANCE.NOT_FAYDA.en}\n\n${FAYDA_ERROR_GUIDANCE.NOT_FAYDA.am}`,
       error: 'Fayda QR payload is missing the Fayda Account Number (FAN).',
     };
   }
@@ -395,6 +403,7 @@ export async function verifyFaydaPhotoUpload(
       errorCode: 'INVALID_SIGNATURE',
       messageAm: FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.am,
       messageEn: FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.en,
+      message: `${FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.en}\n\n${FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.am}`,
       error: `Cryptographic digital signature verification failed: ${sigResult.reason || 'Invalid signature'}.`,
     };
   }
@@ -417,6 +426,7 @@ export async function verifyFaydaPhotoUpload(
           errorCode: 'DUPLICATE_FAN',
           messageAm: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.am,
           messageEn: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en,
+          message: `${FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en}\n\n${FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.am}`,
           error: 'This Fayda National ID is already registered to another SpaceMatch account.',
         };
       }
@@ -434,6 +444,7 @@ export async function verifyFaydaPhotoUpload(
           errorCode: 'DUPLICATE_FAN',
           messageAm: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.am,
           messageEn: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en,
+          message: `${FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en}\n\n${FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.am}`,
           error: 'This Fayda National ID is already registered to another SpaceMatch account.',
         };
       }

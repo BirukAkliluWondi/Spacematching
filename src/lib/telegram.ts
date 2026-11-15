@@ -444,40 +444,41 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
   const idealMatchLine = 'Clean, respectful, and compatible housemate.';
 
   const cardText = `
-<b>SpaceMatch Addis</b>
+<b>SpaceMatch Addis / ስፔስማች አዲስ</b>
 <b>${codeTag}</b>
 
-🏠 <b>ROOMMATE SEARCH</b>
+<b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
+• <b>Roommate / የቤት አጋር:</b> ${prefSexDisplay}
+• <b>Budget / በጀት:</b> ${budgetDisplay}
+• <b>Locations / አካባቢዎች:</b> ${escapeHtml(locations)}
 
-We have a ${seekerGenderWord} Space Seeker looking for a ${prefGenderWord} roommate to team up with and find a place together!
+<b>DETAILS / ዝርዝር</b>
+<blockquote>${escapeHtml(locations)} • ${prefSexDisplay}</blockquote>
 
-📍 <b>Preferred Locations:</b> ${escapeHtml(locations)}
-💰 <b>Budget:</b> ${budgetDisplay}
-👤 <b>Sex:</b> ${sexDisplay}
-👥 <b>Preferred Sex:</b> ${prefSexDisplay}
-📝 <b>Description:</b> ${escapeHtml(cleanTraits)}
-🤝 <b>Ideal Match / Housemate:</b> ${idealMatchLine}
+<b>ABOUT ME / ስለ እኔ</b>
+• <b>Posted by:</b> ${sexDisplay} (Age ${userAge})
+<blockquote>${escapeHtml(cleanTraits)}</blockquote>
 
-🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
+🔑 <i>SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!</i>
 `.trim();
 
   const replyMarkup: InlineKeyboard = {
     inline_keyboard: [
       [
         {
-          text: `⚡ Contact with Roommate ${codeTag} ↗️`,
+          text: `⚡ Connect with ${codeTag} / ተገናኝ ↗️`,
           url: `https://t.me/${botUsername}?start=req_${cleanCode}`,
         },
       ],
       [
         {
-          text: '📢 Post My Profile ↗️',
+          text: '📢 Post Profile / መረጃዬን ልለጥፍ ↗️',
           url: `https://t.me/${botUsername}?start=post_profile`,
         },
       ],
       [
         {
-          text: '🔍 Search Roommate for Me ↗️',
+          text: '🔍 Search Roommate / የቤት አጋር ፈልግ ↗️',
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
