@@ -109,9 +109,12 @@ async function callTelegram<T = unknown>(
       `https://api.telegram.org/bot${BOT_TOKEN()}/${method}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Connection': 'keep-alive',
+        },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(8000),
       }
     );
     const json = (await res.json()) as TelegramApiResponse<T>;

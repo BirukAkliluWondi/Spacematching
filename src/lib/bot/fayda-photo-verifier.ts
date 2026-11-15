@@ -55,6 +55,9 @@ export async function ensureZXingReady(): Promise<void> {
   return _wasmReadyPromise;
 }
 
+// Pre-warm WASM immediately upon module load so first photo verification is instantaneous
+ensureZXingReady().catch(() => {});
+
 // ─── Types & Interfaces ──────────────────────────────────────────────────────
 
 export type FaydaErrorCode =

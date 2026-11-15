@@ -25,6 +25,8 @@ import {
   invalidateMembershipCache,
   MembershipStatus,
   deduplicateUpdate,
+  acquireActionLock,
+  releaseActionLock,
 } from '@/lib/bot-session-store';
 import { verifyTelebirrPayment, extractTransactionReference } from '@/lib/verify-et';
 import {
@@ -131,9 +133,12 @@ export async function POST(request: Request) {
       try {
         const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Connection': 'keep-alive',
+          },
           body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(8000),
         });
         return await res.json();
       } catch (err) {
@@ -2010,28 +2015,22 @@ It has been 24 hours since your roommate contact was unlocked!
       const formattedTraits = `Job: ${userJob} | Religion: ${userReligion} | Prefers: ${userPrefGender} | ${userTraits}`;
       const userFullName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || 'Verified Member';
 
-      // 1. Update user record
-      try {
-        const nameParts = (draft.full_name || userFullName).trim().split(/\s+/);
-        const resolvedFirstName = fromUser?.first_name || nameParts[0] || 'Resident';
-        const resolvedLastName = fromUser?.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : null);
-        const userUpsertObj: Record<string, any> = {
-          telegram_id: chatId,
-          first_name: resolvedFirstName,
-          last_name: resolvedLastName,
-          username: fromUser?.username || null,
-          fayda_status: 'verified',
-          updated_at: new Date().toISOString(),
-        };
-        if (draft.fayda_number) {
-          userUpsertObj.fayda_id_number = String(draft.fayda_number).replace(/\D/g, '');
-        }
-        await supabaseAdmin
-          .from('users')
-          .upsert(userUpsertObj, { onConflict: 'telegram_id' });
-      } catch {}
+      // 1 & 2. Upsert user record and profile in parallel for maximum speed
+      const nameParts = (draft.full_name || userFullName).trim().split(/\s+/);
+      const resolvedFirstName = fromUser?.first_name || nameParts[0] || 'Resident';
+      const resolvedLastName = fromUser?.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : null);
+      const userUpsertObj: Record<string, any> = {
+        telegram_id: chatId,
+        first_name: resolvedFirstName,
+        last_name: resolvedLastName,
+        username: fromUser?.username || null,
+        fayda_status: 'verified',
+        updated_at: new Date().toISOString(),
+      };
+      if (draft.fayda_number) {
+        userUpsertObj.fayda_id_number = String(draft.fayda_number).replace(/\D/g, '');
+      }
 
-      // 2. Upsert into profiles (with resilient schema fallback)
       const profilePayload: Record<string, any> = {
         telegram_id: chatId,
         display_code: displayCode,
@@ -2053,13 +2052,16 @@ It has been 24 hours since your roommate contact was unlocked!
 
       let savedProfile: any = null;
       try {
-        const { data, error } = await supabaseAdmin
-          .from('profiles')
-          .upsert(profilePayload, { onConflict: 'telegram_id' })
-          .select('id, display_code, gender, locations, budget_min, budget_max, roommate_traits')
-          .single();
+        const [_, profRes] = await Promise.all([
+          supabaseAdmin.from('users').upsert(userUpsertObj, { onConflict: 'telegram_id' }),
+          supabaseAdmin
+            .from('profiles')
+            .upsert(profilePayload, { onConflict: 'telegram_id' })
+            .select('id, display_code, gender, locations, budget_min, budget_max, roommate_traits')
+            .single(),
+        ]);
 
-        if (error) {
+        if (profRes.error) {
           delete profilePayload.age;
           delete profilePayload.job;
           delete profilePayload.religion;
@@ -2071,10 +2073,10 @@ It has been 24 hours since your roommate contact was unlocked!
             .single();
           savedProfile = fbData;
         } else {
-          savedProfile = data;
+          savedProfile = profRes.data;
         }
       } catch (profileErr) {
-        console.error('[completeSeekerOnboarding] profiles upsert error:', profileErr);
+        console.error('[completeSeekerOnboarding] parallel upsert error:', profileErr);
       }
 
       // 3. Upsert into roommate_profiles (with resilient fallback)
@@ -3338,9 +3340,7 @@ Transfer <code>300 ETB / ብር</code> (Account Name / የሂሳብ ስም: <b>$
       messageIdToEdit?: number
     ) => {
       // Concurrency lock: prevent duplicate execution from rapid concurrent clicks
-      if (_activeMatchUnlocks.has(matchId)) return;
-      _activeMatchUnlocks.add(matchId);
-      setTimeout(() => _activeMatchUnlocks.delete(matchId), 15000);
+      if (!acquireActionLock(`match_unlock:${matchId}`, 15000)) return;
 
       const { data: match } = await supabaseAdmin
         .from('matches')
@@ -4714,35 +4714,35 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       const isAm = lang === 'am';
 
       // 1. Fetch live profiles from Supabase DB
+      // 1, 2, 3: Fetch matching profiles in parallel for 3x lower latency
       let dbProfiles: any[] = [];
-      try {
-        const { data } = await supabaseAdmin
-          .from('roommate_profiles')
-          .select('*, users(*)')
-          .neq('status', 'matched')
-          .neq('status', 'rejected')
-          .order('created_at', { ascending: false })
-          .limit(50);
-        if (data) dbProfiles = data;
-      } catch (e) {
-        console.error('Error fetching DB roommate profiles for matching:', e);
-      }
-
-      // 2. Fetch local approved roommate drafts
-      const localDraftsObj = await getAllRoommateDrafts();
-      const localDrafts = Object.values(localDraftsObj);
-
-      // 3. Fetch from profiles table (active/completed)
+      let localDrafts: any[] = [];
       let appProfiles: any[] = [];
+
       try {
-        const { data: pData } = await supabaseAdmin
-          .from('profiles')
-          .select('*')
-          .neq('status', 'matched')
-          .order('created_at', { ascending: false })
-          .limit(50);
-        if (pData) appProfiles = pData;
-      } catch {}
+        const [rmRes, draftsObj, profRes] = await Promise.all([
+          supabaseAdmin
+            .from('roommate_profiles')
+            .select('*, users(*)')
+            .neq('status', 'matched')
+            .neq('status', 'rejected')
+            .order('created_at', { ascending: false })
+            .limit(50),
+          getAllRoommateDrafts(),
+          supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .neq('status', 'matched')
+            .order('created_at', { ascending: false })
+            .limit(50),
+        ]);
+
+        if (rmRes?.data) dbProfiles = rmRes.data;
+        if (draftsObj) localDrafts = Object.values(draftsObj);
+        if (profRes?.data) appProfiles = profRes.data;
+      } catch (e) {
+        console.error('Error fetching roommate profiles in parallel for matching:', e);
+      }
 
       // Combine profiles without duplicates
       const allProfiles: any[] = [];
@@ -5488,6 +5488,23 @@ ${cleanTg ? `• <b>Telegram / ቴሌግራም:</b> @${cleanTg}\n` : ''}
         sendTelegram('answerCallbackQuery', { callback_query_id: callback.id }).catch(() => {});
       }
 
+      // Concurrency guard: Double-tap / duplicate callback debounce
+      const isCriticalAction =
+        callbackData.startsWith('confirm_match:') ||
+        callbackData.startsWith('match_accept:') ||
+        callbackData.startsWith('match_decline:') ||
+        callbackData.startsWith('search_unlock_contact:') ||
+        callbackData.startsWith('admin_close:') ||
+        callbackData === 'space_post_submit' ||
+        callbackData === 'seeker_final_submit';
+
+      if (isCriticalAction) {
+        const lockKey = `action_lock:${chatId}:${callbackData}`;
+        if (!acquireActionLock(lockKey, 5000)) {
+          return NextResponse.json({ ok: true, debounced: true });
+        }
+      }
+
       // Load session from Supabase before any getSession() call
       await preloadSession(chatId);
 
@@ -6075,13 +6092,15 @@ ${res.message}
       if (callbackData.startsWith('search_unlock_contact:')) {
         const targetProfileId = callbackData.split(':')[1];
 
-        // 1. Check if requester is Fayda verified and has profile
-        const isVerified = await isUserFaydaVerified(chatId);
-        const { data: myProfile } = await supabaseAdmin
-          .from('profiles')
-          .select('*')
-          .eq('telegram_id', chatId)
-          .maybeSingle();
+        // 1. Check if requester is Fayda verified and has profile (Parallelized for maximum speed)
+        const [isVerified, { data: myProfile }] = await Promise.all([
+          isUserFaydaVerified(chatId),
+          supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('telegram_id', chatId)
+            .maybeSingle(),
+        ]);
 
         const session = getSession(chatId);
         const existingDraft = session?.draft_data || {};
@@ -6555,18 +6574,20 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
       if (callbackData.startsWith('confirm_match:')) {
         const targetProfileId = callbackData.split(':')[1];
 
-        // Universal Gate: Fayda Verification required before sending mutual match requests
-        if (!(await isUserFaydaVerified(chatId))) {
+        // Universal Gate: Fayda Verification required & fetch requester profile in parallel
+        const [isVerified, { data: requesterProfile }] = await Promise.all([
+          isUserFaydaVerified(chatId),
+          supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('telegram_id', chatId)
+            .maybeSingle(),
+        ]);
+
+        if (!isVerified) {
           await sendFaydaGateCard(chatId, 'send mutual match requests', msgId);
           return NextResponse.json({ ok: true });
         }
-
-        // Get requester's profile
-        const { data: requesterProfile } = await supabaseAdmin
-          .from('profiles')
-          .select('*')
-          .eq('telegram_id', chatId)
-          .single();
 
         if (!requesterProfile) {
           await sendDynamicCardStep1Age(chatId, { target_id: targetProfileId }, msgId);

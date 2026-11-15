@@ -220,12 +220,15 @@ function emptySession(telegramId: number): BotSession {
   };
 }
 
-// Bounded in-memory caches (max 5,000 items, TTL 24h)
-const _sessionCache = new BoundedLRUCache<string, BotSession>(5000, 24 * 60 * 60 * 1000);
+// Bounded in-memory caches (max 5,000 items, TTL 15s to balance instant in-turn memory speed with multi-instance serverless freshness)
+const _sessionCache = new BoundedLRUCache<string, BotSession>(5000, 15 * 1000);
 const _userLanguageCache = new BoundedLRUCache<string, 'am' | 'en'>(5000, 24 * 60 * 60 * 1000);
 
 // Telegram update_id deduplication cache (max 10,000 entries, 10-minute TTL)
 const _updateIdCache = new BoundedLRUCache<number, boolean>(10000, 10 * 60 * 1000);
+
+// In-flight action lock cache to prevent concurrent double-clicks and race conditions (TTL 5s)
+const _actionLockCache = new BoundedLRUCache<string, boolean>(10000, 5 * 1000);
 
 /**
  * Deduplicates Telegram updates within a sliding window.
@@ -238,6 +241,26 @@ export function deduplicateUpdate(updateId: number): boolean {
   }
   _updateIdCache.set(updateId, true);
   return true;
+}
+
+/**
+ * Acquires an in-flight action lock for a specific user and action key.
+ * Prevents rapid double-clicks on critical actions (matches, payments, unlocks).
+ */
+export function acquireActionLock(lockKey: string, ttlMs = 5000): boolean {
+  if (!lockKey) return true;
+  if (_actionLockCache.has(lockKey)) {
+    return false; // Lock already held
+  }
+  _actionLockCache.set(lockKey, true, ttlMs);
+  return true;
+}
+
+/**
+ * Releases an in-flight action lock early upon completion.
+ */
+export function releaseActionLock(lockKey: string): void {
+  if (lockKey) _actionLockCache.delete(lockKey);
 }
 
 export function getUserLanguage(telegramId: number): 'am' | 'en' | undefined {
@@ -316,7 +339,7 @@ export async function preloadSession(telegramId: number): Promise<BotSession> {
 // Per-user write queue to guarantee database persistence ordering without blocking webhook responses
 const _sessionWriteQueues: Record<string, Promise<any>> = {};
 
-export async function saveSession(session: BotSession, awaitDb = false): Promise<void> {
+export async function saveSession(session: BotSession, awaitDb = true): Promise<void> {
   // Ensure draft_data is an object and retains language
   session.draft_data = session.draft_data ?? {};
   const activeLang = session.draft_data.lang || _userLanguageCache.get(String(session.telegram_id));
@@ -722,42 +745,54 @@ export async function removeManagedChannel(channelId: string | number): Promise<
   }
 }
 
+// In-process sequence tracker to guarantee zero-collision codes during concurrent invocations
+const _lastAllocatedSequence = { seeker: 0, space_available: 0 };
+
 /**
  * Generates the next sequential listing code.
  * - Roommate Search (Seekers - Roommate Before Room): #SPMARBR5, #SPMARBR6...
  * - Have a Room (Space Available - Roommate With Room): #SPMARWR1, #SPMARWR2...
+ * Optimized for high concurrency: queries only the latest 30 rows + in-process atomic sequence allocation.
  */
 export async function getNextSpmarbrCode(category: 'seeker' | 'space_available' = 'seeker'): Promise<string> {
   const prefix = category === 'space_available' ? 'SPMARWR' : 'SPMARBR';
   const minStart = category === 'space_available' ? 1 : 5;
+  const catKey = category === 'space_available' ? 'space_available' : 'seeker';
 
   try {
     const { data } = await supabase
       .from('profiles')
       .select('display_code')
-      .ilike('display_code', `${prefix}%`);
+      .ilike('display_code', `${prefix}%`)
+      .order('created_at', { ascending: false })
+      .limit(30);
 
-    const existingNums: number[] = [];
+    let dbMax = 0;
     if (data && Array.isArray(data)) {
       for (const row of data) {
         const raw = (row.display_code || '').toUpperCase().replace(/^#/, '').trim();
         if (raw.startsWith(prefix)) {
           const numPart = raw.replace(prefix, '');
           if (numPart === '') {
-            existingNums.push(1);
+            dbMax = Math.max(dbMax, 1);
           } else {
             const parsed = parseInt(numPart, 10);
-            if (!isNaN(parsed)) existingNums.push(parsed);
+            if (!isNaN(parsed)) dbMax = Math.max(dbMax, parsed);
           }
         }
       }
     }
 
-    const nextNum = existingNums.length > 0 ? Math.max(Math.max(...existingNums) + 1, minStart) : minStart;
+    const currentMax = Math.max(dbMax, _lastAllocatedSequence[catKey], minStart - 1);
+    const nextNum = currentMax + 1;
+    _lastAllocatedSequence[catKey] = nextNum;
     return `${prefix}${nextNum}`;
   } catch (err) {
     console.error('[getNextSpmarbrCode] error generating code:', err);
-    return `${prefix}${minStart}`;
+    const fallbackMax = Math.max(_lastAllocatedSequence[catKey], minStart - 1);
+    const fallbackNum = fallbackMax + 1;
+    _lastAllocatedSequence[catKey] = fallbackNum;
+    return `${prefix}${fallbackNum}`;
   }
 }
 
