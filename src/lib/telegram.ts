@@ -387,6 +387,557 @@ export async function getFile(fileId: string): Promise<Buffer> {
   return Buffer.from(arrayBuffer);
 }
 
+// ─── Post Formatting & Hashtags ───────────────────────────────────────────────
+
+/**
+ * Safely extracts user-entered bio or descriptions, stripping internal metadata prefixes.
+ */
+export function extractUserDescription(rawText?: string | null): string {
+  if (!rawText) return '';
+  let cleaned = String(rawText).trim();
+
+  // If separated by pipes: Job: ... | Religion: ... | Prefers: ... | <user_description>
+  if (cleaned.includes(' | ')) {
+    const parts = cleaned.split(' | ');
+    const nonMetaParts = parts.filter(
+      (p) => !/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]/i.test(p.trim())
+    );
+    if (nonMetaParts.length > 0) {
+      cleaned = nonMetaParts.join(' | ').trim();
+    } else {
+      cleaned = parts[parts.length - 1].trim();
+    }
+  }
+
+  // Remove any remaining leading metadata prefix
+  cleaned = cleaned.replace(/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]+[^|;\n]+(\||\n|$)/i, '').trim();
+
+  return cleaned;
+}
+
+/**
+ * Safely truncates an HTML string to at most `maxLen` characters (default 1024),
+ * ensuring that no HTML tag or entity is sliced in half and that all opened HTML tags
+ * (<b>, <i>, <code>, <blockquote>, <a>) are properly closed in reverse order.
+ */
+export function truncateTelegramHtml(html: string, maxLen: number = 1024): string {
+  if (!html || html.length <= maxLen) return html;
+
+  // Reserve ~35 characters for ellipsis and closing tags
+  const targetLen = Math.max(0, maxLen - 35);
+  let truncated = '';
+  let inTag = false;
+  let tagBuffer = '';
+  const openTags: string[] = [];
+
+  let i = 0;
+  while (i < html.length && truncated.length < targetLen) {
+    const char = html[i];
+
+    if (char === '<') {
+      inTag = true;
+      tagBuffer = '<';
+      i++;
+      continue;
+    }
+
+    if (inTag) {
+      tagBuffer += char;
+      if (char === '>') {
+        inTag = false;
+        const matchClosing = tagBuffer.match(/^<\/([a-zA-Z0-9]+)>/);
+        const matchOpening = tagBuffer.match(/^<([a-zA-Z0-9]+)(?:\s[^>]*)?>/);
+
+        if (matchClosing) {
+          const tagName = matchClosing[1].toLowerCase();
+          const lastIdx = openTags.lastIndexOf(tagName);
+          if (lastIdx !== -1) {
+            openTags.splice(lastIdx, 1);
+          }
+        } else if (matchOpening) {
+          const tagName = matchOpening[1].toLowerCase();
+          if (!['br', 'hr', 'img'].includes(tagName)) {
+            openTags.push(tagName);
+          }
+        }
+
+        truncated += tagBuffer;
+        tagBuffer = '';
+      }
+      i++;
+      continue;
+    }
+
+    truncated += char;
+    i++;
+  }
+
+  if (inTag) {
+    tagBuffer = '';
+  }
+
+  truncated = truncated.trimEnd() + '…';
+
+  while (openTags.length > 0) {
+    const tag = openTags.pop();
+    truncated += `</${tag}>`;
+  }
+
+  if (truncated.length > maxLen) {
+    return truncated.slice(0, maxLen);
+  }
+
+  return truncated;
+}
+
+/**
+ * Interface representing sanitized contact details for match dossiers.
+ */
+export interface SanitizedContact {
+  fullName: string;
+  phoneNumber: string;
+  telegramUsername: string; // clean username without '@'
+  telegramUrl?: string; // https://t.me/... or undefined
+  isConciergeOrSynthetic: boolean;
+}
+
+/**
+ * Contact Dossier Sanitization Helper (Invariants Rule 3):
+ * - Never leaks raw admin IDs, concierge placeholders (e.g. admin:123456, admin_123456), or invalid handles.
+ * - Validates Telegram handles against RFC rules (^[a-zA-Z0-9_]{5,32}$).
+ * - For synthetic, concierge, or admin listings, automatically routes contact details to @WWEHID.
+ */
+export function sanitizeContactDossier(input: {
+  fullName?: string | null;
+  phoneNumber?: string | null;
+  telegramUsername?: string | null;
+  telegramId?: number | string | null;
+  isConcierge?: boolean | null;
+}): SanitizedContact {
+  const tgIdNum = Number(input.telegramId);
+  const isSynthetic = !isNaN(tgIdNum) && tgIdNum < 0;
+  const rawName = (input.fullName || '').trim();
+  const rawPhone = (input.phoneNumber || '').trim();
+  const rawUsername = (input.telegramUsername || '').replace(/^@/, '').trim();
+
+  const isConciergeOrSynthetic =
+    Boolean(input.isConcierge) ||
+    isSynthetic ||
+    /^(admin[:_]|concierge)/i.test(rawUsername) ||
+    /concierge/i.test(rawName) ||
+    /concierge/i.test(rawPhone) ||
+    rawPhone.toLowerCase().includes('spacematch');
+
+  if (isConciergeOrSynthetic) {
+    return {
+      fullName: 'SpaceMatch Coordinator / ስፔስማች አስተባባሪ (@WWEHID)',
+      phoneNumber: 'Via SpaceMatch Coordinator (@WWEHID)',
+      telegramUsername: 'WWEHID',
+      telegramUrl: 'https://t.me/WWEHID',
+      isConciergeOrSynthetic: true,
+    };
+  }
+
+  const isValidTgHandle = /^[a-zA-Z0-9_]{5,32}$/.test(rawUsername);
+  const cleanUsername = isValidTgHandle ? rawUsername : '';
+  const telegramUrl = cleanUsername ? `https://t.me/${cleanUsername}` : undefined;
+
+  const cleanName = rawName || 'Verified Resident / የተረጋገጠ አባል';
+  const cleanPhone = rawPhone && rawPhone !== 'N/A' && rawPhone !== 'Not provided'
+    ? rawPhone
+    : 'Provided on Telegram';
+
+  return {
+    fullName: cleanName,
+    phoneNumber: cleanPhone,
+    telegramUsername: cleanUsername,
+    telegramUrl,
+    isConciergeOrSynthetic: false,
+  };
+}
+
+/**
+ * Standard mapping of Amharic subcity & neighborhood names to clean Latin names for hashtags.
+ */
+const SUBCITY_AMHARIC_MAP: Record<string, string> = {
+  'ሜክሲኮ': 'Mexico',
+  'ቦሌ': 'Bole',
+  'ካዛንቺስ': 'Kazanchis',
+  'ሳርቤት': 'Sarbet',
+  'መገናኛ': 'Megenagna',
+  'ፒያሳ': 'Piassa',
+  'ሲኤምሲ': 'CMC',
+  'ገርጂ': 'Gerji',
+  'አራት ኪሎ': '4Kilo',
+  '4 ኪሎ': '4Kilo',
+  'አራዳ': 'Arada',
+  'ቂርቆስ': 'Kirkos',
+  'ጉለሌ': 'Gullele',
+  'ልደታ': 'Lideta',
+  'ኮልፌ': 'Kolfe',
+  'አቃቂ': 'Akaki',
+  'ንፋስ ስልክ': 'NifasSilk',
+  'አዲስ አበባ': 'AddisAbaba',
+};
+
+/**
+ * Generates automated Telegram channel search hashtags matching the benchmark pattern:
+ * e.g. #Mexico #LookingForRoom #FemaleRoommate #5k_10k
+ * or   #Bole #RoomAvailable #AnyGender #10k_15k
+ */
+export function generatePostHashtags(options: {
+  locations?: string[] | string | null;
+  isSpace?: boolean;
+  preferredGender?: string | null;
+  gender?: string | null;
+  budgetMin?: number | null;
+  budgetMax?: number | null;
+  pricePerMonth?: number | null;
+}): string {
+  // 1. Location hashtag (#Mexico, #Bole, etc.)
+  let rawLoc = '';
+  if (Array.isArray(options.locations) && options.locations.length > 0) {
+    rawLoc = options.locations[0];
+  } else if (typeof options.locations === 'string' && options.locations.trim()) {
+    rawLoc = options.locations.split(',')[0];
+  }
+  rawLoc = (rawLoc || '').trim();
+
+  let cleanLoc = '';
+  if (rawLoc.includes('/')) {
+    cleanLoc = rawLoc.split('/')[0].trim().replace(/[^a-zA-Z0-9]/g, '');
+  }
+
+  if (!cleanLoc) {
+    for (const [amh, eng] of Object.entries(SUBCITY_AMHARIC_MAP)) {
+      if (rawLoc.includes(amh)) {
+        cleanLoc = eng;
+        break;
+      }
+    }
+  }
+
+  if (!cleanLoc) {
+    cleanLoc = rawLoc.replace(/[^a-zA-Z0-9]/g, '');
+  }
+
+  if (!cleanLoc) cleanLoc = 'AddisAbaba';
+  const locTag = `#${cleanLoc}`;
+
+  // 2. Listing category hashtag
+  const typeTag = options.isSpace ? '#RoomAvailable' : '#LookingForRoom';
+
+  // 3. Gender hashtag
+  const pref = (options.preferredGender || '').toLowerCase();
+  const gen = (options.gender || '').toLowerCase();
+  let genderTag = '#AnyGender';
+
+  if (options.isSpace) {
+    if (pref.includes('any') || pref.includes('ማንኛውም') || pref.includes('both') || pref.includes('all')) {
+      genderTag = '#AnyGender';
+    } else if (pref.includes('female') || pref.includes('ሴት')) {
+      genderTag = '#FemaleRoommate';
+    } else if (pref.includes('male') || pref.includes('ወንድ')) {
+      genderTag = '#MaleRoommate';
+    } else if (gen.includes('female') || gen.includes('ሴት')) {
+      genderTag = '#FemaleRoommate';
+    } else if (gen.includes('male') || gen.includes('ወንድ')) {
+      genderTag = '#MaleRoommate';
+    } else {
+      genderTag = '#AnyGender';
+    }
+  } else {
+    if (pref.includes('any') || pref.includes('ማንኛውም') || pref.includes('both') || pref.includes('all')) {
+      if (gen.includes('female') || gen.includes('ሴት')) {
+        genderTag = '#FemaleRoommate';
+      } else if (gen.includes('male') || gen.includes('ወንድ')) {
+        genderTag = '#MaleRoommate';
+      } else {
+        genderTag = '#AnyGender';
+      }
+    } else if (pref.includes('female') || pref.includes('ሴት')) {
+      genderTag = '#FemaleRoommate';
+    } else if (pref.includes('male') || pref.includes('ወንድ')) {
+      genderTag = '#MaleRoommate';
+    } else if (gen.includes('female') || gen.includes('ሴት')) {
+      genderTag = '#FemaleRoommate';
+    } else if (gen.includes('male') || gen.includes('ወንድ')) {
+      genderTag = '#MaleRoommate';
+    } else {
+      genderTag = '#AnyGender';
+    }
+  }
+
+  // 4. Budget hashtag
+  const min = options.budgetMin ? Math.round(Number(options.budgetMin)) : 0;
+  const max = (options.budgetMax ? Math.round(Number(options.budgetMax)) : 0) || (options.pricePerMonth ? Math.round(Number(options.pricePerMonth)) : 0);
+
+  const formatK = (val: number): string => {
+    if (val >= 1000) {
+      const k = val / 1000;
+      return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+    }
+    return String(val);
+  };
+
+  let budgetTag = '';
+  if (min > 0 && max > 0 && min < max) {
+    budgetTag = `#${formatK(min)}_${formatK(max)}`;
+  } else if (max > 0) {
+    budgetTag = `#${formatK(max)}`;
+  } else if (min > 0) {
+    budgetTag = `#${formatK(min)}`;
+  } else {
+    budgetTag = '#Flexible';
+  }
+
+  return `${locTag} ${typeTag} ${genderTag} ${budgetTag}`;
+}
+
+/**
+ * Formats a Roommate Seeker listing matching the benchmark layout:
+ * - Header: LOOKING FOR A ROOM · ID #DISPLAY_CODE, Location, Budget & Move in
+ * - Structured Sections: WHAT I'M LOOKING FOR, ROOMMATE PREFERENCES, DETAILS <blockquote>, ABOUT ME <blockquote>
+ * - Brand slogan and automated channel hashtags
+ */
+export function formatRoommatePost(profile: Profile | Record<string, any>): string {
+  const p = profile as any;
+  const rawCode = (p.display_code || p.id || 'SPMARBR5').replace(/^#/, '');
+  const cleanCode = escapeHtml(rawCode);
+
+  const rawLocs = p.locations || p.preferred_subcity;
+  const locList = Array.isArray(rawLocs)
+    ? rawLocs
+    : typeof rawLocs === 'string' && rawLocs.trim()
+    ? rawLocs.split(',').map((s: string) => s.trim()).filter(Boolean)
+    : [];
+  const locationDisplay = locList.length > 0 ? locList.join(', ') : 'Addis Ababa / አዲስ አበባ';
+
+  const bMin = Number(p.budget_min || 0);
+  const bMax = Number(p.budget_max || 0);
+  let budgetDisplay = '';
+  if (bMin > 0 && bMax > 0 && bMin < bMax) {
+    budgetDisplay = `${bMin.toLocaleString()}–${bMax.toLocaleString()} ETB / month`;
+  } else if (bMax > 0) {
+    budgetDisplay = bMin > 0 ? `${bMax.toLocaleString()} ETB / month` : `Up to ${bMax.toLocaleString()} ETB / month`;
+  } else if (bMin > 0) {
+    budgetDisplay = `From ${bMin.toLocaleString()} ETB / month`;
+  } else {
+    budgetDisplay = 'Flexible / ተለዋዋጭ';
+  }
+
+  const rawMoveIn = p.move_in_date || p.move_in;
+  const moveInDisplay = rawMoveIn ? String(rawMoveIn).trim() : 'Within 1 month / በ1 ወር ውስጥ';
+
+  const rawSpaceType = p.space_type || p.room_type;
+  const spaceTypeDisplay = rawSpaceType
+    ? String(rawSpaceType).trim()
+    : 'Private room · Apartment / የግል መኝታ ቤት · አፓርታማ';
+
+  const rawGender = (p.gender || p.my_gender || '').toLowerCase();
+  const isFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
+  const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
+  const sexDisplay = isFemale ? 'Female / ሴት' : isMale ? 'Male / ወንድ' : (p.gender || p.my_gender || 'Any / ማንኛውም');
+
+  let userAge = p.age ? Number(p.age) : null;
+  if (!userAge && p.roommate_traits) {
+    const m = String(p.roommate_traits).match(/Age[:\s]+(\d+)/i);
+    if (m) userAge = parseInt(m[1], 10);
+  }
+  const ageDisplay = userAge ? `, Age ${userAge}` : '';
+
+  let rawPrefGender = (p.preferred_gender || '').toLowerCase();
+  if ((!rawPrefGender || rawPrefGender === 'any') && (p.roommate_traits || p.lifestyle_bio)) {
+    const pgm = String(p.roommate_traits || p.lifestyle_bio || '').match(/Prefers?[:\s]+(Male|Female|Any)/i);
+    if (pgm) rawPrefGender = pgm[1].toLowerCase();
+  }
+  const isPrefFemale = rawPrefGender.includes('female') || rawPrefGender.includes('ሴት');
+  const isPrefMale = rawPrefGender.includes('male') || rawPrefGender.includes('ወንድ');
+  const prefSexDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
+
+  let prefAgeStr = '';
+  const ageMatch = String(p.preferred_roommate || p.roommate_traits || '').match(/(?:age[:\s]+)?(\d{2}\s*[-–—]\s*\d{2})/i);
+  if (ageMatch) {
+    prefAgeStr = `, ${ageMatch[1]}`;
+  }
+
+  const rawHouseRules = p.house_rules;
+  const houseRulesDisplay = rawHouseRules
+    ? String(rawHouseRules).trim()
+    : 'Clean, respectful, no smoking / ጽዱ፣ ጨዋ፣ ሲጋራ የማያጨስ';
+
+  let rawDetails = p.details || p.description || '';
+  let cleanDetails = extractUserDescription(rawDetails);
+  if (!cleanDetails) {
+    cleanDetails = `${locationDisplay} • ${prefSexDisplay}`;
+  }
+  if (cleanDetails.length > 350) {
+    cleanDetails = cleanDetails.slice(0, 345).trimEnd() + '…';
+  }
+
+  let rawBio = p.roommate_traits || p.lifestyle_bio || p.bio || '';
+  let cleanBio = extractUserDescription(rawBio);
+  if (!cleanBio || cleanBio === cleanDetails) {
+    cleanBio = p.full_name || p.user_name || 'Seeking compatible roommate in Addis Ababa. / ተስማሚ የቤት ጓደኛ ፈላጊ።';
+  }
+  if (cleanBio.length > 300) {
+    cleanBio = cleanBio.slice(0, 295).trimEnd() + '…';
+  }
+
+  const hashtags = generatePostHashtags({
+    locations: locList,
+    isSpace: false,
+    preferredGender: rawPrefGender,
+    gender: rawGender,
+    budgetMin: bMin,
+    budgetMax: bMax,
+  });
+
+  return `
+<b>LOOKING FOR A ROOM · ID #${cleanCode}</b>
+<b>${escapeHtml(locationDisplay)}</b>
+Budget: ${budgetDisplay} · Move in: ${moveInDisplay}
+
+<b>WHAT I'M LOOKING FOR / የምፈልገው</b>
+${escapeHtml(spaceTypeDisplay)}
+
+<b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
+Roommate: ${prefSexDisplay}${prefAgeStr}
+House rules: ${houseRulesDisplay}
+
+<b>DETAILS / ዝርዝር</b>
+<blockquote>${escapeHtml(cleanDetails)}</blockquote>
+
+<b>ABOUT ME / ስለ እኔ</b>
+Posted by: ${sexDisplay}${ageDisplay}
+<blockquote>${escapeHtml(cleanBio)}</blockquote>
+
+🔑 <i>SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!</i>
+
+${hashtags}
+`.trim();
+}
+
+/**
+ * Formats a Space Available listing matching the benchmark layout:
+ * - Header: ROOM AVAILABLE · ID #DISPLAY_CODE, Location, Rent & Move in
+ * - Structured Sections: SPACE DETAILS, ROOMMATE PREFERENCES, DETAILS <blockquote>, ABOUT ME <blockquote>
+ * - Brand slogan and automated channel hashtags
+ */
+export function formatSpacePost(space: Record<string, any>): string {
+  const rawCode = (space.display_code || space.id || 'SPMARWR1').replace(/^#/, '');
+  const cleanCode = escapeHtml(rawCode);
+
+  const rawLocs = space.preferred_subcity || space.locations || space.neighborhood || space.location;
+  const locList = Array.isArray(rawLocs)
+    ? rawLocs
+    : typeof rawLocs === 'string' && rawLocs.trim()
+    ? rawLocs.split(',').map((s: string) => s.trim()).filter(Boolean)
+    : [];
+  const locationDisplay = locList.length > 0 ? locList.join(', ') : 'Addis Ababa / አዲስ አበባ';
+
+  const rentVal = Number(space.space_rent || space.price_per_month || space.budget_max || 0);
+  const shareVal = Number(space.space_share || 0);
+  let rentDisplay = '';
+  if (rentVal > 0 && shareVal > 0) {
+    rentDisplay = `${rentVal.toLocaleString()} ETB / month (${shareVal.toLocaleString()} ETB split)`;
+  } else if (rentVal > 0) {
+    rentDisplay = `${rentVal.toLocaleString()} ETB / month`;
+  } else if (shareVal > 0) {
+    rentDisplay = `${shareVal.toLocaleString()} ETB split / month`;
+  } else {
+    rentDisplay = 'Negotiable / በስምምነት';
+  }
+
+  const rawMoveIn = space.move_in_date || space.move_in;
+  const moveInDisplay = rawMoveIn ? String(rawMoveIn).trim() : 'Immediate / አፋጣኝ';
+
+  const rawSpaceType = space.space_type;
+  const spaceTypeDisplay = rawSpaceType
+    ? String(rawSpaceType).trim()
+    : 'Private room · Shared Flat / የግል መኝታ ቤት · የጋራ አፓርታማ';
+
+  const rawAmenities = space.space_amenities || space.amenities;
+  let amenitiesDisplay = 'WiFi, Kitchen, Water supply / ዋይፋይ፣ ወጥ ቤት፣ ውሃ';
+  if (Array.isArray(rawAmenities) && rawAmenities.length > 0) {
+    amenitiesDisplay = rawAmenities.join(', ');
+  } else if (typeof rawAmenities === 'string' && rawAmenities.trim()) {
+    amenitiesDisplay = rawAmenities.trim();
+  }
+
+  const rawHostGender = (space.owner_gender || space.gender || space.my_gender || '').toLowerCase();
+  const isHostFemale = rawHostGender.includes('female') || rawHostGender.includes('ሴት') || rawHostGender === 'f';
+  const isHostMale = rawHostGender.includes('male') || rawHostGender.includes('ወንድ') || rawHostGender === 'm';
+  const hostSexDisplay = isHostFemale ? 'Female / ሴት' : isHostMale ? 'Male / ወንድ' : 'Space Host / አከራይ';
+
+  let rawPrefGender = (space.preferred_tenant_gender || space.preferred_gender || '').toLowerCase();
+  if ((!rawPrefGender || rawPrefGender === 'any') && (space.roommate_traits || space.lifestyle_bio)) {
+    const pgm = String(space.roommate_traits || space.lifestyle_bio || '').match(/Prefers?[:\s]+(Male|Female|Any)/i);
+    if (pgm) rawPrefGender = pgm[1].toLowerCase();
+  }
+  const isPrefFemale = rawPrefGender.includes('female') || rawPrefGender.includes('ሴት');
+  const isPrefMale = rawPrefGender.includes('male') || rawPrefGender.includes('ወንድ');
+  const prefSexDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
+
+  const rawHouseRules = space.house_rules;
+  const houseRulesDisplay = rawHouseRules
+    ? String(rawHouseRules).trim()
+    : 'Clean, respectful, quiet hours / ጽዱ፣ ጨዋ፣ የጋራ ሰላም የሚጠብቅ';
+
+  let rawDetails = space.details || space.description || '';
+  let detailsText = extractUserDescription(rawDetails);
+  if (!detailsText) {
+    detailsText = `${spaceTypeDisplay} in ${locationDisplay}. Amenities: ${amenitiesDisplay}.`;
+  }
+  if (detailsText.length > 350) {
+    detailsText = detailsText.slice(0, 345).trimEnd() + '…';
+  }
+
+  let rawBio = space.lifestyle_bio || space.roommate_traits || space.bio || space.preferred_roommate || '';
+  let cleanBio = extractUserDescription(rawBio);
+  if (!cleanBio || cleanBio === detailsText) {
+    cleanBio = 'Verified Space Host offering a comfortable, respectful home. / ምቹ እና የተረጋጋ የመኖሪያ ቦታ የሚያጋራ የተረጋገጠ አከራይ።';
+  }
+  if (cleanBio.length > 300) {
+    cleanBio = cleanBio.slice(0, 295).trimEnd() + '…';
+  }
+
+  const hashtags = generatePostHashtags({
+    locations: locList,
+    isSpace: true,
+    preferredGender: rawPrefGender,
+    gender: rawHostGender,
+    budgetMin: shareVal > 0 ? shareVal : null,
+    budgetMax: rentVal > 0 ? rentVal : null,
+    pricePerMonth: rentVal,
+  });
+
+  return `
+<b>ROOM AVAILABLE · ID #${cleanCode}</b>
+<b>${escapeHtml(locationDisplay)}</b>
+Rent: ${rentDisplay} · Move in: ${moveInDisplay}
+
+<b>SPACE DETAILS / የቤቱ ዝርዝር</b>
+${escapeHtml(spaceTypeDisplay)}
+Amenities: ${escapeHtml(amenitiesDisplay)}
+
+<b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
+Roommate: ${prefSexDisplay}
+House rules: ${houseRulesDisplay}
+
+<b>DETAILS / ዝርዝር</b>
+<blockquote>${escapeHtml(detailsText)}</blockquote>
+
+<b>ABOUT ME / ስለ እኔ</b>
+Posted by: ${hostSexDisplay} (Space Host / አከራይ)
+<blockquote>${escapeHtml(cleanBio)}</blockquote>
+
+🔑 <i>SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!</i>
+
+${hashtags}
+`.trim();
+}
+
 // ─── Channel Publishing ───────────────────────────────────────────────────────
 
 /**
@@ -397,79 +948,15 @@ export async function getFile(fileId: string): Promise<Buffer> {
 export async function publishListingToChannel(profile: Profile): Promise<number> {
   const botUsername = BOT_USERNAME();
   const channelId = CHANNEL_ID();
-
-  const locations =
-    Array.isArray(profile.locations) && profile.locations.length > 0
-      ? profile.locations.join(', ')
-      : 'Addis Ababa';
-
-  const budgetMin = Number(profile.budget_min || 0).toLocaleString();
-  const budgetMax = Number(profile.budget_max || 10000).toLocaleString();
-  const budgetDisplay = Number(profile.budget_min || 0) > 0
-    ? `${budgetMin}–${budgetMax} ETB per person`
-    : `Up to ${budgetMax} ETB per person`;
-
   const cleanCode = (profile.display_code || 'SPMARBR5').replace(/^#/, '');
-  const codeTag = `#${cleanCode}`;
-  const userAge = profile.age || 24;
 
-  let prefGender = profile.preferred_gender || 'Any';
-  if ((!prefGender || prefGender === 'Any') && profile.roommate_traits) {
-    const pgm = profile.roommate_traits.match(/Prefers?[:\s]+(Male|Female|Any)/i);
-    if (pgm) prefGender = pgm[1].trim();
-  }
-
-  const rawGender = (profile.gender || '').toLowerCase();
-  const isFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
-  const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
-  const seekerGenderWord = isFemale ? 'female' : isMale ? 'male' : 'verified';
-  const sexDisplay = isFemale ? 'Female (ሴት)' : isMale ? 'Male (ወንድ)' : (profile.gender || 'Any Gender');
-
-  const rawPrefGender = (prefGender || '').toLowerCase();
-  const isPrefFemale = rawPrefGender.includes('female') || rawPrefGender.includes('ሴት');
-  const isPrefMale = rawPrefGender.includes('male') || rawPrefGender.includes('ወንድ');
-  const prefGenderWord = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
-  const prefSexDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
-
-  let cleanTraits = profile.roommate_traits || '';
-  if (cleanTraits.includes(' | ')) {
-    const parts = cleanTraits.split(' | ');
-    const nonMeta = parts.filter(
-      (p) => !/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]/i.test(p.trim())
-    );
-    cleanTraits = nonMeta.length > 0 ? nonMeta.join(' | ').trim() : parts[parts.length - 1].trim();
-  }
-  cleanTraits = cleanTraits.replace(/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]+[^|;\n]+(\||\n|$)/i, '').trim();
-  if (!cleanTraits) {
-    cleanTraits = 'Seeking compatible roommate in Addis Ababa.';
-  }
-
-  const idealMatchLine = 'Clean, respectful, and compatible housemate.';
-
-  const cardText = `
-<b>SpaceMatch Addis / ስፔስማች አዲስ</b>
-<b>${codeTag}</b>
-
-<b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
-• <b>Roommate / የቤት አጋር:</b> ${prefSexDisplay}
-• <b>Budget / በጀት:</b> ${budgetDisplay}
-• <b>Locations / አካባቢዎች:</b> ${escapeHtml(locations)}
-
-<b>DETAILS / ዝርዝር</b>
-<blockquote>${escapeHtml(locations)} • ${prefSexDisplay}</blockquote>
-
-<b>ABOUT ME / ስለ እኔ</b>
-• <b>Posted by:</b> ${sexDisplay} (Age ${userAge})
-<blockquote>${escapeHtml(cleanTraits)}</blockquote>
-
-🔑 <i>SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!</i>
-`.trim();
+  const cardText = formatRoommatePost(profile);
 
   const replyMarkup: InlineKeyboard = {
     inline_keyboard: [
       [
         {
-          text: `⚡ Connect with ${codeTag} / ተገናኝ ↗️`,
+          text: `⚡ Connect with #${cleanCode} / ተገናኝ ↗️`,
           url: `https://t.me/${botUsername}?start=req_${cleanCode}`,
         },
       ],
@@ -555,44 +1042,33 @@ export async function updateChannelPostAsMatched(
       }
 
       if (p) {
-        const locations = Array.isArray(p.locations) && p.locations.length > 0 ? p.locations.join(', ') : 'Addis Ababa';
-        const traits = p.roommate_traits || 'Seeking compatible roommate in Addis Ababa.';
         const hasSpace = p.listing_category === 'space_available' || (p.space_rent && Number(p.space_rent) > 0);
-
-        if (hasSpace) {
-          const rentStr = p.space_rent ? `${Number(p.space_rent).toLocaleString()} ETB / month` : 'Negotiable';
-          const shareStr = p.space_share ? `${Number(p.space_share).toLocaleString()} ETB / month` : 'Split';
-          const amenities = Array.isArray(p.space_amenities) && p.space_amenities.length > 0 ? p.space_amenities.join(', ') : 'WiFi, Kitchen, Water supply';
-          baseContent = `<b>Roommate available with a Room</b> #${escapeHtml(p.display_code || displayCode)}\n📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified ✅</b>\n\n• <b>Space Type:</b> ${escapeHtml(p.space_type || 'Private Bedroom in Shared Flat')}\n• <b>Total Monthly Rent:</b> <code>${rentStr}</code>\n• <b>Your Share / Split:</b> <code>${shareStr}</code>\n• <b>Amenities:</b> ${escapeHtml(amenities)}\n\n<blockquote>"${escapeHtml(traits)}"</blockquote>`;
-        } else {
-          const budgetStr = p.budget_max ? `Up to ${Number(p.budget_max).toLocaleString()} ETB / month` : 'Flexible';
-          baseContent = `<b>Roommate Available</b> #${escapeHtml(p.display_code || displayCode)}\n📍 <code>${escapeHtml(locations)}</code> · 🛡️ <b>Fayda Verified ✅</b>\n\n• <b>Gender:</b> ${escapeHtml(p.gender || 'Member')}\n• <b>Budget Cap:</b> <code>${budgetStr}</code>\n\n<blockquote>"${escapeHtml(traits)}"</blockquote>`;
-        }
+        baseContent = hasSpace ? formatSpacePost(p) : formatRoommatePost(p);
       }
     } catch (err) {
       console.error('Error fetching profile for closed post formatting:', err);
     }
   }
 
-  const closedHeader = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 <i>This listing is officially closed &amp; matched!</i>\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴`;
+  const closedHeader = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 <i>This listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!</i>\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴`;
 
   const closedText = baseContent
-    ? `${closedHeader}\n\n${baseContent}\n\n🔒 <i>Listing closed. Browse active verified roommates below:</i>`
-    : `${closedHeader}\n\n✨ <b>Roommate #${escapeHtml(displayCode)} has found a match! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted.</blockquote>`;
+    ? `${closedHeader}\n\n${baseContent}\n\n🔒 <i>Listing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ንቁ የቤት አጋሮችን ከታች ይመልከቱ:</i>`
+    : `${closedHeader}\n\n✨ <b>Roommate #${escapeHtml(displayCode)} has found a match! 🎉 / የቤት አጋር ተገኝቷል! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted. / ይህ ማስታወቂያ ተዘግቷል። ተጨማሪ ጥያቄዎች አይቀበሉም።</blockquote>`;
 
-  const safeCaption = closedText.length > 1024 ? closedText.slice(0, 1020) + '…' : closedText;
+  const safeCaption = truncateTelegramHtml(closedText, 1024);
 
   const closedMarkup: InlineKeyboard = {
     inline_keyboard: [
       [
         {
-          text: '🔒 Listing Closed · Search Roommates ↗️',
+          text: '🔒 Listing Closed · Search Roommates / የቤት አጋር ፈልግ ↗️',
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
       [
         {
-          text: '📢 Post My Profile ↗️',
+          text: '📢 Post My Profile / መረጃዬን ልለጥፍ ↗️',
           url: `https://t.me/${botUsername}?start=post_profile`,
         },
       ],

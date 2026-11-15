@@ -1,37 +1,13 @@
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { getRoommateDraft, getDraft, getAllRoommateDrafts, getManagedChannels } from '@/lib/bot-session-store';
+import { formatRoommatePost, formatSpacePost, truncateTelegramHtml, extractUserDescription } from '@/lib/telegram';
+
+export { extractUserDescription };
 
 export interface BroadcastResult {
   success: boolean;
   message: string;
   telegramMessageId?: number;
-}
-
-/**
- * Safely extracts the user's or admin's custom description/notes,
- * cleanly stripping off any prefixed metadata tags like 'Job:', 'Religion:', 'Prefers:', etc.
- */
-export function extractUserDescription(rawText?: string | null): string {
-  if (!rawText) return '';
-  let cleaned = rawText.trim();
-
-  // If separated by pipes: Job: ... | Religion: ... | Prefers: ... | <user_description>
-  if (cleaned.includes(' | ')) {
-    const parts = cleaned.split(' | ');
-    const nonMetaParts = parts.filter(
-      (p) => !/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]/i.test(p.trim())
-    );
-    if (nonMetaParts.length > 0) {
-      cleaned = nonMetaParts.join(' | ').trim();
-    } else {
-      cleaned = parts[parts.length - 1].trim();
-    }
-  }
-
-  // Remove any remaining leading metadata prefix
-  cleaned = cleaned.replace(/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]+[^|;\n]+(\||\n|$)/i, '').trim();
-
-  return cleaned;
 }
 
 /**
@@ -498,77 +474,33 @@ export async function broadcastRoommateProfileToChannel(
       idealMatchDetails += '.';
     }
 
-    let text = '';
-    if (hasSpace) {
-      const amenitiesStr = Array.isArray(profile.space_amenities) && profile.space_amenities.length > 0
-        ? profile.space_amenities.join(', ')
-        : 'WiFi, Kitchen, Water supply';
-      const rentStr = profile.space_rent ? `${Number(profile.space_rent).toLocaleString()} ETB` : 'Negotiable';
-      const shareStr = profile.space_share ? `${Number(profile.space_share).toLocaleString()} ETB` : 'Split equally';
-      const hostGenderWord = isFemale ? 'female' : isMale ? 'male' : 'verified';
-      const hostGender = isFemale ? 'Female' : isMale ? 'Male' : 'Verified Homeowner';
-
-      text = `
-<b>SpaceMatch Addis</b>
-<b>${codeTag}</b>
-
-🏠 <b>SPACE AVAILABLE</b>
-
-We have a ${hostGenderWord} Space Host looking for a ${prefGenderWord} roommate for a ${profile.space_type || 'Private Bedroom'}!
-
-📍 <b>Location:</b> ${subcitiesStr}
-💰 <b>Total Rent:</b> ${rentStr} (${shareStr} per person)
-👤 <b>Sex:</b> ${sexDisplay}
-👥 <b>Preferred Sex:</b> ${prefSexDisplay}
-📝 <b>Description:</b> ${bioContent}
-🤝 <b>Ideal Match / Housemate:</b> ${idealMatchDetails}
-✨ <b>Amenities:</b> ${amenitiesStr}
-
-🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
-      `.trim();
-    } else {
-      const budgetMin = Number(profile.budget_min || 0).toLocaleString();
-      const budgetMax = Number(profile.budget_max || 10000).toLocaleString();
-      const budgetDisplay = Number(profile.budget_min || 0) > 0
-        ? `${budgetMin}–${budgetMax} ETB per person`
-        : `Up to ${budgetMax} ETB per person`;
-
-      text = `
-<b>SpaceMatch Addis</b>
-<b>${codeTag}</b>
-
-🏠 <b>ROOMMATE SEARCH</b>
-
-We have a ${seekerGenderWord} Space Seeker looking for a ${prefGenderWord} roommate to team up with and find a place together!
-
-📍 <b>Preferred Locations:</b> ${subcitiesStr}
-💰 <b>Budget:</b> ${budgetDisplay}
-👤 <b>Sex:</b> ${sexDisplay}
-👥 <b>Preferred Sex:</b> ${prefSexDisplay}
-📝 <b>Description:</b> ${bioContent}
-🤝 <b>Ideal Match / Housemate:</b> ${idealMatchDetails}
-
-🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
-      `.trim();
-    }
+    const text = hasSpace ? formatSpacePost(profile) : formatRoommatePost(profile);
 
     const inlineKeyboard = {
       inline_keyboard: [
         [
           {
-            text: hasSpace ? `⚡ Contact with Host ${codeTag} ↗️` : `⚡ Contact with Roommate ${codeTag} ↗️`,
-            url: hasSpace ? `https://t.me/${botUsername}?start=order_${cleanDisplayCode}` : `https://t.me/${botUsername}?start=req_${cleanDisplayCode}`,
+            text: hasSpace
+              ? `⚡ Contact Host #${cleanDisplayCode} / ከአከራይ ጋር ተገናኝ ↗️`
+              : `⚡ Connect with #${cleanDisplayCode} / ተገናኝ ↗️`,
+            url: hasSpace
+              ? `https://t.me/${botUsername}?start=order_${cleanDisplayCode}`
+              : `https://t.me/${botUsername}?start=req_${cleanDisplayCode}`,
           },
         ],
         [
           {
-            text: '📢 Post My Profile ↗️',
-            url: `https://t.me/${botUsername}?start=post_profile`,
+            text: hasSpace
+              ? '📢 Post My Space / ክፍሌን ልለጥፍ ↗️'
+              : '📢 Post Profile / መረጃዬን ልለጥፍ ↗️',
+            url: hasSpace
+              ? `https://t.me/${botUsername}?start=post_branch_space`
+              : `https://t.me/${botUsername}?start=post_profile`,
           },
         ],
         [
           {
-            text: '🔍 Search Roommate for Me ↗️',
+            text: '🔍 Search Roommate / የቤት አጋር ፈልግ ↗️',
             url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
@@ -585,7 +517,7 @@ We have a ${seekerGenderWord} Space Seeker looking for a ${prefGenderWord} roomm
           body: JSON.stringify({
             chat_id: targetChannel,
             photo: profile.space_photos[0],
-            caption: text.length > 1024 ? text.slice(0, 1020) + '…' : text,
+            caption: truncateTelegramHtml(text, 1024),
             parse_mode: 'HTML',
             reply_markup: inlineKeyboard,
           }),
@@ -768,60 +700,70 @@ export async function broadcastListingToChannel(
     const isPrefMale = rawPrefTenant.includes('male') || rawPrefTenant.includes('ወንድ');
     const prefTenantDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
 
-    const captionText = `
-<b>SpaceMatch Addis</b>
-<b>${codeTag}</b>
-
-🏠 <b>SPACE AVAILABLE</b>
-
-We have a ${isOwnerFemale ? 'female' : isOwnerMale ? 'male' : 'verified'} Space Host offering a place for rent in Addis Ababa!
-
-📍 <b>Location:</b> ${space.neighborhood || 'Addis Ababa'}
-💰 <b>Monthly Rent:</b> ${rentFormatted} ETB
-👤 <b>Sex:</b> ${ownerSexDisplay}
-👥 <b>Preferred Sex:</b> ${prefTenantDisplay}
-📝 <b>Description:</b> ${descContent}
-🤝 <b>Ideal Match / Housemate:</b> Clean, respectful, and compatible housemate.
-
-🔑 <i>SpaceMatchAddis — Find your roommate first, then find your space together!</i>
-    `.trim();
+    const captionText = formatSpacePost(space);
 
     const inlineKeyboard = {
       inline_keyboard: [
         [
           {
-            text: `⚡ Contact with Host ${codeTag} ↗️`,
+            text: `⚡ Contact Host #${cleanSpaceCode} / ከአከራይ ጋር ተገናኝ ↗️`,
             url: `https://t.me/${botUsername}?start=order_${cleanSpaceCode}`,
           },
         ],
         [
           {
-            text: '📢 Post My Profile ↗️',
-            url: `https://t.me/${botUsername}?start=post_profile`,
+            text: '📢 Post My Space / ክፍሌን ልለጥፍ ↗️',
+            url: `https://t.me/${botUsername}?start=post_branch_space`,
           },
         ],
         [
           {
-            text: '🔍 Search Roommate for Me ↗️',
+            text: '🔍 Search Roommate / የቤት አጋር ፈልግ ↗️',
             url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
       ],
     };
 
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: targetChannel,
-        photo: photoUrl,
-        caption: captionText,
-        parse_mode: 'HTML',
-        reply_markup: inlineKeyboard,
-      }),
-    });
+    let response: any;
+    let data: any = null;
+    const safeCaption = truncateTelegramHtml(captionText, 1024);
 
-    const data = await response.json();
+    try {
+      response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: targetChannel,
+          photo: photoUrl,
+          caption: safeCaption,
+          parse_mode: 'HTML',
+          reply_markup: inlineKeyboard,
+        }),
+      });
+      data = await response.json();
+    } catch {
+      data = { ok: false };
+    }
+
+    // Fallback to text message if photo delivery failed
+    if (!data || !data.ok) {
+      try {
+        response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: targetChannel,
+            text: captionText,
+            parse_mode: 'HTML',
+            reply_markup: inlineKeyboard,
+          }),
+        });
+        data = await response.json();
+      } catch (err: any) {
+        data = { ok: false, description: err?.message || 'Network error on fallback sendMessage' };
+      }
+    }
 
     if (!data.ok) {
       return {
@@ -1006,25 +948,25 @@ export async function closeChannelPost(
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
   }
 
-  const closedHeader = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 <i>This listing is officially closed &amp; matched!</i>\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴`;
+  const closedHeader = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 <i>This listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!</i>\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴`;
 
   const closedNotice = existingContent?.trim()
-    ? `${closedHeader}\n\n${existingContent.trim()}\n\n🔒 <i>Listing closed. Browse active verified roommates below:</i>`
-    : `${closedHeader}\n\n✨ <b>${itemTitle} has found a match! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted.</blockquote>`;
+    ? `${closedHeader}\n\n${existingContent.trim()}\n\n🔒 <i>Listing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ንቁ የቤት አጋሮችን ከታች ይመልከቱ:</i>`
+    : `${closedHeader}\n\n✨ <b>${itemTitle} has found a match! 🎉 / የቤት አጋር ተገኝቷል! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted. / ይህ ማስታወቂያ ተዘግቷል። ተጨማሪ ጥያቄዎች አይቀበሉም።</blockquote>`;
 
-  const safeCaption = closedNotice.length > 1024 ? closedNotice.slice(0, 1020) + '…' : closedNotice;
+  const safeCaption = truncateTelegramHtml(closedNotice, 1024);
 
   const closedMarkup = {
     inline_keyboard: [
       [
         {
-          text: '🔒 Listing Closed · Search Roommates ↗️',
+          text: '🔒 Listing Closed · Search Roommates / የቤት አጋር ፈልግ ↗️',
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
       [
         {
-          text: '📢 Post My Profile ↗️',
+          text: '📢 Post My Profile / መረጃዬን ልለጥፍ ↗️',
           url: `https://t.me/${botUsername}?start=post_profile`,
         },
       ],
