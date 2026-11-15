@@ -451,7 +451,7 @@ export async function handleOnboardingMessage(
     if (!parsedRange || parsedRange.max <= 0) {
       await sendMessage(
         chatId,
-        `⚠️ <b>Please type a valid monthly budget range in ETB:</b>\n<i>(For example: <code>8000 - 15000</code>)</i>`
+        `⚠️ <b>Please type a valid monthly budget range in ETB: / እባክዎ ትክክለኛ ወርሃዊ የኪራይ መጠን በብር ያስገቡ:</b>\n(For example: <code>8000 - 15000</code> / ለምሳሌ: <code>8000 - 15000</code>)`
       );
       return true;
     }
@@ -580,7 +580,7 @@ export async function handleOnboardingMessage(
       // 6. Confirmation message
       await sendMessage(
         chatId,
-        `🎉 <b>Profile Approved &amp; Posted! / መረጃዎ ጸድቆ ተለጥፏል!</b>\n\n<blockquote>Your listing <b>#${escapeHtml(displayCode)}</b> is now open on the channel! We will notify you here when someone connects. / ማስታወቂያዎ በቻናሉ ላይ ክፍት ሆኗል፤ ተዛማጅ ሲገኝ ወዲያውኑ እናሳውቆታለን!</blockquote>\n\n🔒 <i>Your contact details remain private until both parties match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃዎ ሚስጥራዊ ነው።</i>`,
+        `🎉 <b>Profile Approved &amp; Posted! / መረጃዎ ጸድቆ ተለጥፏል!</b>\n\n<blockquote>Your listing <b>#${escapeHtml(displayCode)}</b> is now open on the channel! We will notify you here when someone connects. / ማስታወቂያዎ በቻናሉ ላይ ክፍት ሆኗል፤ ተዛማጅ ሲገኝ ወዲያውኑ እናሳውቆታለን!</blockquote>\n\n🔒 Your contact details remain private until both parties match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃዎ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
             [{ text: '⚡ Find Roommates / የቤት አጋር ፈልግ 🔍', callback_data: 'matchmaker_start' }],

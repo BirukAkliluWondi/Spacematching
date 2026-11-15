@@ -911,7 +911,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       if (map.size === 0) {
         await sendOrEditCard(
           chatId,
-          `⚠️ <b>No Users Found</b>\n\nNo resident or Fayda record was found matching <code>${escapeHtml(rawQuery)}</code>.\n\n💡 <i>Try searching by first name, last name, Telegram @username, or 16-digit Fayda FAN.</i>`,
+          `⚠️ <b>No Users Found</b>\n\nNo resident or Fayda record was found matching <code>${escapeHtml(rawQuery)}</code>.\n\n💡 Try searching by first name, last name, Telegram @username, or 16-digit Fayda FAN.`,
           [
             [{ text: '🔍 Search Another Name', callback_data: 'admin_search_user_prompt' }],
             [{ text: '⬅️ Back to Admin Menu', callback_data: 'admin_menu' }],
@@ -2287,7 +2287,7 @@ It has been 24 hours since your roommate contact was unlocked!
 
 <blockquote>"${escapeHtml(userTraits)}"</blockquote>
 
-🔒 <i>የግል መረጃ (ስም፣ ስልክ ቁጥር እና ቴሌግራም አድራሻ) የሁለታችሁም ፈቃድ እስካልተረጋገጠና ክፍያ እስካልተጠናቀቀ ድረስ በሚስጥር የተጠበቀ ነው።</i>
+🔒 የግል መረጃ (ስም፣ ስልክ ቁጥር እና ቴሌግራም አድራሻ) የሁለታችሁም ፈቃድ እስካልተረጋገጠና ክፍያ እስካልተጠናቀቀ ድረስ በሚስጥር የተጠበቀ ነው።
 
 <blockquote>ከዚህ የክፍል ጓደኛ ጋር መገናኘት ይፈልጋሉ?</blockquote>
 `.trim()
@@ -2306,7 +2306,7 @@ A verified roommate saw your listing and wants to connect!
 
 <blockquote>"${escapeHtml(userTraits)}"</blockquote>
 
-🔒 <i>Personal identity (name, phone number, and Telegram handle) is strictly hidden until mutual agreement and match unlock.</i>
+🔒 Personal identity (name, phone number, and Telegram handle) is strictly hidden until mutual agreement and match unlock.
 
 <blockquote>Would you like to connect with this roommate?</blockquote>
 `.trim();
@@ -2809,7 +2809,7 @@ A verified roommate saw your listing and wants to connect!
       const targetChannel = await getPrimaryChannel();
       const text = `
 📢 <b>SpaceMatch Admin · Publish Listing to Channel</b>
-<i>Select the category of the post to broadcast to ${targetChannel}:</i>
+Select the category of the post to broadcast to ${targetChannel}:
 
 • <b>Roommate Seeker:</b> Looking for a room or roommate to team up with.
 • <b>Have a Room, Seeks Roommate:</b> Has an available room and seeks a roommate to move in.
@@ -2880,7 +2880,7 @@ A verified roommate saw your listing and wants to connect!
 
       const text = `
 📢 <b>SpaceMatch Admin · Step 2: Select Sub-Cities</b>
-<i>(Tap areas to toggle checkmarks, then tap Proceed)</i>
+(Tap areas to toggle checkmarks, then tap Proceed)
 
 <b>Selected:</b> <code>${selectedList.join(', ')}</code>
       `.trim();
@@ -2905,7 +2905,7 @@ A verified roommate saw your listing and wants to connect!
       const text = `
 📢 <b>SpaceMatch Admin · Step 3: Rent / Budget Cap</b>
 ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Please reply with the monthly rent or budget cap in ETB:</b>
-<i>(Example: <code>10000</code> or <code>15000</code>)</i>
+(Example: <code>10000</code> or <code>15000</code>)
       `.trim();
 
       const inlineKeyboard = [
@@ -2931,7 +2931,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Please reply with the 
 
       const text = `
 📢 <b>SpaceMatch Admin · Step 4: Candidate Sex</b>
-<i>Select the sex/gender of the person who is listing:</i>
+Select the sex/gender of the person who is listing:
       `.trim();
 
       const inlineKeyboard = [
@@ -2962,7 +2962,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Please reply with the 
 
       const text = `
 📢 <b>SpaceMatch Admin · Step 5: Preferred Roommate Sex</b>
-<i>Select which sex is accepted/preferred to connect with this roommate:</i>
+Select which sex is accepted/preferred to connect with this roommate:
       `.trim();
 
       const inlineKeyboard = [
@@ -2995,7 +2995,7 @@ ${errorMsg ? `⚠️ <b>${errorMsg}</b>\n\n` : ''}💰 <b>Please reply with the 
 📢 <b>SpaceMatch Admin · Step 6: Listing Description</b>
 
 Please reply with the description, perks, or notes for this channel post.
-<i>(Or reply with <code>default</code> to use standard description)</i>
+(Or reply with <code>default</code> to use standard description)
       `.trim();
 
       const inlineKeyboard = [
@@ -3042,8 +3042,8 @@ Tap the button below. Matched users will be connected with you (@${adminHandle})
 
 • <b>Option 2 — Resident's Real Contact:</b>
 Reply in this chat with the resident's contact details:
-<i>Format: <code>&lt;Full Name&gt; | &lt;Phone Number&gt; | &lt;@username or None&gt;</code></i>
-<i>Example: <code>Selamawit Tadesse | 0911223344 | @selam_t</code></i>
+Format: <code>&lt;Full Name&gt; | &lt;Phone Number&gt; | &lt;@username or None&gt;</code>
+Example: <code>Selamawit Tadesse | 0911223344 | @selam_t</code>
       `.trim();
 
       const inlineKeyboard = [
@@ -3100,14 +3100,14 @@ Reply in this chat with the resident's contact details:
 
       const previewText = `
 📋 <b>SpaceMatch Admin · Review Channel Post / የቻናል ማስታወቂያ ግምገማ</b>
-<i>This listing will be saved to Supabase first, then published with tracking buttons:</i>
+This listing will be saved to Supabase first, then published with tracking buttons:
 
 ━━━━━━━━━━━━━━━━━━━━━
 ${postPreview}
 
 • <b>Contact for Matched Users / የተዛማጆች አድራሻ:</b> <code>${escapeHtml(contactPreview)}</code>
 
-🔒 <i>Personal identity & direct contact remain sealed until mutual match unlock. / ትክክለኛ ማንነት እና አድራሻ እስከ ስምምነት ድረስ ሚስጥራዊ ነው።</i>
+🔒 Personal identity & direct contact remain sealed until mutual match unlock. / ትክክለኛ ማንነት እና አድራሻ እስከ ስምምነት ድረስ ሚስጥራዊ ነው።
 ━━━━━━━━━━━━━━━━━━━━━
       `.trim();
 
@@ -3543,7 +3543,7 @@ A user has requested to post their profile to the channel <code>${targetChannel}
 
 <blockquote>"${bioStr}"</blockquote>
 
-<i>Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)</i>
+Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
         `.trim();
 
         const adminButtons = {
@@ -3683,7 +3683,7 @@ A user has submitted a space offering for channel <code>${targetChannel}</code>:
 • <b>Pass Status:</b> 👑 30-Day Pass Active ✅
 • <b>Resident:</b> Age ${userAge} (🛡️ Fayda Verified)
 
-<i>Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)</i>
+Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
         `.trim();
 
         const adminButtons = {
@@ -4537,7 +4537,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 
       const summaryText = `
 ✨ <b>Profile Review / የመረጃ ክለሳ</b>
-<i>This is how your post will appear in the channel / ማስታወቂያዎ በቻናል ላይ እንዲህ ይታያል:</i>
+This is how your post will appear in the channel / ማስታወቂያዎ በቻናል ላይ እንዲህ ይታያል:
 
 ━━━━━━━━━━━━━━━━━━━━━
 ${formattedPreview}
@@ -4836,7 +4836,7 @@ Post your profile now to broadcast to our Telegram community and find compatible
 <b>ABOUT ME / ስለ እኔ</b>
 <blockquote>${bioContent}</blockquote>
 
-🔒 <i>Personal identity, phone, and Telegram handle are concealed until connected. / የግለሰቡ ማንነት፣ ስልክ እና ቴሌግራም ግንኙነት እስኪፈጠር ድረስ የተጠበቀ ነው።</i>
+🔒 Personal identity, phone, and Telegram handle are concealed until connected. / የግለሰቡ ማንነት፣ ስልክ እና ቴሌግራም ግንኙነት እስኪፈጠር ድረስ የተጠበቀ ነው።
       `.trim();
 
       const inlineKeyboardRows: any[] = [];
@@ -7235,7 +7235,7 @@ Your listing <b>#${displayCode}</b> has been marked as matched! 🎉
 • <b>Seeker Identifier / መለያ:</b> <code>#${displayCode}</code>
 • <b>Gender & Age / ጾታ እና እድሜ:</b> ${roommateDraft.my_gender}, ${roommateDraft.age} yrs · Prefers: ${roommateDraft.preferred_gender}
 • <b>Budget Cap / የበጀት ጣሪያ:</b> <code>${Number(roommateDraft.budget_max).toLocaleString()} ETB / month</code>
-• <b>Contact Details / አድራሻ:</b> <i>[Encrypted & Stored Securely in DB]</i>
+• <b>Contact Details / አድራሻ:</b> [Encrypted & Stored Securely in DB]
           `.trim();
           for (const adminId of adminIds) {
             sendTelegram('sendMessage', {
@@ -7258,7 +7258,7 @@ Your roommate listing (<code>#${displayCode}</code>) is now <b>LIVE</b> on our T
 Your name, phone number, and Telegram handle remain strictly confidential until mutual match.
 ትክክለኛ ስምዎ፣ ስልክ ቁጥርዎ እና የቴሌግራም አድራሻዎ ሙሉ በሙሉ ሚስጥራዊነቱ የተጠበቀ ነው።</blockquote>
 
-🔔 <i>You will receive instant notifications here whenever someone requests to connect with you! / አባላት ከእርስዎ ጋር ለመገናኘት ሲጠይቁ ወዲያውኑ ማሳወቂያ ይደርሶዎታል!</i>
+🔔 You will receive instant notifications here whenever someone requests to connect with you! / አባላት ከእርስዎ ጋር ለመገናኘት ሲጠይቁ ወዲያውኑ ማሳወቂያ ይደርሶዎታል!
         `.trim();
 
         const successKeyboard = [
@@ -7582,7 +7582,7 @@ Please send the identification code or number of the listing you want to inspect
 • <code>5</code> or <code>1</code> (Numeric shorthand)
 • Or send the Telegram Channel Message ID.
 
-<i>💡 You will receive the complete candidate dossier including unmasked contact info, status, and direct management buttons.</i>
+💡 You will receive the complete candidate dossier including unmasked contact info, status, and direct management buttons.
         `.trim();
 
         const buttons = [
@@ -7620,7 +7620,7 @@ Please send the resident's <b>Full Name</b>, <b>First Name</b>, <b>@username</b>
 • <code>4783419389048718</code>
 • Or send their numeric Telegram ID.
 
-<i>💡 The bot will retrieve all official demographic and cryptographic Fayda data registered to this person.</i>
+💡 The bot will retrieve all official demographic and cryptographic Fayda data registered to this person.
         `.trim();
 
         const buttons = [
@@ -7676,7 +7676,7 @@ Please send the resident's <b>Full Name</b>, <b>First Name</b>, <b>@username</b>
 
 Please send the Telegram username of the user you want to appoint as an administrator (e.g. <code>@username</code> or <code>username</code>).
 
-<i>💡 They will immediately receive admin privileges to post (<code>/post</code>), review, and close listings (<code>/close</code>).</i>
+💡 They will immediately receive admin privileges to post (<code>/post</code>), review, and close listings (<code>/close</code>).
         `.trim();
 
         const buttons = [
@@ -7754,7 +7754,7 @@ Please send the Telegram username of the user you want to appoint as an administ
         const channels = await getManagedChannels();
         let text = `📢 <b>Connected Channels & Broadcasting (${channels.length}) / የተገናኙ ቻናሎች</b>\n\n`;
         if (channels.length === 0) {
-          text += `<i>No channels currently registered. The bot uses the default channel (@roommate_addis).\n\nTo link a channel, add this bot as an administrator to that channel, or send:</i>\n<code>/setchannel @your_channel</code>`;
+          text += `No channels currently registered. The bot uses the default channel (@roommate_addis).\n\nTo link a channel, add this bot as an administrator to that channel, or send:\n<code>/setchannel @your_channel</code>`;
         } else {
           for (let i = 0; i < channels.length; i++) {
             const ch = channels[i];
@@ -7764,7 +7764,7 @@ Please send the Telegram username of the user you want to appoint as an administ
             if (ch.channel_username) text += `   • Username: <b>${ch.channel_username}</b>\n`;
             text += `   • Status / ሁኔታ: ${ch.is_active ? '🟢 Active / የሚሰራ' : '🔴 Inactive / የማይሰራ'}\n\n`;
           }
-          text += `<i>💡 Any channel where @${botUsername} is added as administrator will automatically connect here and recognize its channel admins!</i>`;
+          text += `💡 Any channel where @${botUsername} is added as administrator will automatically connect here and recognize its channel admins!`;
         }
 
         const buttons = [
@@ -7944,7 +7944,7 @@ Please send the Telegram username of the user you want to appoint as an administ
         const closeResult = await closeChannelPost(channelMsgId, itemTitle, isPhoto);
 
         const text = closeResult.success
-          ? `✅ <b>Post #${channelMsgId} Officially Closed!</b>\n\n🤝 <i>"${itemTitle}" has been updated on the channel with <b>CLOSED · MATCHED</b> and action buttons were removed.</i>`
+          ? `✅ <b>Post #${channelMsgId} Officially Closed!</b>\n\n🤝 "${itemTitle}" has been updated on the channel with <b>CLOSED · MATCHED</b> and action buttons were removed.`
           : `⚠️ <b>Could not update channel post #${channelMsgId}:</b>\n${closeResult.message}`;
 
         const keyboard = {
@@ -9975,7 +9975,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 • <code>/close 1542</code>
 • <code>/close https://t.me/roommatch_addis/1542</code>
 
-<i>💡 Or simply forward any channel post directly to this bot to close it!</i>
+💡 Or simply forward any channel post directly to this bot to close it!
             `.trim(),
             parse_mode: 'HTML',
           });
@@ -10290,7 +10290,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
         const channels = await getManagedChannels();
         let channelsMsg = `📢 <b>Connected Channels (${channels.length}) / የተገናኙ ቻናሎች</b>\n\n`;
         if (channels.length === 0) {
-          channelsMsg += `<i>No external channels connected yet. The bot uses the default channel (@roommate_addis).\n\nTo connect any channel, add this bot as an administrator to the channel, or run:</i>\n<code>/setchannel @your_channel</code>`;
+          channelsMsg += `No external channels connected yet. The bot uses the default channel (@roommate_addis).\n\nTo connect any channel, add this bot as an administrator to the channel, or run:\n<code>/setchannel @your_channel</code>`;
         } else {
           for (let i = 0; i < channels.length; i++) {
             const ch = channels[i];
@@ -10300,7 +10300,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
             if (ch.channel_username) channelsMsg += `   • Username: <b>${ch.channel_username}</b>\n`;
             channelsMsg += `   • Status / ሁኔታ: ${ch.is_active ? '🟢 Active / የሚሰራ' : '🔴 Inactive / የማይሰራ'}\n\n`;
           }
-          channelsMsg += `<i>💡 To connect a new channel, add @${botUsername} as an administrator to your channel, or run <code>/setchannel @channel</code>.</i>`;
+          channelsMsg += `💡 To connect a new channel, add @${botUsername} as an administrator to your channel, or run <code>/setchannel @channel</code>.`;
         }
 
         await sendTelegram('sendMessage', {
@@ -10342,7 +10342,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 • <code>/setchannel -1001234567890</code>
 
 <b>Instructions:</b>
-1. Add @${botUsername} as an administrator in your channel with <i>Post Messages</i> & <i>Edit Messages</i> permissions.
+1. Add @${botUsername} as an administrator in your channel with Post Messages & Edit Messages permissions.
 2. Send <code>/setchannel @your_channel</code> here.
             `.trim(),
             parse_mode: 'HTML',
@@ -10362,7 +10362,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
           if (!json.ok) {
             await sendTelegram('sendMessage', {
               chat_id: chatId,
-              text: `⚠️ <b>Could not access channel:</b> <code>${channelInput}</code>\n\nTelegram response: <i>${json.description || 'Channel not found or bot is not an admin'}</i>\n\nPlease ensure @${botUsername} is added as an administrator to the channel first!`,
+              text: `⚠️ <b>Could not access channel:</b> <code>${channelInput}</code>\n\nTelegram response: ${json.description || 'Channel not found or bot is not an admin'}\n\nPlease ensure @${botUsername} is added as an administrator to the channel first!`,
               parse_mode: 'HTML',
             });
             return NextResponse.json({ ok: true });
