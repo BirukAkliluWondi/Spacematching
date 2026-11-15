@@ -295,30 +295,56 @@ export async function broadcastRoommateProfileToChannel(
       }
     }
 
-    // 4. Secondary fallback: Search bot_sessions directly if still not found
+    // 4. Secondary fallback: Search bot_sessions with targeted indexed queries instead of full table scan
     if (!profile) {
       try {
-        const { data: sessions } = await supabaseAdmin.from('bot_sessions').select('*');
-        if (sessions && Array.isArray(sessions)) {
-          const last4 = cleanCode.replace(/^rm/i, '');
-          const matchedSession = sessions.find((s: any) => {
-            const d = s.draft_data || {};
-            const code = (d.display_code || '').toLowerCase();
-            const tgStr = String(s.telegram_id || '');
-            return (
-              code === cleanCode.toLowerCase() ||
-              code === `rm${last4.toLowerCase()}` ||
-              tgStr === cleanCode ||
-              (last4.length >= 3 && tgStr.endsWith(last4))
-            );
-          });
+        const tgNum = Number(cleanCode);
+        if (!isNaN(tgNum) && tgNum > 0) {
+          const { data: s } = await supabaseAdmin
+            .from('bot_sessions')
+            .select('*')
+            .eq('telegram_id', String(tgNum))
+            .maybeSingle();
 
-          if (matchedSession && matchedSession.draft_data) {
-            const d = matchedSession.draft_data;
+          if (s?.draft_data) {
+            const d = s.draft_data;
             profile = {
               id: cleanCode,
               display_code: d.display_code || cleanCode,
-              user_telegram_id: Number(matchedSession.telegram_id),
+              user_telegram_id: Number(s.telegram_id),
+              user_name: d.user_name || 'Verified Space Owner',
+              preferred_subcity: d.preferred_subcity || [d.location || 'Addis Ababa'],
+              my_gender: d.gender || d.my_gender || 'Member',
+              age: d.age || 24,
+              preferred_gender: d.preferred_gender || 'Any',
+              budget_max: d.space_rent || d.budget_max || 10000,
+              lifestyle_bio: d.roommate_traits || d.lifestyle_bio || 'Roommate available with a room in Addis Ababa.',
+              listing_category: d.listing_category || (d.space_rent ? 'space_available' : 'seeker'),
+              space_type: d.space_type || 'Private Bedroom in Shared Flat',
+              space_rent: d.space_rent ? Number(d.space_rent) : undefined,
+              space_share: d.space_share ? Number(d.space_share) : undefined,
+              space_amenities: d.space_amenities || [],
+              space_photos: d.space_photos || [],
+              unlock_fee: 300,
+              fayda_status: 'verified',
+            };
+          }
+        }
+
+        if (!profile) {
+          const { data: matchedRows } = await supabaseAdmin
+            .from('bot_sessions')
+            .select('*')
+            .filter('draft_data->>display_code', 'ilike', cleanCode)
+            .limit(1);
+
+          if (matchedRows && matchedRows.length > 0 && matchedRows[0].draft_data) {
+            const s = matchedRows[0];
+            const d = s.draft_data;
+            profile = {
+              id: cleanCode,
+              display_code: d.display_code || cleanCode,
+              user_telegram_id: Number(s.telegram_id),
               user_name: d.user_name || 'Verified Space Owner',
               preferred_subcity: d.preferred_subcity || [d.location || 'Addis Ababa'],
               my_gender: d.gender || d.my_gender || 'Member',

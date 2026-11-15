@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { verifyTelebirrPayment, extractTransactionReference } from '@/lib/verify-et';
+import { acquireActionLock, releaseActionLock } from '@/lib/bot-session-store';
 
 const verifyOrderSchema = z.object({
   order_id: z.string().uuid('Invalid order_id UUID format'),
@@ -20,6 +21,17 @@ export async function POST(request: Request) {
 
     const { order_id, telegram_id, transaction_reference } = parsed;
     const cleanTxRef = extractTransactionReference(transaction_reference);
+
+    // Concurrency Lock: Prevent simultaneous verification attempts with the same reference
+    if (cleanTxRef) {
+      const lockKey = `tx_ref_verify:${cleanTxRef}`;
+      if (!acquireActionLock(lockKey, 10000)) {
+        return NextResponse.json(
+          { error: 'Transaction verification already in progress for this reference.' },
+          { status: 429 }
+        );
+      }
+    }
 
     // 1. Retrieve order record from database
     const { data: order, error: orderFetchError } = await supabaseAdmin

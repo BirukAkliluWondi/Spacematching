@@ -17,14 +17,29 @@ export async function POST(request: Request) {
 
     const { space_id, telegram_id } = parsed;
 
-    // 1. Resolve user record from telegram_id
-    const { data: user, error: userError } = await supabaseAdmin
-      .from('users')
-      .select('id, telegram_id, fayda_status')
-      .eq('telegram_id', telegram_id)
-      .single();
+    // 1, 2, 3: Fetch user, space, and existing order in parallel for maximum speed
+    const [userRes, spaceRes, existingOrderRes] = await Promise.all([
+      supabaseAdmin
+        .from('users')
+        .select('id, telegram_id, fayda_status')
+        .eq('telegram_id', telegram_id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from('spaces')
+        .select('id, title, unlock_fee, status')
+        .eq('id', space_id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from('orders')
+        .select('id, payment_status')
+        .eq('renter_telegram_id', telegram_id)
+        .eq('space_id', space_id)
+        .eq('payment_status', 'completed')
+        .maybeSingle(),
+    ]);
 
-    if (userError || !user) {
+    const user = userRes.data;
+    if (userRes.error || !user) {
       return NextResponse.json(
         { error: 'User record not found. Please authenticate via Telegram first.' },
         { status: 404 }
@@ -42,29 +57,15 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. Fetch dynamic unlock_fee and status directly from the space listing
-    const { data: space, error: spaceError } = await supabaseAdmin
-      .from('spaces')
-      .select('id, title, unlock_fee, status')
-      .eq('id', space_id)
-      .single();
-
-    if (spaceError || !space || space.status !== 'published') {
+    const space = spaceRes.data;
+    if (spaceRes.error || !space || space.status !== 'published') {
       return NextResponse.json(
         { error: 'Space listing is not available for unlock orders.' },
         { status: 400 }
       );
     }
 
-    // 3. Check for existing completed order for this space and renter_telegram_id
-    const { data: existingCompletedOrder } = await supabaseAdmin
-      .from('orders')
-      .select('id, payment_status')
-      .eq('renter_telegram_id', telegram_id)
-      .eq('space_id', space_id)
-      .eq('payment_status', 'completed')
-      .maybeSingle();
-
+    const existingCompletedOrder = existingOrderRes.data;
     if (existingCompletedOrder) {
       return NextResponse.json({
         success: true,
