@@ -156,7 +156,7 @@ async function sendGenderStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `✨ <b>SpaceMatch Addis · Welcome! / ስፔስማች አዲስ · እንኳን ደህና መጡ!</b>\n\n<blockquote>Choose the option that describes your situation: / ሁኔታዎን የሚገልጸውን አማራጭ ይምረጡ:\n\nSelect your gender: / ጾታዎን ይምረጡ:</blockquote>`,
+    `✨ <b>SpaceMatch Addis · Welcome! / ስፔስማች አዲስ · እንኳን ደህና መጡ!</b>\n\n👤 <b>Select your gender / ጾታዎን ይምረጡ:</b>`,
     {
       inline_keyboard: [
         [
@@ -206,7 +206,7 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
     },
   ]);
 
-  const text = `📍 <b>Which area or neighborhood? / የትኛው አካባቢ ወይም ሰፈር ነው?</b>\n\n<blockquote>Select all sub-cities in Addis Ababa where you'd like to live. / በአዲስ አበባ ውስጥ መኖር የሚፈልጉባቸውን ክፍለ ከተሞች ይምረጡ።</blockquote>`;
+  const text = `📍 <b>Which area or neighborhood? / የትኛው አካባቢ ወይም ሰፈር ነው?</b>\n\n<blockquote>Select the sub-cities in Addis Ababa where you want to live: / በአዲስ አበባ ውስጥ መኖር የሚፈልጉባቸውን ክፍለ ከተሞች ይምረጡ:</blockquote>`;
 
   if (messageId) {
     await editMessageText(chatId, messageId, text, { inline_keyboard: rows });
@@ -218,14 +218,14 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 async function sendBudgetStep(chatId: number) {
   await sendMessage(
     chatId,
-    `💰 <b>What is your monthly rent budget range? / ወርሃዊ የኪራይ በጀትዎ ስንት ነው?</b>\n\n<blockquote>Please type your budget range directly in chat (e.g. <code>8000 - 15000</code>) / የበጀትዎን መጠን በብር በቻቱ ይጻፉ (ምሳሌ: <code>8000 - 15000</code>):</blockquote>`
+    `💰 <b>What is your monthly rent budget range? / ወርሃዊ የኪራይ በጀትዎ ስንት ነው?</b>\n\n<blockquote>Type your budget range (e.g. <code>8000 - 15000</code>) / የበጀት ክልልዎን በብር ይጻፉ (ምሳሌ: <code>8000 - 15000</code>):</blockquote>`
   );
 }
 
 async function sendMoveInStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📅 <b>When are you looking to move in? / መቼ ነው መግባት የሚፈልጉት?</b>\n\n<blockquote>Choose your preferred move-in timeline: / የሚፈልጉትን የመግቢያ ጊዜ ይምረጡ:</blockquote>`,
+    `📅 <b>When are you looking to move in? / መቼ ነው መግባት የሚፈልጉት?</b>`,
     {
       inline_keyboard: [
         [
@@ -241,14 +241,14 @@ async function sendMoveInStep(chatId: number) {
 async function sendTraitsStep(chatId: number) {
   await sendMessage(
     chatId,
-    `🏠 <b>Tell us about your habits or house rules: / ስለ ባህሪዎ ወይም የቤት ደንቦች ይንገሩን:</b>\n\n<blockquote>Example: Non-smoker, quiet, student, tidy, no late-night guests / ምሳሌ: ሲጋራ የማያጨስ፣ ጸጥታ የሚወድ፣ ተማሪ፣ ጽዱ</blockquote>\n\nType your answer in chat below / መልስዎን ከታች በቻቱ ይጻፉ:`
+    `🏠 <b>Habits &amp; house rules / ስለ ባህሪዎ ወይም የቤት ደንቦች ይንገሩን:</b>\n\n<blockquote>Example: Non-smoker, clean, student / ምሳሌ: ሲጋራ የማያጨስ፣ ጽዱ፣ ተማሪ</blockquote>`
   );
 }
 
 async function sendPhoneStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📞 <b>Share your phone number: / ስልክ ቁጥርዎን ያጋሩ:</b>\n\n<blockquote>Tap the button below or type your Ethiopian phone number (e.g. <code>0912345678</code>) / ከታች ያለውን ቁልፍ ይጫኑ ወይም ስልክ ቁጥርዎን ይጻፉ:</blockquote>`,
+    `📞 <b>Share your phone number / ስልክ ቁጥርዎን ያጋሩ:</b>\n\n<blockquote>Tap the button below or type your phone number (e.g. <code>0912345678</code>) / ከታች ያለውን ቁልፍ ይጫኑ ወይም ስልክ ቁጥርዎን ይጻፉ:</blockquote>`,
     {
       keyboard: [
         [{ text: '📱 Share My Contact / ስልክ ቁጥሬን አጋራ', request_contact: true }],
@@ -282,7 +282,7 @@ async function sendKycStep(chatId: number) {
 
       await sendMessage(
         chatId,
-        `🎉 <b>Profile Approved &amp; Live! / መረጃዎ ጸድቆ ተለጥፏል!</b>\n\n<blockquote>Your Fayda ID is verified, and listing <b>#${displayCode}</b> is active on the channel! / የፋይዳ መታወቂያዎ ተረጋግጧል፤ ማስታወቂያ #${displayCode} ቻናሉ ላይ ተለጥፏል!</blockquote>`,
+        `🎉 <b>Profile Approved &amp; Live! / መረጃዎ ጸድቆ ተለጥፏል!</b>\n\n<blockquote>Your Fayda ID is verified, and listing <b>#${displayCode}</b> is open on the channel! / የፋይዳ መታወቂያዎ ተረጋግጧል፤ ማስታወቂያ #${displayCode} በቻናሉ ላይ ክፍት ሆኗል!</blockquote>`,
         {
           inline_keyboard: [
             [{ text: '⚡ Find Roommates / የቤት አጋር ፈልግ 🔍', callback_data: 'matchmaker_start' }],
@@ -296,7 +296,7 @@ async function sendKycStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `🛡️ <b>Upload your Fayda ID card photo: / የፋይዳ መታወቂያ ካርድዎን ፎቶ ይላኩ:</b>\n\n<blockquote>Please take and upload a clear photo or document of the back of your Fayda ID card showing the QR code. / እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ወይም ሰነድ ይላኩ።</blockquote>`,
+    `🛡️ <b>Upload Fayda ID Photo / የፋይዳ ፎቶ ይላኩ:</b>\n\n<blockquote>Please upload a clear photo of the back of your Fayda card showing the QR code. / የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>`,
     {
       inline_keyboard: [
         [
@@ -580,7 +580,7 @@ export async function handleOnboardingMessage(
       // 6. Confirmation message
       await sendMessage(
         chatId,
-        `🎉 <b>Profile Approved &amp; Posted! / መረጃዎ ጸድቆ ተለጥፏል!</b>\n\n<blockquote>Your listing <b>#${escapeHtml(displayCode)}</b> is now live on our channel! ✅\n\nWe will alert you here the moment someone wants to connect! / ማስታወቂያዎ በቻናላችን ላይ ተለጥፏል፤ ተዛማጅ ሲገኝ ወዲያውኑ እናሳውቆታለን!</blockquote>\n\n🔒 <i>Your contact details remain private until both parties match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃዎ ሚስጥራዊ ነው።</i>`,
+        `🎉 <b>Profile Approved &amp; Posted! / መረጃዎ ጸድቆ ተለጥፏል!</b>\n\n<blockquote>Your listing <b>#${escapeHtml(displayCode)}</b> is now open on the channel! We will notify you here when someone connects. / ማስታወቂያዎ በቻናሉ ላይ ክፍት ሆኗል፤ ተዛማጅ ሲገኝ ወዲያውኑ እናሳውቆታለን!</blockquote>\n\n🔒 <i>Your contact details remain private until both parties match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃዎ ሚስጥራዊ ነው።</i>`,
         {
           inline_keyboard: [
             [{ text: '⚡ Find Roommates / የቤት አጋር ፈልግ 🔍', callback_data: 'matchmaker_start' }],

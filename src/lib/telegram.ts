@@ -1053,7 +1053,7 @@ export async function updateChannelPostAsMatched(
   const closedHeader = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 <i>This listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!</i>\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴`;
 
   const closedText = baseContent
-    ? `${closedHeader}\n\n${baseContent}\n\n🔒 <i>Listing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ንቁ የቤት አጋሮችን ከታች ይመልከቱ:</i>`
+    ? `${closedHeader}\n\n${baseContent}\n\n🔒 <i>Listing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ክፍት የሆኑ የተረጋገጡ የቤት አጋሮችን ከታች ይመልከቱ:</i>`
     : `${closedHeader}\n\n✨ <b>Roommate #${escapeHtml(displayCode)} has found a match! 🎉 / የቤት አጋር ተገኝቷል! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted. / ይህ ማስታወቂያ ተዘግቷል። ተጨማሪ ጥያቄዎች አይቀበሉም።</blockquote>`;
 
   const safeCaption = truncateTelegramHtml(closedText, 1024);

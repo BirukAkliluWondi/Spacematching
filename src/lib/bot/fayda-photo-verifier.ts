@@ -101,20 +101,20 @@ export const FAYDA_ERROR_GUIDANCE: Record<
   { en: string; am: string; shortEn: string; shortAm: string }
 > = {
   NO_QR_FOUND: {
-    en: `⚠️ <b>No QR Code Detected</b>\n\n<blockquote>• The official square QR code is on the <b>BACK</b> of your Fayda ID card.\n• Please flip your card over and take a clear photo of the back.\n• Your session is still active — please upload the back photo now without restarting.</blockquote>\n\n📸 <b>Please flip your card and upload a photo of the back:</b>`,
-    am: `⚠️ <b>የፋይዳ QR ኮድ አልተገኘም</b>\n\n<blockquote>• ይፋዊው ካሬ የQR ኮድ የሚገኘው በፋይዳ መታወቂያዎ <b>ጀርባ (BACK)</b> ላይ ነው።\n• እባክዎ ካርድዎን ገልብጠው የጀርባውን ጥራት ያለው ፎቶ ያንሱ።\n• ሂደቱ አልተቋረጠም — እባክዎ እንደገና ሳይጀምሩ የጀርባውን ፎቶ አሁኑኑ ይላኩ።</blockquote>\n\n📸 <b>እባክዎ ካርድዎን ገልብጠው የጀርባውን ፎቶ ይላኩ:</b>`,
+    en: `⚠️ <b>No QR Code Detected</b>\n\n<blockquote>The official QR code is on the <b>BACK</b> of your Fayda card. Please flip your card and upload a clear photo of the back.</blockquote>`,
+    am: `⚠️ <b>የፋይዳ QR ኮድ አልተገኘም</b>\n\n<blockquote>ይፋዊው የQR ኮድ የሚገኘው በፋይዳ መታወቂያዎ <b>ጀርባ</b> ላይ ነው። እባክዎ ካርድዎን ገልብጠው የጀርባውን ፎቶ ያንሱ።</blockquote>`,
     shortEn: 'No QR code detected. The official QR code is on the BACK of the card. Please flip and upload.',
     shortAm: 'የፋይዳ QR ኮድ አልተገኘም። የQR ኮዱ ያለው በመታወቂያው ጀርባ ላይ ነው። እባክዎ ገልብጠው ይላኩ።',
   },
   QR_UNREADABLE: {
-    en: `⚠️ <b>QR Code Unreadable (Blurry or Glare)</b>\n\n<blockquote>• Avoid glare or flash reflections on the card.\n• Move to a well-lit area and hold your phone steady.\n• Get close enough so the QR squares look sharp and crisp.</blockquote>\n\n📸 <b>Please retake a clear, well-lit photo:</b>`,
-    am: `⚠️ <b>QR ኮዱ አልተነበበም (የደበዘዘ ወይም ነጸብራቅ ያለው)</b>\n\n<blockquote>• በካርዱ ላይ የፍላሽ ነጸብራቅ ወይም ጥላ እንዳይኖር ያድርጉ።\n• በቂ ብርሃን ወዳለበት ቦታ በመሄድ ስልክዎን ሳያንቀጠቅጡ ያንሱ።\n• የQR ኮዱ በግልጽ እስኪታይ ድረስ ቀረብ ብለው ያንሱ።</blockquote>\n\n📸 <b>እባክዎ ጥራት ያለው አዲስ ፎቶ ይላኩ:</b>`,
+    en: `⚠️ <b>QR Code Unreadable (Blurry or Glare)</b>\n\n<blockquote>Please avoid glare or flash reflections and ensure the QR code on the back is sharp and clear.</blockquote>`,
+    am: `⚠️ <b>QR ኮዱ አልተነበበም (የደበዘዘ ወይም ነጸብራቅ ያለው)</b>\n\n<blockquote>በካርዱ ላይ የፍላሽ ነጸብራቅ እንዳይኖር በማድረግ የQR ኮዱ በግልጽ እንዲታይ አድርገው ያንሱ።</blockquote>`,
     shortEn: 'QR code blurry or unreadable. Please upload a sharper photo.',
     shortAm: 'የQR ኮዱ አልተነበበም። እባክዎ ጥራት ያለው አዲስ ፎቶ ይላኩ።',
   },
   NOT_FAYDA: {
-    en: `⚠️ <b>Not an Authentic Fayda ID</b>\n\n<blockquote>The scanned QR code is not recognized as an Ethiopian National Fayda ID.</blockquote>\n\n📸 <b>Please upload a genuine Ethiopian Fayda National ID card:</b>`,
-    am: `⚠️ <b>ትክክለኛ የፋይዳ መታወቂያ አይደለም</b>\n\n<blockquote>የተላከው QR ኮድ የኢትዮጵያ ብሔራዊ የፋይዳ መታወቂያ መረጃ አልያዘም።</blockquote>\n\n📸 <b>እባክዎ ትክክለኛ የፋይዳ ብሔራዊ መታወቂያ ካርድ ፎቶ ይላኩ:</b>`,
+    en: `⚠️ <b>Not an Authentic Fayda ID</b>\n\n<blockquote>The scanned QR code is not recognized as an Ethiopian National Fayda ID.</blockquote>`,
+    am: `⚠️ <b>ትክክለኛ የፋይዳ መታወቂያ አይደለም</b>\n\n<blockquote>የተላከው QR ኮድ የኢትዮጵያ ብሔራዊ የፋይዳ መታወቂያ መረጃ አልያዘም።</blockquote>`,
     shortEn: 'Not recognized as an authentic Ethiopian Fayda ID.',
     shortAm: 'ትክክለኛ የኢትዮጵያ ፋይዳ ብሔራዊ መታወቂያ አልተገኘም።',
   },
@@ -143,8 +143,8 @@ export const FAYDA_ERROR_GUIDANCE: Record<
     shortAm: 'የፋይሉ መጠን ከ 10MB በላይ ነው።',
   },
   MANUAL_TEXT_ENTERED: {
-    en: `⚠️ <b>Photo Upload Required</b>\n\n<blockquote>Verification requires a photo of your official Fayda ID card showing the QR code.</blockquote>\n\n📸 <b>Please send a clear photo or document of your Fayda ID card:</b>`,
-    am: `⚠️ <b>የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>ማረጋገጫ የሚከናወነው በኦፊሴላዊው የፋይዳ መታወቂያ ካርድ ፎቶ ብቻ ነው።</blockquote>\n\n📸 <b>እባክዎ የQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ወይም ሰነድ ይላኩ:</b>`,
+    en: `⚠️ <b>Photo Upload Required</b>\n\n<blockquote>Please upload a photo of the back of your Fayda card showing the QR code. Manual text is not accepted.</blockquote>`,
+    am: `⚠️ <b>የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ። በጽሁፍ የሚላክ መረጃ ተቀባይነት የለውም።</blockquote>`,
     shortEn: 'Photo upload required. Please send a photo of your Fayda card.',
     shortAm: 'የካርድ ፎቶ መላክ ግዴታ ነው። እባክዎ የመታወቂያዎን ፎቶ ይላኩ።',
   },
