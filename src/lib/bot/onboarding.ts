@@ -156,7 +156,7 @@ async function sendGenderStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `✨ <b>SpaceMatch Addis · Welcome! / ስፔስማች አዲስ · እንኳን ደህና መጡ!</b>\n\n👤 <b>Select your gender / ጾታዎን ይምረጡ:</b>`,
+    `✨ <b>SpaceMatch Addis · Roommate Profile</b>\n<b>የቤት አጋር መገለጫ ዝግጅት</b>\n\n<blockquote>Step 1 of 5: Select your gender to personalize roommate matches.\nደረጃ 1 ከ 5፡ ትክክለኛ የቤት አጋር ለማግኘት ጾታዎን ይምረጡ።</blockquote>`,
     {
       inline_keyboard: [
         [
@@ -185,14 +185,14 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
     const loc1 = LOCATIONS[i];
     const sel1 = selectedLocations.includes(loc1);
     row.push({
-      text: `${sel1 ? '✅' : '📍'} ${loc1}`,
+      text: `${sel1 ? '🟢' : '⚪'} ${loc1}`,
       callback_data: `onboard_location:${loc1}`,
     });
     if (i + 1 < LOCATIONS.length) {
       const loc2 = LOCATIONS[i + 1];
       const sel2 = selectedLocations.includes(loc2);
       row.push({
-        text: `${sel2 ? '✅' : '📍'} ${loc2}`,
+        text: `${sel2 ? '🟢' : '⚪'} ${loc2}`,
         callback_data: `onboard_location:${loc2}`,
       });
     }
@@ -201,12 +201,12 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 
   rows.push([
     {
-      text: `Done Selecting / መርጬ ጨርሻለሁ ✅ (${selectedLocations.length})`,
+      text: `➡️ Proceed (${selectedLocations.length} Selected) / ቀጥል (${selectedLocations.length} ተመርጠዋል) ✅`,
       callback_data: 'onboard_locations_done',
     },
   ]);
 
-  const text = `📍 <b>Which area or neighborhood? / የትኛው አካባቢ ወይም ሰፈር ነው?</b>\n\n<blockquote>Select the sub-cities in Addis Ababa where you want to live: / በአዲስ አበባ ውስጥ መኖር የሚፈልጉባቸውን ክፍለ ከተሞች ይምረጡ:</blockquote>`;
+  const text = `📍 <b>SpaceMatch Addis · Preferred Neighborhoods</b>\n<b>የሚመርጡት አካባቢ ወይም ሰፈር</b>\n\n<blockquote>Step 2 of 5: Tap areas to toggle selection, then tap Proceed.\nደረጃ 2 ከ 5፡ የሚመርጧቸውን ሰፈሮች ይምረጡና 'ቀጥል' የሚለውን ይጫኑ።</blockquote>`;
 
   if (messageId) {
     await editMessageText(chatId, messageId, text, { inline_keyboard: rows });
@@ -218,14 +218,14 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 async function sendBudgetStep(chatId: number) {
   await sendMessage(
     chatId,
-    `💰 <b>What is your monthly rent budget range? / ወርሃዊ የኪራይ በጀትዎ ስንት ነው?</b>\n\n<blockquote>Type your budget range (e.g. <code>8000 - 15000</code>) / የበጀት ክልልዎን በብር ይጻፉ (ምሳሌ: <code>8000 - 15000</code>):</blockquote>`
+    `💰 <b>SpaceMatch Addis · Monthly Rent Budget</b>\n<b>ወርሃዊ የኪራይ በጀት</b>\n\n<blockquote>Step 3 of 5: Type your monthly budget range in ETB.\nደረጃ 3 ከ 5፡ ወርሃዊ የበጀት ክልልዎን በብር ይጻፉ።</blockquote>\n\n💡 <b>Example / ምሳሌ:</b> <code>8000 - 14000</code>`
   );
 }
 
 async function sendMoveInStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📅 <b>When are you looking to move in? / መቼ ነው መግባት የሚፈልጉት?</b>`,
+    `📅 <b>SpaceMatch Addis · Move-in Timeline</b>\n<b>የመግቢያ ጊዜ</b>\n\n<blockquote>Step 4 of 5: When are you looking to move in?\nደረጃ 4 ከ 5፡ መቼ ነው መግባት የሚፈልጉት?</blockquote>`,
     {
       inline_keyboard: [
         [
@@ -241,14 +241,14 @@ async function sendMoveInStep(chatId: number) {
 async function sendTraitsStep(chatId: number) {
   await sendMessage(
     chatId,
-    `🏠 <b>Habits &amp; house rules / ስለ ባህሪዎ ወይም የቤት ደንቦች ይንገሩን:</b>\n\n<blockquote>Example: Non-smoker, clean, student / ምሳሌ: ሲጋራ የማያጨስ፣ ጽዱ፣ ተማሪ</blockquote>`
+    `🏠 <b>SpaceMatch Addis · Habits & House Rules</b>\n<b>ስለ ባህሪዎ ወይም የቤት ደንቦች</b>\n\n<blockquote>Step 5 of 5: Describe your habits, profession, and house preferences.\nደረጃ 5 ከ 5፡ ስለ ራስዎ ሙያ፣ ባህሪ ወይም የቤት ደንብ ባጭሩ ይጻፉልን።</blockquote>\n\n💡 <b>Example / ምሳሌ:</b> <code>Non-smoker, clean, student / ሲጋራ የማያጨስ፣ ጽዱ፣ ተማሪ</code>`
   );
 }
 
 async function sendPhoneStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📞 <b>Share your phone number / ስልክ ቁጥርዎን ያጋሩ:</b>\n\n<blockquote>Tap the button below or type your phone number (e.g. <code>0912345678</code>) / ከታች ያለውን ቁልፍ ይጫኑ ወይም ስልክ ቁጥርዎን ይጻፉ:</blockquote>`,
+    `📞 <b>SpaceMatch Addis · Share Phone Number</b>\n<b>ስልክ ቁጥርዎን ያጋሩ</b>\n\n<blockquote>Tap the button below or type your phone number (e.g. <code>0912345678</code>).\nከታች ያለውን ቁልፍ ይጫኑ ወይም ስልክ ቁጥርዎን ይጻፉ።</blockquote>\n\n🔒 <b>Double-Blind Protected / በሚስጥር የተጠበቀ:</b> Phone numbers are never shared until you accept a connection request. / ስልክዎ ፈቃድ እስካልሰጡ ድረስ ለማንም አይታይም።`,
     {
       keyboard: [
         [{ text: '📱 Share My Contact / ስልክ ቁጥሬን አጋራ', request_contact: true }],
@@ -451,7 +451,7 @@ export async function handleOnboardingMessage(
     if (!parsedRange || parsedRange.max <= 0) {
       await sendMessage(
         chatId,
-        `⚠️ <b>Please type a valid monthly budget range in ETB: / እባክዎ ትክክለኛ ወርሃዊ የኪራይ መጠን በብር ያስገቡ:</b>\n(For example: <code>8000 - 15000</code> / ለምሳሌ: <code>8000 - 15000</code>)`
+        `⚠️ <b>Invalid Budget Range / የተሳሳተ የበጀት መጠን</b>\n\n<blockquote>Please type a valid monthly budget range in ETB.\nእባክዎ ትክክለኛ ወርሃዊ የኪራይ መጠን በብር ያስገቡ።</blockquote>\n\n💡 <b>Example / ምሳሌ:</b> <code>8000 - 14000</code>`
       );
       return true;
     }
@@ -469,7 +469,10 @@ export async function handleOnboardingMessage(
   if (step === 'traits') {
     const traits = (message.text || '').trim();
     if (!traits || traits.length < 5) {
-      await sendMessage(chatId, `⚠️ Please describe your lifestyle in a few words (min 5 characters).`);
+      await sendMessage(
+        chatId,
+        `⚠️ <b>More Details Required / ተጨማሪ መረጃ ያስፈልጋል</b>\n\n<blockquote>Please describe your lifestyle in a few words (min 5 characters).\nእባክዎ ስለ ባህሪዎ ወይም አኗኗርዎ በጥቂት ቃላት ይግለጹ (ቢያንስ 5 ፊደላት)።</blockquote>`
+      );
       return true;
     }
     await updateProfile(chatId, {
@@ -496,7 +499,7 @@ export async function handleOnboardingMessage(
       } else {
         await sendMessage(
           chatId,
-          `⚠️ Please enter a valid Ethiopian phone number (e.g. <code>0912345678</code>) or tap the <b>Share My Contact</b> button.`
+          `⚠️ <b>Invalid Phone Number / የተሳሳተ ስልክ ቁጥር</b>\n\n<blockquote>Please enter a valid Ethiopian phone number (e.g. <code>0912345678</code>) or tap the button below.\nእባክዎ ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ (ምሳሌ፡ <code>0912345678</code>) ወይም ከታች ያለውን ቁልፍ ይጫኑ።</blockquote>`
         );
         return true;
       }
@@ -531,7 +534,10 @@ export async function handleOnboardingMessage(
     }
 
     try {
-      await sendMessage(chatId, `⏳ <b>Processing your identity document in memory...</b>`);
+      await sendMessage(
+        chatId,
+        `⏳ <b>Processing Identity Document in Memory...</b>\n<b>ሰነዱ በሜሞሪ እየተመረመረ ነው...</b>\n\n<blockquote>Validating official cryptographic signature... Zero images are saved to storage.\nይፋዊ ዲጂታል ፊርማው እየተረጋገጠ ነው... ፎቶው በሲስተሙ ውስጥ አይቀመጥም።</blockquote>`
+      );
 
       // 1. Download into RAM buffer (Zero persistent storage)
       const fileBuffer = await downloadTelegramFile(kycMedia.fileId);
@@ -562,7 +568,10 @@ export async function handleOnboardingMessage(
       });
 
       if (!updatedProfile) {
-        await sendMessage(chatId, `❌ Could not save your profile. Please try again later.`);
+        await sendMessage(
+          chatId,
+          `❌ <b>Could Not Save Profile / መረጃውን ማስቀመጥ አልተቻለም</b>\n\n<blockquote>Please try again later or contact the coordinator.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ ወይም አስተዳዳሪውን ያነጋግሩ።</blockquote>`
+        );
         return true;
       }
 

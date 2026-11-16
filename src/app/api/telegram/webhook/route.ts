@@ -3016,22 +3016,25 @@ ${postPreview}
         : `Post your listing to the channel / ማስታወቂያዎን ቻናል ላይ ይለጥፉ`;
 
       const paywallText = `
-👑 <b>SpaceMatch Addis · 30-Day Pass / የ30 ቀን ሙሉ አባልነት</b>
-🏷️ <b>Fee / ክፍያ:</b> <code>300 ETB / ብር</code> (Valid for 30 Days / ለ30 ቀናት የሚሰራ)
+👑 <b>SpaceMatch Addis · 30-Day Pass</b>
+<b>የ30 ቀን ሙሉ አባልነት</b>
+
+🏷️ <b>Fee / ክፍያ:</b> <code>300 ETB / 30 Days</code>
 
 <blockquote>${purposeNotice}</blockquote>
 
-✨ <b>Pass Benefits / ጥቅሞች:</b>
-• 📢 Post listings to channel / ማስታወቂያ ቻናል ላይ መለጠፍ
-• 🚀 Unlimited connection requests / ያልተገደበ የግንኙነት ጥያቄ
-• 🔓 Instant mutual contact unlock / ስልክ እና ቴሌግራም መክፈት
+✨ <b>Active Benefits / የአባልነት ጥቅሞች:</b>
+• 📢 Post listings to channel / ማስታወቂያዎችን ቻናል ላይ መለጠፍ
+• 🚀 Unlimited connection requests / ያልተገደበ የግንኙነት ጥያቄ መላክ
+• 🔓 Instant mutual contact reveals / ያለምንም ተጨማሪ ክፍያ ስልክ እና ቴሌግራም መክፈት!
 
-💳 <b>Payment Options / የክፍያ አማራጮች (Name: ${paymentAccountHolder}):</b>
+💳 <b>Payment Channels / የክፍያ አማራጮች (Holder: ${paymentAccountHolder}):</b>
 • 📱 <b>Telebirr:</b> <code>${receiverPhone}</code>
 • 🏦 <b>Bank of Abyssinia:</b> <code>${abyssiniaAccount}</code>
 • 🏦 <b>Dashen Bank:</b> <code>${dashenAccount}</code>
 
-<blockquote>💬 After transfer, send your transaction reference code (e.g. <code>FT24...</code>) here to activate immediately! / ክፍያውን እንደፈጸሙ የደረሰኝ ቁጥርዎን እዚህ በመላክ ያግብሩ!</blockquote>
+<blockquote>Send transaction reference code / የደረሰኝ ቁጥርዎን ይላኩ:
+<code>/verify telebirr YOUR_REF</code> or <code>/verify abyssinia YOUR_REF</code></blockquote>
       `.trim();
 
       const paywallKeyboard = [
@@ -3962,7 +3965,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       ]);
       gridRows.push([{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]);
 
-      const text = '📍 <b>Which area or neighborhood? / የትኛው አካባቢ ወይም ሰፈር ነው?</b>';
+      const text = `📍 <b>SpaceMatch Addis · Preferred Neighborhoods</b>\n<b>የሚመርጡት አካባቢ ወይም ሰፈር</b>\n\n<blockquote>Tap sub-cities to toggle selection, then proceed to Gender.\nየሚመርጧቸውን ክፍለ ከተሞች ይምረጡና 'ቀጥል: ጾታ' የሚለውን ይጫኑ።</blockquote>`;
 
       const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
       const activeMsgId = await sendOrEditCard(chatId, text, gridRows, targetMsgId);
@@ -3984,7 +3987,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
     ) => {
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
-      const text = '👤 <b>What is your gender? / ጾታዎን ይምረጡ:</b>';
+      const text = `👤 <b>SpaceMatch Addis · Select Gender</b>\n<b>ጾታዎን ይምረጡ</b>\n\n<blockquote>Select your gender to personalize roommate matches.\nትክክለኛ የቤት አጋር ለማግኘት ጾታዎን ይምረጡ።</blockquote>`;
 
       const keyboard = [
         [
@@ -4018,8 +4021,8 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
     ) => {
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
-      const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}🎂 <b>What is your age? / እድሜዎ ስንት ነው?</b> (e.g. 24 / ምሳሌ: 24)`;
+      const header = errorMessage ? `⚠️ <b>${errorMessage}</b>\n\n` : '';
+      const text = `${header}🎂 <b>SpaceMatch Addis · Enter Your Age</b>\n<b>እድሜዎ ስንት ነው?</b>\n\n<blockquote>Please type your numerical age (e.g. <code>24</code>).\nእባክዎ እድሜዎን በቁጥር ይጻፉ (ምሳሌ፡ <code>24</code>)።</blockquote>`;
 
       const keyboard = [
         [
@@ -4048,7 +4051,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
     ) => {
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
-      const text = '👥 <b>Who do you prefer to live with? / አብሮዎት የሚኖረው ሰው የትኛው ጾታ እንዲሆን ይመርጣሉ?</b>';
+      const text = `👥 <b>SpaceMatch Addis · Roommate Preference</b>\n<b>አብሮዎት የሚኖረው ሰው ጾታ ምርጫ</b>\n\n<blockquote>Who do you prefer to live with?\nአብሮዎት የሚኖረው ሰው የትኛው ጾታ እንዲሆን ይመርጣሉ?</blockquote>`;
 
       const keyboard = [
         [
@@ -4085,8 +4088,8 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
     ) => {
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
-      const header = errorMessage ? `${errorMessage}\n\n` : '';
-      const text = `${header}💰 <b>Maximum monthly rent budget in ETB: / ከፍተኛው ወርሃዊ የኪራይ በጀት በብር:</b> (e.g. 10000 / ምሳሌ: 10000)`;
+      const header = errorMessage ? `⚠️ <b>${errorMessage}</b>\n\n` : '';
+      const text = `${header}💰 <b>SpaceMatch Addis · Monthly Budget Limit</b>\n<b>ከፍተኛው ወርሃዊ የኪራይ በጀት</b>\n\n<blockquote>Type your maximum rent in ETB (e.g. <code>10000</code>) or select Any Budget.\nከፍተኛውን ወርሃዊ የኪራይ በጀት በብር ይጻፉ (ምሳሌ፡ <code>10000</code>) ወይም 'ገደብ የለሽ' የሚለውን ይጫኑ።</blockquote>`;
 
       const keyboard = [
         [
@@ -4170,7 +4173,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       ]);
       gridRows.push([{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]);
 
-      const text = `📍 <b>Which area or neighborhood? / የትኛው አካባቢ ወይም ሰፈር ነው?</b>`;
+      const text = `📍 <b>SpaceMatch Addis · Preferred Neighborhoods</b>\n<b>የሚመርጡት አካባቢ ወይም ሰፈር</b>\n\n<blockquote>Step 1: Select preferred sub-cities in Addis Ababa.\nደረጃ 1፡ በአዲስ አበባ ውስጥ የሚመርጧቸውን ክፍለ ከተሞች ይምረጡ።</blockquote>`;
 
       const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
       const activeMsgId = await sendOrEditCard(chatId, text, gridRows, targetMsgId);
@@ -4188,7 +4191,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
     const sendSeekerMyGenderStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
-      const text = `👤 <b>What is your gender? / ጾታዎን ይምረጡ:</b>`;
+      const text = `👤 <b>SpaceMatch Addis · Select Gender</b>\n<b>ጾታዎን ይምረጡ</b>\n\n<blockquote>Step 2: Select your gender to personalize roommate matches.\nደረጃ 2፡ ትክክለኛ የቤት አጋር ለማግኘት ጾታዎን ይምረጡ።</blockquote>`;
 
       const keyboard = [
         [
@@ -4220,7 +4223,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
       const header = errorMessage ? `⚠️ <b>${errorMessage}</b>\n\n` : '';
-      const text = `${header}🎂 <b>What is your age? / እድሜዎ ስንት ነው?</b> (e.g. 24 / ምሳሌ: 24)`;
+      const text = `${header}🎂 <b>SpaceMatch Addis · Enter Your Age</b>\n<b>እድሜዎ ስንት ነው?</b>\n\n<blockquote>Step 3: Please type your numerical age (e.g. <code>24</code>).\nደረጃ 3፡ እባክዎ እድሜዎን በቁጥር ይጻፉ (ምሳሌ፡ <code>24</code>)።</blockquote>`;
 
       const keyboard = [
         [
@@ -4245,7 +4248,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
     const sendSeekerPrefGenderStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
-      const text = `👥 <b>Who do you prefer to live with? / አብሮዎት የሚኖረው ሰው የትኛው ጾታ እንዲሆን ይመርጣሉ?</b>`;
+      const text = `👥 <b>SpaceMatch Addis · Roommate Preference</b>\n<b>አብሮዎት የሚኖረው ሰው ጾታ ምርጫ</b>\n\n<blockquote>Step 4: Who do you prefer to live with?\nደረጃ 4፡ አብሮዎት የሚኖረው ሰው የትኛው ጾታ እንዲሆን ይመርጣሉ?</blockquote>`;
 
       const keyboard = [
         [
@@ -4283,7 +4286,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
       const header = errorMessage ? `⚠️ <b>${errorMessage}</b>\n\n` : '';
-      const text = `${header}💰 <b>Monthly budget in ETB: / ወርሃዊ የበጀት መጠን በብር:</b> (e.g. 10000 / ምሳሌ: 10000)`;
+      const text = `${header}💰 <b>SpaceMatch Addis · Monthly Rent Budget</b>\n<b>ወርሃዊ የበጀት መጠን</b>\n\n<blockquote>Step 5: Type your maximum budget in ETB (e.g. <code>10000</code>).\nደረጃ 5፡ ከፍተኛ ወርሃዊ የኪራይ በጀትዎን በብር ይጻፉ (ምሳሌ፡ <code>10000</code>)።</blockquote>`;
 
       const keyboard = [
         [
@@ -4308,7 +4311,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
     const sendSeekerBioStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
-      const text = `📝 <b>Tell us briefly about yourself: / ስለራስዎ በአጭሩ ይንገሩን:</b> (e.g. Quiet professional / ምሳሌ: ጸጥታ የሚወድ ሰራተኛ)`;
+      const text = `📝 <b>SpaceMatch Addis · Habits & Lifestyle</b>\n<b>ስለራስዎ በአጭሩ ይንገሩን</b>\n\n<blockquote>Step 6: Describe yourself or tap Skip (e.g. <code>Quiet professional, clean</code>).\nደረጃ 6፡ ስለራስዎ ባህሪ ባጭሩ ይጻፉ ወይም 'ይህን እለፍ' የሚለውን ይጫኑ።</blockquote>`;
 
       const keyboard = [
         [{ text: '⏭️ Skip Bio / ይህን እለፍ', callback_data: 'seeker_skip_bio' }],
@@ -4340,7 +4343,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
       const lang = getLanguage(currentDraft, chatId);
       const isAm = lang === 'am';
       const header = errorMessage ? `⚠️ <b>${errorMessage}</b>\n\n` : '';
-      const text = `${header}📞 <b>What is your contact phone number? / የስልክ ቁጥርዎን ያስገቡ:</b> (e.g. 0912345678 / ምሳሌ: 0912345678)`;
+      const text = `${header}📞 <b>SpaceMatch Addis · Contact Phone Number</b>\n<b>የስልክ ቁጥርዎን ያስገቡ</b>\n\n<blockquote>Step 7: Enter your phone number (e.g. <code>0912345678</code>).\nደረጃ 7፡ የስልክ ቁጥርዎን ያስገቡ (ምሳሌ፡ <code>0912345678</code>)።</blockquote>\n\n🔒 Protected by double-blind privacy shield. / ስልክዎ ፈቃድ እስካልሰጡ ድረስ ለማንም አይታይም።`;
 
       const keyboard = [
         [
@@ -4537,13 +4540,14 @@ ${formattedPreview}
       // Check empty state
       if (allProfiles.length === 0) {
         const emptyText = `
-🔍 <b>SpaceMatch Addis · No Roommate Profiles Yet / ምንም የክፍል ጓደኛ አልተገኘም</b>
+🔍 <b>SpaceMatch Addis · No Roommate Profiles Yet</b>
+<b>ምንም የክፍል ጓደኛ አልተገኘም</b>
 
-There are currently no other open roommate listings in our database.
-በአሁኑ ሰዓት በመረጃ ቋታችን ውስጥ ምንም ክፍት የሆነ የክፍል ጓደኛ ማስታወቂያ የለም።
+<blockquote>There are currently no other open roommate listings in our database.
+በአሁኑ ሰዓት በመረጃ ቋታችን ውስጥ ምንም ክፍት የሆነ የክፍል ጓደኛ ማስታወቂያ የለም።</blockquote>
 
-<blockquote>🌟 <b>Be Featured on Our Channel! / በቻናላችን ላይ ይለጠፉ!</b>
-Post your profile now to broadcast to our Telegram community and find compatible roommates!
+🌟 <b>Be Featured on Our Channel! / በቻናላችን ላይ ይለጠፉ!</b>
+<blockquote>Post your profile now to broadcast to our Telegram community and find compatible roommates!
 የራስዎን ማስታወቂያ በመለጠፍ በቻናላችን በኩል ተስማሚ የቤት አጋሮችን ያግኙ!</blockquote>
         `.trim();
 
@@ -4621,7 +4625,8 @@ Post your profile now to broadcast to our Telegram community and find compatible
 
       if (scoredMatches.length === 0) {
         const noMatchesText = `
-🔍 <b>SpaceMatch · No Exact Matches Found / ምንም ተዛማጅ አልተገኘም</b>
+🔍 <b>SpaceMatch Addis · No Exact Matches Found</b>
+<b>ምንም ተዛማጅ አልተገኘም</b>
 
 <blockquote>We could not find an exact match for your selected filters in those specific sub-cities right now.
 በመረጧቸው ክፍለ ከተሞች እና መስፈርቶች መሰረት በአሁኑ ሰዓት ምንም ተዛማጅ ሰው አልተገኘም።</blockquote>
@@ -4672,18 +4677,21 @@ Post your profile now to broadcast to our Telegram community and find compatible
       const prefGenderDisplay = match.preferred_gender === 'Female' ? 'Female Only / ሴት ብቻ' : match.preferred_gender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
 
       const matchCardText = `
-🎯 <b>Match #${safeIndex + 1} of ${scoredMatches.length} / ተዛማጅ #${safeIndex + 1} ከ ${scoredMatches.length}</b> · <b>${match.matchScore}% Match / ተዛማጅነት</b>
-📍 <code>${subcitiesStr}</code> · 🛡️ <b>${badge}</b>
+🎯 <b>Match #${safeIndex + 1} of ${scoredMatches.length}</b>
+<b>ተዛማጅ #${safeIndex + 1} ከ ${scoredMatches.length} · ${match.matchScore}% Match</b>
+
+• 📍 <b>Areas / አካባቢዎች:</b> <code>${subcitiesStr}</code>
+• 🛡️ <b>Status / ሁኔታ:</b> <b>${badge}</b>
 
 <b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
-• <b>Candidate / ተፈላጊ:</b> Verified Seeker / የተረጋገጠ ፈላጊ (${genderDisplay}${ageDisplay})
+• <b>Candidate / ተፈላጊ:</b> Verified Seeker (${genderDisplay}${ageDisplay})
 • <b>Looking For / የሚፈልጉት:</b> ${prefGenderDisplay}
 • <b>Monthly Budget / ወርሃዊ በጀት:</b> <code>Up to ${Number(match.budget_max).toLocaleString()} ETB / እስከ ${Number(match.budget_max).toLocaleString()} ብር</code>
 
 <b>ABOUT ME / ስለ እኔ</b>
 <blockquote>${bioContent}</blockquote>
 
-🔒 Personal identity, phone, and Telegram handle are concealed until connected. / የግለሰቡ ማንነት፣ ስልክ እና ቴሌግራም ግንኙነት እስኪፈጠር ድረስ የተጠበቀ ነው።
+🔒 <b>Double-Blind Protected:</b> Personal details are concealed until connected. / የግለሰቡ ማንነት ግንኙነት እስኪፈጠር ድረስ የተጠበቀ ነው።
       `.trim();
 
       const inlineKeyboardRows: any[] = [];
@@ -6651,9 +6659,10 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
         if (mem.isActive) {
           const expiryStr = mem.expiresAt ? mem.expiresAt.toLocaleDateString() : 'N/A';
           const activeText = `
-👑 <b>SpaceMatch Addis · 30-Day Pass / የ30 ቀን ሙሉ አባልነት</b>
+👑 <b>SpaceMatch Addis · 30-Day Pass</b>
+<b>የ30 ቀን ሙሉ አባልነት</b>
 
-• <b>Status / ሁኔታ:</b> 🟢 <b>Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል)</b>
+• <b>Status / ሁኔታ:</b> 🟢 Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል)
 • <b>Expires on / የማብቂያ ቀን:</b> <code>${expiryStr}</code>
 
 ✨ <b>Active Benefits / የአባልነት ጥቅሞች:</b>
