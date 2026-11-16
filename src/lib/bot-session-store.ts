@@ -393,12 +393,6 @@ export async function clearSession(telegramId: number): Promise<void> {
     preservedDraft.lang = activeLang;
     _userLanguageCache.set(String(telegramId), activeLang);
   }
-  if (current?.draft_data?.checkin_scheduled) {
-    preservedDraft.checkin_scheduled = true;
-    preservedDraft.checkin_due = current.draft_data.checkin_due;
-    preservedDraft.target_display_code = current.draft_data.target_display_code;
-    preservedDraft.target_channel_message_id = current.draft_data.target_channel_message_id;
-  }
   await saveSession({
     telegram_id: telegramId,
     step: 'idle',

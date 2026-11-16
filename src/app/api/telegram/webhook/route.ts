@@ -86,7 +86,6 @@ const ALL_SUBCITIES = [
 
 // Module-level cache for admin IDs
 let cachedAdminIds: { ids: number[]; expiresAt: number } | null = null;
-let lastCheckinRun = 0;
 export function invalidateAdminCache() {
   cachedAdminIds = null;
 }
@@ -972,132 +971,9 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     };
 
     // Helper: 24-Hour Automated Follow-Up Check-in Protocol
+    // Automated 24-hour push notifications disabled; users check remaining days and listing status on-demand via the bot menu button
     const checkPending24hCheckins = async () => {
-      const now = Date.now();
-      if (now - lastCheckinRun < 15 * 60 * 1000) {
-        return;
-      }
-      lastCheckinRun = now;
-      try {
-
-        // 1. Check sessions scheduled in bot_sessions
-        const { data: pendingSessions } = await supabaseAdmin
-          .from('bot_sessions')
-          .select('*')
-          .filter('draft_data->>checkin_scheduled', 'eq', 'true')
-          .limit(20);
-
-        if (pendingSessions && pendingSessions.length > 0) {
-          for (const s of pendingSessions) {
-            const due = Number(s.draft_data?.checkin_due || 0);
-            if (due > 0 && due <= now) {
-              const displayCode = s.draft_data?.target_display_code || 'ROOMMATE';
-              const checkinText = `
-👋 <b>SpaceMatch · 24-Hour Roommate Follow-Up</b>
-
-It has been 24 hours since your roommate contact was unlocked!
-
-<b>Do you want to keep your profile posted on the channel?</b>
-
-• <b>Listing Code:</b> <b>#${displayCode}</b>
-              `.trim();
-
-              const checkinKeyboard = [
-                [
-                  {
-                    text: '❌ No, close it (Roommate match was successful!)',
-                    callback_data: `owner_close_listing:${displayCode}`,
-                  },
-                ],
-                [
-                  {
-                    text: '✅ Keep it (I want other roommate matches)',
-                    callback_data: `owner_keep_listing:${displayCode}`,
-                  },
-                ],
-              ];
-
-              await sendTelegram('sendMessage', {
-                chat_id: s.telegram_id,
-                text: checkinText,
-                parse_mode: 'HTML',
-                reply_markup: { inline_keyboard: checkinKeyboard },
-              }).catch(() => {});
-
-              await saveSession({
-                telegram_id: s.telegram_id,
-                step: s.step || 'idle',
-                draft_data: {
-                  ...s.draft_data,
-                  checkin_scheduled: false,
-                  checkin_sent_at: new Date().toISOString(),
-                },
-                updated_at: new Date().toISOString(),
-              });
-            }
-          }
-        }
-
-        // 2. Dual redundancy: Also check matches table where contacts were unlocked > 24 hours ago
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const { data: pendingMatches } = await supabaseAdmin
-          .from('matches')
-          .select('id, target:target_id(id, telegram_id, display_code, channel_message_id), contacts_unlocked_at, checkin_24h_sent')
-          .eq('status', 'completed')
-          .not('contacts_unlocked_at', 'is', null)
-          .lte('contacts_unlocked_at', twentyFourHoursAgo)
-          .or('checkin_24h_sent.is.null,checkin_24h_sent.eq.false')
-          .limit(10);
-
-        if (pendingMatches && pendingMatches.length > 0) {
-          for (const m of pendingMatches) {
-            const targetData = m.target as any;
-            const targetTgId = targetData?.telegram_id;
-            const displayCode = targetData?.display_code || 'ROOMMATE';
-
-            if (targetTgId) {
-              const checkinText = `
-👋 <b>SpaceMatch · 24-Hour Roommate Follow-Up</b>
-
-It has been 24 hours since your roommate contact was unlocked!
-
-<b>Do you want to keep your profile posted on the channel?</b>
-
-• <b>Listing Code:</b> <b>#${displayCode}</b>
-              `.trim();
-
-              const checkinKeyboard = [
-                [
-                  {
-                    text: '❌ No, close it (Roommate match was successful!)',
-                    callback_data: `owner_close_listing:${displayCode}`,
-                  },
-                ],
-                [
-                  {
-                    text: '✅ Keep it (I want other roommate matches)',
-                    callback_data: `owner_keep_listing:${displayCode}`,
-                  },
-                ],
-              ];
-
-              await sendTelegram('sendMessage', {
-                chat_id: targetTgId,
-                text: checkinText,
-                parse_mode: 'HTML',
-                reply_markup: { inline_keyboard: checkinKeyboard },
-              }).catch(() => {});
-
-              await supabaseAdmin
-                .from('matches')
-                .update({ checkin_24h_sent: true, updated_at: new Date().toISOString() })
-                .eq('id', m.id);
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error checking 24h follow-ups:', err);
-      }
+      return;
     };
 
     // Helper to send or edit in-place cards seamlessly
@@ -3405,21 +3281,6 @@ ${postPreview}
           await tgSend(targetNotifyId, getDisclaimerText(targetIsAm));
           await tgSend(targetNotifyId, requesterContact.text, requesterContact.markup);
         }
-
-        // Schedule 24-hour follow-up check-in for listing owner
-        const existingSession = getSession(targetNotifyId);
-        await saveSession({
-          telegram_id: targetNotifyId,
-          step: existingSession?.step || 'idle',
-          draft_data: {
-            ...(existingSession?.draft_data || {}),
-            checkin_scheduled: true,
-            checkin_due: Date.now() + 24 * 60 * 60 * 1000,
-            target_display_code: targetData?.display_code || 'RM',
-            target_channel_message_id: targetData?.channel_message_id,
-          },
-          updated_at: new Date().toISOString(),
-        });
       }
     };
 
@@ -3922,9 +3783,15 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
         [
           {
             text: mem.isActive
-              ? `👑 Pass: Active (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining} ቀናት) ✅`
+              ? `👑 Pass: Active (${mem.daysRemaining}d remaining) / የሚሰራ (${mem.daysRemaining} ቀናት) ✅`
               : '👑 Get 30-Day Pass (300 ETB) / የ30 ቀን ፓስ አግብር (300 ብር)',
             callback_data: 'view_membership_pass',
+          },
+        ],
+        [
+          {
+            text: '📋 My Listings & Status / ማስታወቂያዎቼና ሁኔታዬ',
+            callback_data: 'my_listings',
           },
         ],
         ...(isAdmin
@@ -5361,9 +5228,6 @@ ${sanitizedContact.telegramUsername ? `• <b>Telegram / ቴሌግራም:</b> @$
 
       return NextResponse.json({ ok: true });
     }
-
-    // Check and trigger any pending 24-hour follow-up check-ins asynchronously
-    checkPending24hCheckins().catch((err) => console.error('checkPending24hCheckins error:', err));
 
     // -------------------------------------------------------------------------
     // 1. HANDLE INLINE CALLBACK QUERIES
@@ -6823,6 +6687,7 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
             [
               [{ text: '🔍 Search Roommate / የቤት ጓደኛ ፈልግ', callback_data: 'search_roommate_start' }],
               [{ text: '📢 Post Profile to Channel / ቻናል ላይ መረጃዬን ልለጥፍ', callback_data: 'post_profile_start' }],
+              [{ text: '📋 My Listings & Status / ማስታወቂያዎቼና ሁኔታዬ', callback_data: 'my_listings' }],
               [{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
             ],
             msgId
