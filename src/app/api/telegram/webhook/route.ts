@@ -1051,7 +1051,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
         updated_at: new Date().toISOString(),
       });
 
-      const gateText = `🛡️ <b>Upload Fayda ID Photo / የፋይዳ ፎቶ ይላኩ:</b>\n\n<blockquote>Please upload a clear photo of the back of your Fayda ID card showing the QR code. / የQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ጥራት ያለው ፎቶ ይላኩ።</blockquote>`;
+      const gateText = `🛡️ <b>SpaceMatch Addis · Fayda National ID Verification</b>\n<b>የፋይዳ ብሔራዊ መታወቂያ ማረጋገጫ</b>\n\n<blockquote>To maintain a safe, verified network, please upload a clear photo of your Fayda National ID showing the official QR code.\nየታመነና ደህንነቱ የተጠበቀ ማህበረሰብ ለመገንባት፣ እባክዎ የፋይዳ ብሔራዊ መታወቂያዎን ይፋዊ QR ኮድ በግልጽ የሚያሳይ ፎቶ ይላኩ።</blockquote>\n\n🔒 Personal details are verified instantly via digital signature. Photos are never stored. / መረጃዎ በዲጂታል ፊርማ ወዲያውኑ ይረጋገጣል፤ ፎቶዎች በሲስተሙ ውስጥ አይቀመጡም።`;
 
       const inlineKeyboard = [
         [
@@ -1174,17 +1174,17 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       }
 
       const cardText = `
-🛡️ <b>SpaceMatch Addis · Fayda ID Verified / የፋይዳ መታወቂያ ተረጋግጧል</b> ✅
+✅ <b>Fayda Verified Successfully!</b>
+<b>ፋይዳዎ በትክክል ተረጋግጧል!</b>
 
-👤 <b>Full Name / ሙሉ ስም:</b> <b>${officialName}</b>
-🎂 <b>Date of Birth / የትውልድ ቀን:</b> ${dobDisplay}
-⚧ <b>Gender / ጾታ:</b> ${genderDisplay}
-🆔 <b>Fayda FAN / የፋይዳ ቁጥር:</b> <code>${maskedFan}</code>
-🛡️ <b>Status / ሁኔታ:</b> 🟢 <b>Verified Resident / የተረጋገጠ ነዋሪ</b>
-🔐 <b>Validation / ማረጋገጫ:</b> Official NIDP RS256 Digital Signature / ይፋዊ ዲጂታል ፊርማ ✅
-💾 <b>Registry / ምዝገባ:</b> SpaceMatch Database Verified / በዳታቤዝ ተረጋግጧል ✅
+• 👤 <b>Name / ስም:</b> <b>${officialName}</b>
+• 🛡️ <b>FAN:</b> <code>${maskedFan}</code>
+• 🎂 <b>DOB / የልደት ቀን:</b> <code>${dobDisplay}</code>
+• ⚧ <b>Gender / ጾታ:</b> <code>${genderDisplay}</code>
+• 🛡️ <b>Status / ሁኔታ:</b> 🟢 <b>Verified Resident / የተረጋገጠ ነዋሪ</b>
 
-<blockquote>You are fully approved to match, post, and connect safely across Addis Ababa. / በአዲስ አበባ ውስጥ በሙሉ እምነት እና ደህንነት መፈለግ እና መገናኘት ይችላሉ።</blockquote>
+<blockquote>🛡️ Institutional Trust Badge Active · Verification photo permanently purged from memory.
+የማረጋገጫ ፎቶው ከሲስተም ሜሞሪ ሙሉ በሙሉ ተሰርዟል።</blockquote>
       `.trim();
 
       const inlineKeyboard = [
@@ -2144,48 +2144,28 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
           ? `${budgetMinStr} – ${budgetMaxStr} ETB / month`
           : `Up to ${budgetMaxStr} ETB / month`;
 
-        const targetLang = targetProfile.telegram_id ? getUserLanguage(targetProfile.telegram_id) : 'en';
-        const targetIsAm = targetLang === 'am';
+        const genderDisplayStr = userGender === 'Female' ? 'Female / ሴት' : userGender === 'Male' ? 'Male / ወንድ' : userGender;
+        const prefGenderDisplayStr = userPrefGender === 'Female' ? 'Female Only / ሴት ብቻ' : userPrefGender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
 
-        const targetNotifyText = targetIsAm
-          ? `
-🤝 <b>ስፔስማች አዲስ · አዲስ የግንኙነት ጥያቄ!</b>
+        const targetNotifyText = `
+🤝 <b>SpaceMatch Addis · New Connection Request!</b>
+<b>አዲስ የግንኙነት ጥያቄ!</b>
 
-አንድ የተረጋገጠ የክፍል ጓደኛ ማስታወቂያዎን አይቶ ሊገናኝዎት ይፈልጋል!
+<blockquote>A verified roommate saw your listing and wants to connect!
+አንድ የተረጋገጠ አባል ማስታወቂያዎን አይቶ ሊገናኝዎት ይፈልጋል!</blockquote>
 
-• <b>መገለጫ:</b> ${userGender === 'Female' ? 'ሴት' : userGender === 'Male' ? 'ወንድ' : userGender}፣ ዕድሜ ${userAge}
-• <b>ስራ:</b> ${escapeHtml(userJob)}
-• <b>ሃይማኖት:</b> ${escapeHtml(userReligion)}
-• <b>የሚመርጡት:</b> የ${escapeHtml(userPrefGender === 'Female' ? 'ሴት' : userPrefGender === 'Male' ? 'ወንድ' : userPrefGender)} የቤት ጓደኛ
-• <b>የበጀት ክልል:</b> <code>${budgetDisplay}</code>
-• <b>ተመራጭ አካባቢዎች:</b> <code>${escapeHtml(reqSubcities)}</code>
-• <b>ሁኔታ:</b> 🛡️ <b>ፋይዳ የተረጋገጠ ✅</b>
-
-<blockquote>"${escapeHtml(userTraits)}"</blockquote>
-
-🔒 የግል መረጃ (ስም፣ ስልክ ቁጥር እና ቴሌግራም አድራሻ) የሁለታችሁም ፈቃድ እስካልተረጋገጠና ክፍያ እስካልተጠናቀቀ ድረስ በሚስጥር የተጠበቀ ነው።
-
-<blockquote>ከዚህ የክፍል ጓደኛ ጋር መገናኘት ይፈልጋሉ?</blockquote>
-`.trim()
-          : `
-🤝 <b>SpaceMatch · New Connection Request!</b>
-
-A verified roommate saw your listing and wants to connect!
-
-• <b>Profile:</b> ${userGender}, Age ${userAge}
-• <b>Occupation:</b> ${escapeHtml(userJob)}
-• <b>Religion:</b> ${escapeHtml(userReligion)}
-• <b>Prefers:</b> ${escapeHtml(userPrefGender)} Roommate
-• <b>Budget Range:</b> <code>${budgetDisplay}</code>
-• <b>Target Areas:</b> <code>${escapeHtml(reqSubcities)}</code>
-• <b>Status:</b> 🛡️ <b>Fayda Verified ✅</b>
+• <b>Profile / መገለጫ:</b> ${genderDisplayStr}, Age ${userAge} / ዕድሜ ${userAge}
+• <b>Occupation / ስራ:</b> ${escapeHtml(userJob || 'Not specified / አልተገለጸም')}
+• <b>Religion / ሃይማኖት:</b> ${escapeHtml(userReligion || 'Not specified / አልተገለጸም')}
+• <b>Prefers / የሚመርጡት:</b> ${escapeHtml(prefGenderDisplayStr)}
+• <b>Budget / በጀት:</b> <code>${budgetDisplay}</code>
+• <b>Target Areas / አካባቢዎች:</b> <code>${escapeHtml(reqSubcities)}</code>
+• <b>Status / ሁኔታ:</b> 🛡️ <b>Fayda Verified ✅</b>
 
 <blockquote>"${escapeHtml(userTraits)}"</blockquote>
 
-🔒 Personal identity (name, phone number, and Telegram handle) is strictly hidden until mutual agreement and match unlock.
-
-<blockquote>Would you like to connect with this roommate?</blockquote>
-`.trim();
+🔒 Personal contact details are protected until you accept. / ስልክና አድራሻዎ ጥያቄውን እስኪቀበሉ ድረስ በሚስጥር የተጠበቀ ነው።
+        `.trim();
 
         const targetNotifyId = targetProfile.telegram_id > 0
           ? targetProfile.telegram_id
@@ -2195,8 +2175,8 @@ A verified roommate saw your listing and wants to connect!
           const sendRes = await tgSend(targetNotifyId, targetNotifyText, {
             inline_keyboard: [
               [
-                { text: targetIsAm ? '✅ ተቀበል (Accept)' : '✅ Accept Match', callback_data: `match_accept:${newMatch.id}` },
-                { text: targetIsAm ? '❌ አልፈልግም (Decline)' : '❌ Decline', callback_data: `match_decline:${newMatch.id}` },
+                { text: '✅ Accept / ተቀበል', callback_data: `match_accept:${newMatch.id}` },
+                { text: '❌ Decline / አልፈልግም', callback_data: `match_decline:${newMatch.id}` },
               ],
             ],
           });
@@ -3225,11 +3205,11 @@ ${postPreview}
           ? `<blockquote>💡 Managed by SpaceMatch Concierge. Tap below to coordinate directly with our coordinator! / ይህ ማስታወቂያ በአስተዳዳሪ በኩል የሚስተናገድ ነው። ከታች ያለውን ቁልፍ በመጫን በቀጥታ ይገናኙ።</blockquote>`
           : `<blockquote>Good luck finding your home together! / መልካም የጋራ ኑሮ ይሁንላችሁ! 🏠🤝</blockquote>`;
 
-        const msg = `🎉 <b>YOU'RE MATCHED! / እንኳን ደስ አላችሁ! ተዛምዳችኋል!</b>\n\n<blockquote>Membership confirmed! Your connection is complete. / አባልነትዎ ተረጋግጧል። ግንኙነታችሁ ተጠናቋል!</blockquote>\n\n👤 <b>Name / ስም:</b> <b>${escapeHtml(displayName)}</b>\n📞 <b>Phone / ስልክ:</b> <code>${escapeHtml(displayPhone)}</code>\n💬 <b>Telegram / ቴሌግራም:</b> ${tgHandle}\n\n${closingBlockquote}`;
+        const msg = `🎉 <b>YOU'RE MATCHED!</b>\n<b>እንኳን ደስ አላችሁ! ተዛምዳችኋል!</b>\n\n<blockquote>Membership confirmed! Your connection is complete. / አባልነትዎ ተረጋግጧል። ግንኙነታችሁ ተጠናቋል!</blockquote>\n\n• 👤 <b>Name / ስም:</b> <b>${escapeHtml(displayName)}</b>\n• 📞 <b>Phone / ስልክ:</b> <code>${escapeHtml(displayPhone)}</code>\n• 💬 <b>Telegram / ቴሌግራም:</b> ${tgHandle}\n\n${closingBlockquote}`;
 
         const buttonText = isConcierge
           ? `💬 Chat with Coordinator / ከአስተዳዳሪ ጋር አውራ (@${cleanHandle}) ↗️`
-          : '💬 Open Chat on Telegram / በቴሌግራም አውራ';
+          : '💬 Open Chat on Telegram / በቴሌግራም አውራ ↗️';
 
         const markup = cleanHandle
           ? { inline_keyboard: [[{ text: buttonText, url: `https://t.me/${cleanHandle}` }]] }
@@ -3762,10 +3742,10 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
       const mem = await getUserMembershipStatus(chatId);
       const memBadge = mem.isActive
-        ? `\n\n👑 <b>30-Day Pass / የ30 ቀን አባልነት:</b> 🟢 Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል) ✅`
-        : `\n\n👑 <b>30-Day Pass / የ30 ቀን አባልነት:</b> ⚪ Inactive / የለም (300 ETB / 30 Days)`;
+        ? `🟢 Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል) ✅`
+        : `⚪ Inactive / የለም (300 ETB / 30 Days)`;
 
-      const welcomeText = `🏠 <b>SpaceMatch Addis · Welcome! / ስፔስማች አዲስ · እንኳን ደህና መጡ!</b>\n\n<blockquote>Addis Ababa's verified roommate matching network. / የተረጋገጡ የቤት አጋሮችን በአዲስ አበባ ውስጥ በታማኝነት የሚያገኙበት መድረክ።</blockquote>${memBadge}`;
+      const welcomeText = `🏠 <b>SpaceMatch Addis · Welcome!</b>\n<b>ስፔስማች አዲስ · እንኳን ደህና መጡ!</b>\n\n<blockquote>Addis Ababa's verified roommate matching network.\nየተረጋገጡ የቤት አጋሮችን በአዲስ አበባ ውስጥ በታማኝነት የሚያገኙበት መድረክ።</blockquote>\n\n👑 <b>30-Day Pass / የ30 ቀን አባልነት:</b>\n${memBadge}\n\n🛡️ <b>Anti-Delala Protected / ከአጭበርባሪ ደላላ ነፃ</b>`;
 
       const inlineKeyboard = [
         [
@@ -3825,7 +3805,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
         ? `👑 <b>30-Day Pass / አባልነት:</b> 🟢 Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል)\n\n`
         : `👑 <b>30-Day Pass / አባልነት:</b> ⚪ Inactive (300 ETB) / የለም (300 ብር)\n\n`;
 
-      let text = `✨ <b>SpaceMatch Addis · My Listings / ማስታወቂያዎቼ</b>\n\n` + memBadge;
+      let text = `✨ <b>SpaceMatch Addis · My Listings</b>\n<b>ማስታወቂያዎቼ</b>\n\n` + memBadge;
       const buttons: any[] = [];
       let count = 0;
 
@@ -5924,9 +5904,10 @@ ${res.message}
         const targetCode = callbackData.split(':')[1];
         await executeChannelPostClose(targetCode, chatId);
         const closeMsg = `
-🔴 <b>Listing Marked as CLOSED!</b>
+🔴 <b>Listing Marked as CLOSED! / ማስታወቂያው ተዘግቷል!</b>
 
-Congratulations on finding a roommate! Post <b>#${targetCode}</b> has been updated on the channel with <b>_____CLOSED_____</b>.
+<blockquote>Congratulations on finding a roommate! Post <b>#${targetCode}</b> has been updated on the channel with <b>_____CLOSED_____</b> and action buttons were removed.
+እንኳን ደስ አለዎት! ማስታወቂያው በቻናሉ ላይ ተዘግቷል።</blockquote>
         `.trim();
 
         await sendOrEditCard(chatId, closeMsg, [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]], msgId);

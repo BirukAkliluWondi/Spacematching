@@ -296,7 +296,7 @@ async function sendKycStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `🛡️ <b>Upload Fayda ID Photo / የፋይዳ ፎቶ ይላኩ:</b>\n\n<blockquote>Please upload a clear photo of the back of your Fayda card showing the QR code. / የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>`,
+    `🛡️ <b>SpaceMatch Addis · Fayda National ID Verification</b>\n<b>የፋይዳ ብሔራዊ መታወቂያ ማረጋገጫ</b>\n\n<blockquote>To maintain a safe, verified network, please upload a clear photo of your Fayda National ID showing the official QR code.\nየታመነና ደህንነቱ የተጠበቀ ማህበረሰብ ለመገንባት፣ እባክዎ የፋይዳ ብሔራዊ መታወቂያዎን ይፋዊ QR ኮድ በግልጽ የሚያሳይ ፎቶ ይላኩ።</blockquote>\n\n🔒 Personal details are verified instantly via digital signature. Photos are never stored. / መረጃዎ በዲጂታል ፊርማ ወዲያውኑ ይረጋገጣል፤ ፎቶዎች በሲስተሙ ውስጥ አይቀመጡም።`,
     {
       inline_keyboard: [
         [
