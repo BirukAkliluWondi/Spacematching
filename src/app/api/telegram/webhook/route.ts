@@ -66,6 +66,7 @@ import {
  type FaydaSuccessResult,
 } from '@/lib/bot/fayda-photo-verifier';
 import { getLanguage, I18N, SupportedLang } from '@/lib/bot-i18n';
+import { generateStartCardPng } from '@/lib/dynamic-card-generator';
 
 const ALL_SUBCITIES = [
  'Bole',
@@ -111,6 +112,9 @@ export function invalidateFaydaStatusCache(chatId: number) {
 // Module-level deduplication lock to guarantee idempotent match contact unlocks under rapid concurrent clicks
 const _activeMatchUnlocks = new Set<string>();
 
+// Feature Flag: Toggle dynamic start card image banner (set to 'false' to instantly revert to classic text card)
+export const ENABLE_DYNAMIC_START_IMAGE = process.env.ENABLE_DYNAMIC_START_IMAGE !== 'false';
+
 export async function POST(request: Request) {
  try {
  const update = await request.json();
@@ -150,6 +154,41 @@ export async function POST(request: Request) {
  return null;
  }
  };
+
+  // Helper to send photo buffer via multipart/form-data with keep-alive and network timeout guard
+  const sendTelegramPhotoBuffer = async (
+    chatId: number,
+    photoBuffer: Buffer,
+    caption?: string,
+    keyboard?: any[][]
+  ): Promise<{ ok: boolean; result?: { message_id: number } } | null> => {
+    if (!botToken) return null;
+    if (process.env.MOCK_TELEGRAM_API === 'true') {
+      return { ok: true, result: { message_id: 9999 } };
+    }
+    try {
+      const formData = new FormData();
+      formData.append('chat_id', String(chatId));
+      formData.append('photo', new Blob([new Uint8Array(photoBuffer)], { type: 'image/png' }), 'start_card.png');
+      if (caption) {
+        formData.append('caption', caption);
+        formData.append('parse_mode', 'HTML');
+      }
+      if (keyboard) {
+        formData.append('reply_markup', JSON.stringify({ inline_keyboard: keyboard }));
+      }
+
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+        method: 'POST',
+        body: formData,
+        signal: AbortSignal.timeout(10000),
+      });
+      return await res.json();
+    } catch (err) {
+      console.error('sendTelegramPhotoBuffer error:', err);
+      return null;
+    }
+  };
 
  // Helper to get Admin Telegram IDs (Super-Admins + DB Admins + Channel Admins)
  const getAdminIds = async (): Promise<number[]> => {
@@ -3647,51 +3686,87 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  };
 
  // Helper: Send Primary Start / Main Menu Screen
- const sendPrimaryWelcomeMenu = async (chatId: number, messageIdToEdit?: number) => {
-  // Ensure the menu button in Telegram is reset to commands menu so mobile keyboards are unobstructed
-  setChatMenuButton({ type: 'commands' }, chatId).catch(() => {});
+  // Helper: Send Primary Start / Main Menu Screen (Supports Dynamic Graphic Card + Pure Text Fallback)
+  const sendPrimaryWelcomeMenu = async (
+    chatId: number,
+    messageIdToEdit?: number,
+    fromUser?: { first_name?: string; last_name?: string; username?: string }
+  ) => {
+    // Ensure the menu button in Telegram is reset to commands menu so mobile keyboards are unobstructed
+    setChatMenuButton({ type: 'commands' }, chatId).catch(() => {});
 
-  const session = getSession(chatId);
-  const lang = getLanguage(session.draft_data, chatId);
-  const isAm = lang === 'am';
+    const session = getSession(chatId);
+    const lang = getLanguage(session.draft_data, chatId);
+    const isAm = lang === 'am';
 
-  const mem = await getUserMembershipStatus(chatId);
-  const memBadge = mem.isActive
-    ? `Active (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining} ቀናት)`
-    : `Inactive / የለም (300 ETB / 30 Days)`;
+    const mem = await getUserMembershipStatus(chatId);
+    const memBadge = mem.isActive
+      ? `Active (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining} ቀናት)`
+      : `Inactive / የለም (300 ETB / 30 Days)`;
 
-  const welcomeText = `<b>SpaceMatch Addis / ስፔስማች አዲስ</b>\n\n<blockquote>Verified Roommate Network · Addis Ababa\nየተረጋገጡ የቤት አጋሮች መፈለጊያ</blockquote>\n\n<b>Pass / አባልነት:</b> ${memBadge}`;
+    const welcomeText = `<b>SpaceMatch Addis / ስፔስማች አዲስ</b>\n\n<blockquote>Verified Roommate Network · Addis Ababa\nየተረጋገጡ የቤት አጋሮች መፈለጊያ</blockquote>\n\n<b>Pass / አባልነት:</b> ${memBadge}`;
 
-  const inlineKeyboard = [
-    [
-      {
-        text: 'Search Roommate / የቤት አጋር ፈልግ',
-        callback_data: 'search_roommate_start',
-      },
-    ],
-    [
-      {
-        text: 'Post Profile / መረጃዬን ልለጥፍ',
-        callback_data: 'post_profile_start',
-      },
-    ],
-    [
-      {
-        text: mem.isActive
-          ? `Pass: Active (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining} ቀናት)`
-          : '30-Day Pass (300 ETB) / የ30 ቀን ፓስ (300 ብር)',
-        callback_data: 'view_membership_pass',
-      },
-    ],
-  ];
+    const inlineKeyboard = [
+      [
+        {
+          text: 'Search Roommate / የቤት አጋር ፈልግ',
+          callback_data: 'search_roommate_start',
+        },
+      ],
+      [
+        {
+          text: 'Post Profile / መረጃዬን ልለጥፍ',
+          callback_data: 'post_profile_start',
+        },
+      ],
+      [
+        {
+          text: mem.isActive
+            ? `Pass: Active (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining} ቀናት)`
+            : '30-Day Pass (300 ETB) / የ30 ቀን ፓስ (300 ብር)',
+          callback_data: 'view_membership_pass',
+        },
+      ],
+    ];
 
-  const activeId = await sendOrEditCard(chatId, welcomeText, inlineKeyboard, messageIdToEdit);
-  await saveSession({
-    telegram_id: chatId,
-    step: 'idle',
-    draft_data: { ...session.draft_data, lang, card_msg_id: activeId },
-    updated_at: new Date().toISOString(),
-  }, false);
+    let activeId: number | null | undefined = null;
+
+    // ── Dynamic Start Card Graphic Mode (Can be toggled via ENABLE_DYNAMIC_START_IMAGE) ──
+    if (ENABLE_DYNAMIC_START_IMAGE) {
+      try {
+        const resolvedName = fromUser?.first_name || session.draft_data?.full_name || 'Resident';
+        const pngBuffer = await generateStartCardPng({
+          userName: resolvedName,
+          isMember: mem.isActive,
+          daysRemaining: mem.daysRemaining,
+          lang: isAm ? 'am' : 'bilingual',
+        });
+
+        if (messageIdToEdit) {
+          // Asynchronously delete previous card to avoid duplicate messages in chat
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
+        }
+
+        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, welcomeText, inlineKeyboard);
+        if (photoRes?.ok && photoRes.result?.message_id) {
+          activeId = photoRes.result.message_id;
+        }
+      } catch (err) {
+        console.error('[sendPrimaryWelcomeMenu] Dynamic image error, falling back to text:', err);
+      }
+    }
+
+    // ── Classic Text Fallback (Ensures 100% reliability and zero-friction restoration) ──
+    if (!activeId) {
+      activeId = await sendOrEditCard(chatId, welcomeText, inlineKeyboard, messageIdToEdit);
+    }
+
+    await saveSession({
+      telegram_id: chatId,
+      step: 'idle',
+      draft_data: { ...session.draft_data, lang, card_msg_id: activeId },
+      updated_at: new Date().toISOString(),
+    }, false);
   };
 
   const sendMyListingsScreen = async (chatId: number, messageIdToEdit?: number) => {
@@ -5096,7 +5171,7 @@ ${formattedPreview}
  draft_data: { ...sess.draft_data, lang: chosenLang },
  updated_at: new Date().toISOString(),
  });
- await sendPrimaryWelcomeMenu(chatId, msgId);
+ await sendPrimaryWelcomeMenu(chatId, msgId, callback.from);
  return NextResponse.json({ ok: true });
  }
 
@@ -6559,7 +6634,7 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
  // Navigation & Start Menu
  if (callbackData === 'nav_start' || callbackData === 'admin_cancel') {
  await clearSession(chatId);
- await sendPrimaryWelcomeMenu(chatId, msgId);
+ await sendPrimaryWelcomeMenu(chatId, msgId, callback.from);
  return NextResponse.json({ ok: true });
  }
 
@@ -7762,14 +7837,14 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  if (text === '/amharic') {
  const sess = getSession(chatId);
  await saveSession({ ...sess, draft_data: { ...sess.draft_data, lang: 'am' }, updated_at: new Date().toISOString() });
- await sendPrimaryWelcomeMenu(chatId);
+ await sendPrimaryWelcomeMenu(chatId, undefined, message.from);
  return NextResponse.json({ ok: true });
  }
 
  if (text === '/english') {
  const sess = getSession(chatId);
  await saveSession({ ...sess, draft_data: { ...sess.draft_data, lang: 'en' }, updated_at: new Date().toISOString() });
- await sendPrimaryWelcomeMenu(chatId);
+ await sendPrimaryWelcomeMenu(chatId, undefined, message.from);
  return NextResponse.json({ ok: true });
  }
 
@@ -8272,7 +8347,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  }
 
  // Direct start without deep-link parameters:
- await sendPrimaryWelcomeMenu(chatId);
+ await sendPrimaryWelcomeMenu(chatId, undefined, message.from);
  return NextResponse.json({ ok: true });
  }
 
@@ -9110,7 +9185,7 @@ All administrators of this channel can now use bot admin features, and approved 
 
  if (text === '/cancel') {
  await clearSession(chatId);
- await sendPrimaryWelcomeMenu(chatId);
+ await sendPrimaryWelcomeMenu(chatId, undefined, message.from);
  return NextResponse.json({ ok: true });
  }
 
@@ -10233,7 +10308,7 @@ All administrators of this channel can now use bot admin features, and approved 
  await executeDirectMatchRequest(chatId, targetId);
  }
  } else {
- await sendPrimaryWelcomeMenu(chatId);
+ await sendPrimaryWelcomeMenu(chatId, undefined, message.from);
  }
 
  return NextResponse.json({ ok: true });
@@ -10408,7 +10483,7 @@ ${sanitized.telegramUsername ? `• <b>Telegram / ቴሌግራም:</b> @${saniti
  }
 
  // Default fallback response
- await sendPrimaryWelcomeMenu(chatId);
+ await sendPrimaryWelcomeMenu(chatId, undefined, message.from);
  return NextResponse.json({ ok: true });
  }
 
