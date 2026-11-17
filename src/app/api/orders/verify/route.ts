@@ -154,15 +154,14 @@ export async function POST(request: Request) {
         const mapsUrl = `https://www.google.com/maps?q=${unlocked.latitude},${unlocked.longitude}`;
 
         const telegramMessage = [
-          `<b>🎉 Payment Verified!</b>`,
+          `<b>Payment Verified / ክፍያዎ ተረጋግጧል</b>`,
           ``,
-          `Your reservation access to <b>${spaceTitle}</b> has been unlocked:`,
-          ``,
-          `📍 <b>Exact Address:</b> ${unlocked.exact_address}`,
-          `👤 <b>Homeowner Name:</b> ${unlocked.contact_name}`,
-          `📞 <b>Phone Number:</b> ${unlocked.contact_phone}`,
-          unlocked.contact_telegram ? `✈️ <b>Telegram:</b> @${unlocked.contact_telegram.replace('@', '')}` : '',
-          `🗺️ <a href="${mapsUrl}">Google Maps Directions</a>`,
+          `<blockquote>Your access to <b>${spaceTitle}</b> is unlocked:`,
+          `• <b>Address / አድራሻ:</b> ${unlocked.exact_address}`,
+          `• <b>Contact Name / ስም:</b> ${unlocked.contact_name}`,
+          `• <b>Phone Number / ስልክ:</b> ${unlocked.contact_phone}`,
+          unlocked.contact_telegram ? `• <b>Telegram:</b> @${unlocked.contact_telegram.replace('@', '')}` : '',
+          `• <a href="${mapsUrl}">Google Maps Directions</a></blockquote>`,
         ].filter(Boolean).join('\n');
 
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {

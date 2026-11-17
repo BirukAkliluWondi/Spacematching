@@ -101,51 +101,51 @@ export const FAYDA_ERROR_GUIDANCE: Record<
   { en: string; am: string; shortEn: string; shortAm: string }
 > = {
   NO_QR_FOUND: {
-    en: `⚠️ <b>No QR Code Detected</b>\n\n<blockquote>The official QR code is on the <b>BACK</b> of your Fayda card. Please flip your card and upload a clear photo of the back.</blockquote>`,
-    am: `⚠️ <b>የፋይዳ QR ኮድ አልተገኘም</b>\n\n<blockquote>ይፋዊው የQR ኮድ የሚገኘው በፋይዳ መታወቂያዎ <b>ጀርባ</b> ላይ ነው። እባክዎ ካርድዎን ገልብጠው የጀርባውን ፎቶ ያንሱ።</blockquote>`,
-    shortEn: 'No QR code detected. The official QR code is on the BACK of the card. Please flip and upload.',
-    shortAm: 'የፋይዳ QR ኮድ አልተገኘም። የQR ኮዱ ያለው በመታወቂያው ጀርባ ላይ ነው። እባክዎ ገልብጠው ይላኩ።',
+    en: `<b>No QR Code Detected / የፋይዳ QR ኮድ አልተገኘም</b>\n\n<blockquote>The official QR code is on the BACK of your Fayda card. Please flip your card and upload a clear photo of the back.\nይፋዊው የQR ኮድ የሚገኘው በፋይዳ መታወቂያዎ ጀርባ ላይ ነው። እባክዎ ካርድዎን ገልብጠው የጀርባውን ፎቶ ያንሱ።</blockquote>`,
+    am: `<b>የፋይዳ QR ኮድ አልተገኘም / No QR Code Detected</b>\n\n<blockquote>ይፋዊው የQR ኮድ የሚገኘው በፋይዳ መታወቂያዎ ጀርባ ላይ ነው። እባክዎ ካርድዎን ገልብጠው የጀርባውን ፎቶ ያንሱ።\nThe official QR code is on the BACK of your Fayda card. Please flip your card and upload a clear photo of the back.</blockquote>`,
+    shortEn: 'No QR code detected. Upload a photo of the card back.',
+    shortAm: 'የፋይዳ QR ኮድ አልተገኘም። የመታወቂያውን ጀርባ ፎቶ ይላኩ።',
   },
   QR_UNREADABLE: {
-    en: `⚠️ <b>QR Code Unreadable (Blurry or Glare)</b>\n\n<blockquote>Please avoid glare or flash reflections and ensure the QR code on the back is sharp and clear.</blockquote>`,
-    am: `⚠️ <b>QR ኮዱ አልተነበበም (የደበዘዘ ወይም ነጸብራቅ ያለው)</b>\n\n<blockquote>በካርዱ ላይ የፍላሽ ነጸብራቅ እንዳይኖር በማድረግ የQR ኮዱ በግልጽ እንዲታይ አድርገው ያንሱ።</blockquote>`,
-    shortEn: 'QR code blurry or unreadable. Please upload a sharper photo.',
-    shortAm: 'የQR ኮዱ አልተነበበም። እባክዎ ጥራት ያለው አዲስ ፎቶ ይላኩ።',
+    en: `<b>QR Code Unreadable / QR ኮዱ አልተነበበም</b>\n\n<blockquote>Avoid glare and reflections. Ensure the QR code on the back is clear and sharp.\nበካርዱ ላይ የብርሃን ነጸብራቅ እንዳይኖር በማድረግ የQR ኮዱ በግልጽ እንዲታይ አድርገው ይላኩ።</blockquote>`,
+    am: `<b>QR ኮዱ አልተነበበም / QR Code Unreadable</b>\n\n<blockquote>በካርዱ ላይ የብርሃን ነጸብራቅ እንዳይኖር በማድረግ የQR ኮዱ በግልጽ እንዲታይ አድርገው ይላኩ።\nAvoid glare and reflections. Ensure the QR code on the back is clear and sharp.</blockquote>`,
+    shortEn: 'QR code unreadable. Upload a clearer photo.',
+    shortAm: 'የQR ኮዱ አልተነበበም። ጥራት ያለው ፎቶ ይላኩ።',
   },
   NOT_FAYDA: {
-    en: `⚠️ <b>Not an Authentic Fayda ID</b>\n\n<blockquote>The scanned QR code is not recognized as an Ethiopian National Fayda ID.</blockquote>`,
-    am: `⚠️ <b>ትክክለኛ የፋይዳ መታወቂያ አይደለም</b>\n\n<blockquote>የተላከው QR ኮድ የኢትዮጵያ ብሔራዊ የፋይዳ መታወቂያ መረጃ አልያዘም።</blockquote>`,
-    shortEn: 'Not recognized as an authentic Ethiopian Fayda ID.',
+    en: `<b>Not an Authentic Fayda ID / ትክክለኛ የፋይዳ መታወቂያ አይደለም</b>\n\n<blockquote>The uploaded QR code is not recognized as an Ethiopian National Fayda ID.\nየተላከው QR ኮድ የኢትዮጵያ ብሔራዊ የፋይዳ መታወቂያ መረጃ አልያዘም።</blockquote>`,
+    am: `<b>ትክክለኛ የፋይዳ መታወቂያ አይደለም / Not an Authentic Fayda ID</b>\n\n<blockquote>የተላከው QR ኮድ የኢትዮጵያ ብሔራዊ የፋይዳ መታወቂያ መረጃ አልያዘም።\nThe uploaded QR code is not recognized as an Ethiopian National Fayda ID.</blockquote>`,
+    shortEn: 'Not recognized as an authentic Fayda ID.',
     shortAm: 'ትክክለኛ የኢትዮጵያ ፋይዳ ብሔራዊ መታወቂያ አልተገኘም።',
   },
   UNSUPPORTED_VERSION: {
-    en: `⚠️ <b>Unsupported Fayda Version</b>\n\n<blockquote>Your Fayda document format version is not currently supported.</blockquote>\n\n💬 <b>Please contact support @birukadiyee or @WWEHID.</b>`,
-    am: `⚠️ <b>ያልተደገፈ የፋይዳ ቅጂ</b>\n\n<blockquote>የፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።</blockquote>\n\n💬 <b>እባክዎ ድጋፍ ለማግኘት @birukadiyee ወይም @WWEHID ያነጋግሩ።</b>`,
+    en: `<b>Unsupported Fayda Version / ያልተደገፈ የፋይዳ ቅጂ</b>\n\n<blockquote>This Fayda document format version is not supported.\nየፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።</blockquote>\n\nContact support: @birukadiyee or @WWEHID`,
+    am: `<b>ያልተደገፈ የፋይዳ ቅጂ / Unsupported Fayda Version</b>\n\n<blockquote>የፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።\nThis Fayda document format version is not supported.</blockquote>\n\nእባክዎ ድጋፍ ለማግኘት @birukadiyee ወይም @WWEHID ያነጋግሩ።`,
     shortEn: 'Unsupported Fayda document version.',
     shortAm: 'ያልተደገፈ የፋይዳ ቅጂ።',
   },
   INVALID_SIGNATURE: {
-    en: `⚠️ <b>Digital Signature Verification Failed</b>\n\n<blockquote>The cryptographic signature on this Fayda document could not be validated. Only authentic, untampered cards are accepted.</blockquote>\n\n📸 <b>Please upload an original Fayda ID document:</b>`,
-    am: `⚠️ <b>ዲጂታል ፊርማው አልተረጋገጠም</b>\n\n<blockquote>በዚህ ሰነድ ላይ ያለው ዲጂታል የደህንነት ፊርማ ትክክለኛነቱ አልተረጋገጠም። እባክዎ ያልተበረዘ ትክክለኛ መታወቂያ ይጠቀሙ።</blockquote>\n\n📸 <b>እባክዎ ኦሪጅናል የፋይዳ መታወቂያዎን ይላኩ:</b>`,
+    en: `<b>Digital Signature Failed / ዲጂታል ፊርማው አልተረጋገጠም</b>\n\n<blockquote>The cryptographic signature could not be validated. Only authentic, untampered cards are accepted.\nበዚህ ሰነድ ላይ ያለው ዲጂታል የደህንነት ፊርማ ትክክለኛነቱ አልተረጋገጠም። እባክዎ ያልተበረዘ ትክክለኛ መታወቂያ ይጠቀሙ።</blockquote>`,
+    am: `<b>ዲጂታል ፊርማው አልተረጋገጠም / Digital Signature Failed</b>\n\n<blockquote>በዚህ ሰነድ ላይ ያለው ዲጂታል የደህንነት ፊርማ ትክክለኛነቱ አልተረጋገጠም። እባክዎ ያልተበረዘ ትክክለኛ መታወቂያ ይጠቀሙ።\nThe cryptographic signature could not be validated. Only authentic, untampered cards are accepted.</blockquote>`,
     shortEn: 'Digital signature invalid or tampered.',
     shortAm: 'የዲጂታል ደህንነት ፊርማው አልተረጋገጠም።',
   },
   DUPLICATE_FAN: {
-    en: `⚠️ <b>Fayda ID Already Registered</b>\n\n<blockquote>This National ID is already linked to another SpaceMatch account. Each citizen may only register one account.</blockquote>`,
-    am: `⚠️ <b>ይህ የፋይዳ መታወቂያ ቀደም ሲል ተመዝግቧል</b>\n\n<blockquote>ይህ ብሔራዊ መታወቂያ በሌላ የስፔስማች አካውንት ላይ ተመዝግቧል። እያንዳንዱ ዜጋ መመዝገብ የሚችለው አንድ አካውንት ብቻ ነው።</blockquote>`,
-    shortEn: 'This Fayda ID is already registered to another account.',
-    shortAm: 'ይህ የፋይዳ መታወቂያ ቀደም ሲል በሌላ አካውንት ተመዝግቧል።',
+    en: `<b>Fayda ID Already Registered / ይህ መታወቂያ ቀደም ሲል ተመዝግቧል</b>\n\n<blockquote>This National ID is already linked to another SpaceMatch account. Each citizen may only register one account.\nይህ ብሔራዊ መታወቂያ በሌላ የስፔስማች አካውንት ላይ ተመዝግቧል።</blockquote>`,
+    am: `<b>ይህ መታወቂያ ቀደም ሲል ተመዝግቧል / Fayda ID Already Registered</b>\n\n<blockquote>ይህ ብሔራዊ መታወቂያ በሌላ የስፔስማች አካውንት ላይ ተመዝግቧል።\nThis National ID is already linked to another SpaceMatch account. Each citizen may only register one account.</blockquote>`,
+    shortEn: 'This Fayda ID is already registered.',
+    shortAm: 'ይህ የፋይዳ መታወቂያ ቀደም ሲል ተመዝግቧል።',
   },
   FILE_TOO_LARGE: {
-    en: `⚠️ <b>File Too Large</b>\n\n<blockquote>The uploaded file exceeds the 10MB size limit. Please upload a compressed photo or smaller image.</blockquote>`,
-    am: `⚠️ <b>ፋይሉ በጣም ትልቅ ነው</b>\n\n<blockquote>የተላከው ፋይል ከተፈቀደው 10 ሜጋባይት መጠን በላይ ነው። እባክዎ መጠኑ ያነሰ ፎቶ ይላኩ።</blockquote>`,
+    en: `<b>File Too Large / ፋይሉ በጣም ትልቅ ነው</b>\n\n<blockquote>The uploaded file exceeds the 10MB limit. Please upload a compressed photo or smaller image.\nየተላከው ፋይል ከተፈቀደው 10 ሜጋባይት መጠን በላይ ነው። እባክዎ መጠኑ ያነሰ ፎቶ ይላኩ።</blockquote>`,
+    am: `<b>ፋይሉ በጣም ትልቅ ነው / File Too Large</b>\n\n<blockquote>የተላከው ፋይል ከተፈቀደው 10 ሜጋባይት መጠን በላይ ነው። እባክዎ መጠኑ ያነሰ ፎቶ ይላኩ።\nThe uploaded file exceeds the 10MB limit. Please upload a compressed photo or smaller image.</blockquote>`,
     shortEn: 'File exceeds 10MB limit.',
     shortAm: 'የፋይሉ መጠን ከ 10MB በላይ ነው።',
   },
   MANUAL_TEXT_ENTERED: {
-    en: `⚠️ <b>Photo Upload Required</b>\n\n<blockquote>Please upload a photo of the back of your Fayda card showing the QR code. Manual text is not accepted.</blockquote>`,
-    am: `⚠️ <b>የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ። በጽሁፍ የሚላክ መረጃ ተቀባይነት የለውም።</blockquote>`,
-    shortEn: 'Photo upload required. Please send a photo of your Fayda card.',
+    en: `<b>Photo Upload Required / የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>Please upload a photo of the back of your Fayda card showing the QR code. Manual text is not accepted.\nእባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ። በጽሁፍ የሚላክ መረጃ ተቀባይነት የለውም።</blockquote>`,
+    am: `<b>የፎቶ ማስረጃ ያስፈልጋል / Photo Upload Required</b>\n\n<blockquote>እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ። በጽሁፍ የሚላክ መረጃ ተቀባይነት የለውም።\nPlease upload a photo of the back of your Fayda card showing the QR code. Manual text is not accepted.</blockquote>`,
+    shortEn: 'Photo upload required. Please send a photo.',
     shortAm: 'የካርድ ፎቶ መላክ ግዴታ ነው። እባክዎ የመታወቂያዎን ፎቶ ይላኩ።',
   },
 };
@@ -242,8 +242,8 @@ export function extractMediaFileFromMessage(
     if (!isImageMime && !isImageExt) {
       return {
         error: 'QR_UNREADABLE',
-        messageEn: `⚠️ <b>Invalid Document Format</b>\n\nThe uploaded document is not a supported image format. Please send a clear photo or image file (JPEG, PNG, or WebP).`,
-        messageAm: `⚠️ <b>የተሳሳተ የሰነድ አይነት</b>\n\nየተላከው ሰነድ ተቀባይነት ያለው የምስል አይነት አይደለም። እባክዎ ጥራት ያለው ፎቶ ወይም የምስል ሰነድ (JPEG, PNG, ወይም WebP) ይላኩ።`,
+        messageEn: `<b>Invalid Document Format / የተሳሳተ የሰነድ አይነት</b>\n\n<blockquote>Please upload a supported image file (JPEG, PNG, or WebP).\nእባክዎ ተቀባይነት ያለው የምስል ሰነድ (JPEG, PNG, ወይም WebP) ይላኩ።</blockquote>`,
+        messageAm: `<b>የተሳሳተ የሰነድ አይነት / Invalid Document Format</b>\n\n<blockquote>እባክዎ ተቀባይነት ያለው የምስል ሰነድ (JPEG, PNG, ወይም WebP) ይላኩ።\nPlease upload a supported image file (JPEG, PNG, or WebP).</blockquote>`,
       };
     }
 

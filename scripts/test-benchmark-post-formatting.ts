@@ -64,7 +64,7 @@ async function runTests() {
   assert(seekerPost.includes('<b>ABOUT ME / ስለ እኔ</b>\nPosted by: Female / ሴት\n<blockquote>Mekdes</blockquote>'), 'ABOUT ME section wrapped in blockquote with name/bio');
 
   // Verify Slogan and Hashtags
-  assert(seekerPost.includes('🔑 SpaceMatch Addis'), 'Brand slogan present');
+  assert(seekerPost.includes('SpaceMatch Addis'), 'Brand slogan present');
   assert(seekerPost.includes('#Mexico #LookingForRoom #FemaleRoommate #5k_10k'), 'Hashtags match exact benchmark requirement');
 
   // ── Test 2: Space Available Benchmark Case ──

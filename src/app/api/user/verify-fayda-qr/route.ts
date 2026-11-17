@@ -91,12 +91,11 @@ export async function POST(request: Request) {
     if (botToken) {
       const maskedFin = `•••• •••• ${fan.slice(-4)}`;
       const verificationMsg = `
-🎉 <b>FAYDA NATIONAL ID VERIFIED!</b>
-🛡️ <b>Status:</b> VERIFIED ✅
+<b>Fayda National ID Verified / የፋይዳ መታወቂያ ተረጋግጧል</b>
 
-• <b>Fayda ID:</b> <code>${maskedFin}</code>
-${fullName ? `• <b>Verified Name:</b> <b>${fullName}</b>\n` : ''}${gender ? `• <b>Gender:</b> ${gender}\n` : ''}
-<blockquote>✅ Your identity has been verified offline via official Fayda QR code. You now have full, unrestricted access to the Matchmaker and Seeker Listings!</blockquote>
+<blockquote>• <b>Status / ሁኔታ:</b> Verified / የጸደቀ
+• <b>Fayda ID / ፋይዳ:</b> <code>${maskedFin}</code>
+${fullName ? `• <b>Name / ስም:</b> <b>${fullName}</b>\n` : ''}${gender ? `• <b>Gender / ጾታ:</b> ${gender}\n` : ''}Your identity has been verified via official Fayda QR code.\nመታወቂያዎ በይፋዊው የፋይዳ QR ኮድ ተረጋግጧል።</blockquote>
       `.trim();
 
       fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
@@ -108,9 +107,9 @@ ${fullName ? `• <b>Verified Name:</b> <b>${fullName}</b>\n` : ''}${gender ? `�
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '⚡ Open Matchmaker Now 🔍', callback_data: 'matchmaker_start' }],
-              [{ text: '👥 Post Seeker Profile', callback_data: 'seeker_flow' }],
-              [{ text: '🏠 Main Menu', callback_data: 'nav_start' }],
+              [{ text: 'Find Roommates / የቤት አጋር ፈልግ', callback_data: 'matchmaker_start' }],
+              [{ text: 'Post Seeker Profile / መረጃዬን ልለጥፍ', callback_data: 'seeker_flow' }],
+              [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
             ],
           },
         }),
@@ -124,10 +123,10 @@ ${fullName ? `• <b>Verified Name:</b> <b>${fullName}</b>\n` : ''}${gender ? `�
           .eq('role', 'admin');
 
         const adminNotice = `
-🛡️ <b>New Fayda Verification (QR Scan)</b>
+<b>New Fayda Verification (QR Scan)</b>
 • <b>Telegram ID:</b> <code>${telegram_id}</code>
 • <b>Fayda ID:</b> <code>${maskedFin}</code>
-${fullName ? `• <b>Name:</b> ${fullName}\n` : ''}• <b>Verification:</b> Instant Offline QR Validated ✅
+${fullName ? `• <b>Name:</b> ${fullName}\n` : ''}• <b>Verification:</b> Cryptographic QR Validated
         `.trim();
 
         if (admins && admins.length > 0) {

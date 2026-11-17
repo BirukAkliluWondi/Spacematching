@@ -153,7 +153,7 @@ export function FaydaQRScannerModal({
                   <div className="flex justify-between items-center text-slate-400">
                     <span>Community Status:</span>
                     <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[10px] font-black border border-emerald-500/40">
-                      🛡️ VERIFIED
+                      VERIFIED
                     </span>
                   </div>
                 </div>
@@ -162,7 +162,7 @@ export function FaydaQRScannerModal({
                   onClick={onClose}
                   className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/30 transition-all active:scale-95"
                 >
-                  Continue to SpaceMatch 🚀
+                  Continue to SpaceMatch
                 </button>
               </div>
             ) : (

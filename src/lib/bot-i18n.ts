@@ -1,7 +1,7 @@
 /**
  * lib/bot-i18n.ts
  * ─────────────────────────────────────────────────────────────────────────────
- * Contextual Bilingual Localization Engine (Amharic 🇪🇹 & English 🇬🇧)
+ * Contextual Bilingual Localization Engine (Amharic & English)
  *
  * Implements simultaneous bilingual prompts ('English / አማርኛ') and Telegram
  * <blockquote>...</blockquote> native card styling across every single message,
@@ -27,115 +27,115 @@ export function getLanguage(draftData?: Record<string, any>, chatId?: number): S
 
 export const I18N_BILINGUAL = {
   // General Navigation
-  back: '⬅️ Back / ተመለስ',
-  mainMenu: '🏠 Main Menu / ዋና ማውጫ',
-  cancel: '🏠 Cancel / ሰርዝ',
-  proceed: '✅ Proceed ➡️ / ቀጥል ➡️',
-  languageToggle: '🌐 English · አማርኛ 🇪🇹',
+  back: 'Back / ተመለስ',
+  mainMenu: 'Main Menu / ዋና ማውጫ',
+  cancel: 'Cancel / ሰርዝ',
+  proceed: 'Proceed / ቀጥል >',
+  languageToggle: 'English · አማርኛ',
 
   // Main Menu
-  welcomeTitle: '🏠 <b>SpaceMatch Addis · Welcome! / ስፔስማች አዲስ · እንኳን ደህና መጡ!</b>',
-  welcomeSub: 'Addis Ababa\'s verified roommate matching network. / የተረጋገጡ የቤት አጋሮችን በአዲስ አበባ ውስጥ በታማኝነት የሚያገኙበት መድረክ።',
-  btnSearchRoommate: '🔍 Search Roommate / የቤት አጋር ፈልግ',
-  btnPostChannel: '📢 Post Profile / መረጃዬን ልለጥፍ',
-  btnPostSpace: '🏠 I Have a Space / የሚከራይ ክፍል አለኝ',
-  btnVerifyFayda: '🛡️ Verify Fayda ID / የፋይዳ መታወቂያ አረጋግጥ',
+  welcomeTitle: '<b>SpaceMatch Addis / ስፔስማች አዲስ</b>',
+  welcomeSub: 'Verified roommate matching network in Addis Ababa. / የተረጋገጡ የቤት አጋሮችን በአዲስ አበባ የሚያገኙበት መድረክ።',
+  btnSearchRoommate: 'Search Roommate / የቤት አጋር ፈልግ',
+  btnPostChannel: 'Post Profile / መረጃዬን ልለጥፍ',
+  btnPostSpace: 'Post Space / ክፍል አለኝ',
+  btnVerifyFayda: 'Verify Fayda ID / የፋይዳ መታወቂያ አረጋግጥ',
 
   // Post Profile Branch Selection
-  postBranchTitle: '📢 <b>Select listing type / የማስታወቂያ አይነት ይምረጡ:</b>',
-  btnBranchSpace: '🏠 Room available / የሚከራይ ክፍል አለኝ',
-  btnBranchSeeker: '🔍 Looking for room / ክፍል እፈልጋለሁ',
+  postBranchTitle: '<b>Select Listing Type / የማስታወቂያ አይነት ይምረጡ:</b>',
+  btnBranchSpace: 'Room Available / ክፍል አለኝ',
+  btnBranchSeeker: 'Looking for Room / ክፍል እፈልጋለሁ',
 
   // Section Badges
-  section1Badge: '👤 <b>SECTION 1: PERSONAL PROFILE / ክፍል ፩: የግል መረጃ</b>',
-  section2Badge: '🏠 <b>SECTION 2: ROOMMATE CRITERIA / ክፍል ፪: የቤት አጋር ምርጫ</b>',
+  section1Badge: '<b>SECTION 1: PROFILE / ክፍል ፩: መረጃ</b>',
+  section2Badge: '<b>SECTION 2: CRITERIA / ክፍል ፪: ምርጫ</b>',
 
   // Interstitial Transition (Personal Registration -> Preferences)
-  interstitialTitle: '🎉 <b>Profile Registered! / የግል መረጃዎ ተመዝግቧል!</b>',
-  interstitialSub: '✅ Saved / ተቀምጧል',
-  interstitialNote: '<blockquote>Next, set your roommate preferences (budget and criteria). / የሚከተሉት ጥያቄዎች የሚፈልጉትን የቤት አጋር እና በጀት ለመወሰን የሚረዱ ናቸው።</blockquote>',
-  interstitialAction: '🔍 Tap below to continue / ለመቀጠል ከታች ይጫኑ:',
-  btnContinuePreferences: '➡️ Continue / ወደ ምርጫዎች ቀጥል',
+  interstitialTitle: '<b>Profile Registered / መረጃዎ ተመዝግቧል</b>',
+  interstitialSub: 'Saved / ተቀምጧል',
+  interstitialNote: '<blockquote>Set your roommate preferences and budget.\nየሚፈልጉትን የቤት አጋር እና በጀት ይወስኑ።</blockquote>',
+  interstitialAction: 'Tap below to continue / ለመቀጠል ከታች ይጫኑ:',
+  btnContinuePreferences: 'Continue / ወደ ምርጫዎች ቀጥል >',
 
   // Questionnaire Steps (Dynamic Seeker & Matchmaker)
-  stepAge: '🎂 <b>What is your age? / ዕድሜዎ ስንት ነው?</b> (e.g. 24 / ምሳሌ: 24)',
+  stepAge: '<b>Age / ዕድሜ:</b> (e.g. 24)',
   errAge: 'Please enter a valid age between 18 and 85 / እባክዎ ከ18 እስከ 85 መካከል ትክክለኛ ዕድሜ ያስገቡ (e.g. 24):',
 
-  stepGender: '👤 <b>Select your gender / ጾታዎን ይምረጡ:</b>',
-  btnMale: '👨 Male / ወንድ',
-  btnFemale: '👩 Female / ሴት',
+  stepGender: '<b>Select Gender / ጾታዎን ይምረጡ:</b>',
+  btnMale: 'Male / ወንድ',
+  btnFemale: 'Female / ሴት',
 
-  stepReligion: '⛪ <b>Select your religion / እምነትዎን ይምረጡ:</b>',
-  btnOrthodox: '✝️ Orthodox / ኦርቶዶክስ',
-  btnMuslim: '☪️ Muslim / ሙስሊም',
-  btnProtestant: '⛪ Protestant / ፕሮቴስታንት',
-  btnOtherReligion: '🌐 Other · Any / ሌላ · ሁሉም',
+  stepReligion: '<b>Select Religion / እምነትዎን ይምረጡ:</b>',
+  btnOrthodox: 'Orthodox / ኦርቶዶክስ',
+  btnMuslim: 'Muslim / ሙስሊም',
+  btnProtestant: 'Protestant / ፕሮቴስታንት',
+  btnOtherReligion: 'Other / ሌላ',
 
-  stepJob: '💼 <b>What is your occupation? / የስራ ሁኔታዎ ወይም ሙያዎ ምንድን ነው?</b>',
+  stepJob: '<b>Occupation / የስራ ሁኔታ:</b>',
   errJob: 'Please enter your occupation / እባክዎ የስራ ሁኔታዎን በአጭሩ ይጻፉ:',
 
-  stepBudget: '💰 <b>Monthly budget range in ETB: / ወርሃዊ የኪራይ በጀትዎ ስንት ነው?</b> (e.g. 8000 - 15000)',
+  stepBudget: '<b>Monthly Budget (ETB) / ወርሃዊ በጀት (ብር):</b> (e.g. 8000 - 15000)',
   errBudget: 'Please enter a valid monthly budget range in ETB / እባክዎ የበጀት ክልል በብር ያስገቡ (e.g. 8000 - 15000):',
 
-  stepPrefGender: '👥 <b>Who do you prefer to live with? / ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ?</b>',
-  btnPrefMale: '👨 Male Only / ወንድ ብቻ',
-  btnPrefFemale: '👩 Female Only / ሴት ብቻ',
-  btnPrefAny: '👥 Any Gender / ማናቸውም ጾታ',
+  stepPrefGender: '<b>Roommate Gender / የሚመርጡት ጾታ:</b>',
+  btnPrefMale: 'Male Only / ወንድ ብቻ',
+  btnPrefFemale: 'Female Only / ሴት ብቻ',
+  btnPrefAny: 'Any Gender / ማናቸውም ጾታ',
 
-  stepTraits: '✨ <b>Describe your preferred roommate: / የሚፈልጉትን የቤት አጋር ይግለጹ:</b>\n\n<blockquote>Specify preferred gender, religion, occupation, and habits / ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ</blockquote>',
+  stepTraits: '<b>Roommate Description / የአጋር መግለጫ:</b>\n\n<blockquote>Specify preferred habits and criteria / ባህሪ እና መስፈርቶችን ይግለጹ</blockquote>',
   errTraits: 'Please describe your preferred roommate / እባክዎ የሚፈልጉትን የቤት አጋር ይግለጹ:',
 
-  stepLocations: '📍 <b>Which area or neighborhood? / የትኛው አካባቢ ወይም ሰፈር ነው?</b>',
-  btnSelectAll: '🌐 Select ALL Areas & Proceed ➡️ / ሁሉንም ምረጥና ቀጥል ➡️',
-  btnAllSelected: '✅ ALL Areas Selected (Proceed ➡️) / ሁሉም ተመርጠዋል (ቀጥል ➡️)',
+  stepLocations: '<b>Preferred Sub-city / ተመራጭ ክፍለ ከተማ:</b>',
+  btnSelectAll: '[ ] Select All Areas / ሁሉንም ምረጥ >',
+  btnAllSelected: '[X] All Areas Selected / ሁሉም ተመርጠዋል >',
 
-  stepFayda: '🛡️ <b>Upload Fayda ID Photo: / የፋይዳ ፎቶ ይላኩ:</b>\n\n<blockquote>Please upload a clear photo of the back of your Fayda card showing the QR code. / የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>',
-  btnScanQr: '📷 Upload Fayda Photo / የፋይዳ ፎቶ ይላኩ ↗️',
-  errFayda: '⚠️ <b>Photo Upload Required / የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>Please upload a clear photo of your Fayda card showing the QR code. / የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>',
+  stepFayda: '<b>Upload Fayda ID Photo / የፋይዳ ፎቶ ይላኩ:</b>\n\n<blockquote>Upload a clear photo of the back of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>',
+  btnScanQr: 'Upload Fayda Photo / የፋይዳ ፎቶ ላክ >',
+  errFayda: '<b>Photo Upload Required / የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>Upload a clear photo of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>',
 
   // Space Owner Questionnaire Steps
-  spaceStepType: '🛏️ <b>What type of space are you offering? / የሚከራየው ክፍል ምን አይነት ነው?</b> (e.g. Master Bedroom / ዋና መኝታ ቤት)',
+  spaceStepType: '<b>Space Type / የክፍል አይነት:</b> (e.g. Master Bedroom)',
   errSpaceType: 'Please enter space layout / እባክዎ የሚከራየውን ክፍል አይነት ይግለጹ (e.g. Master Bedroom):',
 
-  spaceStepRent: '💰 <b>Total monthly rent for the space in ETB: / የቤቱ ጠቅላላ ወርሃዊ ኪራይ በብር:</b> (e.g. 12000)',
+  spaceStepRent: '<b>Total Monthly Rent (ETB) / ጠቅላላ ኪራይ (ብር):</b> (e.g. 12000)',
   errSpaceRent: 'Please enter valid monthly rent / ከ 500 እስከ 500,000 በብር መካከል ያስገቡ (e.g. 12000):',
 
-  spaceStepShare: '🤝 <b>Roommate\'s share / split in ETB: / የቤት አጋሩ የሚከፍለው ድርሻ በብር:</b> (e.g. 6000)',
+  spaceStepShare: '<b>Roommate Share (ETB) / የአጋሩ ድርሻ (ብር):</b> (e.g. 6000)',
   errSpaceShare: 'Please enter valid roommate share / ከ 200 እስከ 500,000 በብር መካከል ያስገቡ (e.g. 6000):',
 
-  spaceStepAmenities: '✨ <b>What amenities are included? / ቤቱ የሚያካትታቸው ግልጋሎቶች ምንድን ናቸው?</b> (e.g. WiFi, Kitchen / ዋይፋይ፣ ወጥ ቤት)',
+  spaceStepAmenities: '<b>Included Amenities / ግልጋሎቶች:</b> (e.g. WiFi, Kitchen)',
   errSpaceAmenities: 'Please enter included amenities / እባክዎ ቤቱ የሚያካትታቸውን ግልጋሎቶች ይጻፉ (e.g. WiFi):',
 
-  spaceStepHostGender: '👤 <b>Select your gender (Space Host): / ጾታዎን ይምረጡ (የክፍል አከራይ):</b>',
-  spaceBtnHostMale: '👨 Male / ወንድ',
-  spaceBtnHostFemale: '👩 Female / ሴት',
+  spaceStepHostGender: '<b>Host Gender / የአከራይ ጾታ:</b>',
+  spaceBtnHostMale: 'Male / ወንድ',
+  spaceBtnHostFemale: 'Female / ሴት',
 
-  spaceStepPrefGender: '👥 <b>Who do you prefer to live with? / ከየትኛው ጾታ ጋር አብሮ መኖር ይፈልጋሉ?</b>',
-  spaceBtnPrefMale: '👨 Male Only / ወንድ ብቻ',
-  spaceBtnPrefFemale: '👩 Female Only / ሴት ብቻ',
-  spaceBtnPrefAny: '👥 Any Gender / ማናቸውም ጾታ',
+  spaceStepPrefGender: '<b>Preferred Tenant Gender / ተመራጭ ጾታ:</b>',
+  spaceBtnPrefMale: 'Male Only / ወንድ ብቻ',
+  spaceBtnPrefFemale: 'Female Only / ሴት ብቻ',
+  spaceBtnPrefAny: 'Any Gender / ማናቸውም ጾታ',
 
-  spaceStepPrefRoommate: '✨ <b>Describe your preferred roommate: / የሚፈልጉትን የቤት አጋር ይግለጹ:</b>\n\n<blockquote>Specify preferred gender, religion, occupation, and habits / ጾታ፣ እምነት፣ የስራ ሁኔታ እና ጠባይን አካተው ይጻፉ</blockquote>',
+  spaceStepPrefRoommate: '<b>Preferred Tenant Description / ተመራጭ ተከራይ መግለጫ:</b>\n\n<blockquote>Specify preferred habits and criteria / ባህሪ እና መስፈርቶችን ይግለጹ</blockquote>',
   errSpacePrefRoommate: 'Please describe preferred roommate / እባክዎ የሚፈልጉትን የቤት አጋር ይግለጹ:',
 
-  spaceStepSubcity: '📍 <b>Select sub-city where space is located: / ቤቱ የሚገኝበትን ክፍለ ከተማ ይምረጡ:</b>',
-  spaceStepPhotos: '📸 <b>Upload photos of the space: / የቤቱን ፎቶዎች ይላኩ:</b>',
-  spaceSkipPhotos: '⏭️ Skip Photos / ፎቶዎችን ይለፉ',
+  spaceStepSubcity: '<b>Sub-city Location / ክፍለ ከተማ:</b>',
+  spaceStepPhotos: '<b>Upload Space Photos / የቤቱን ፎቶዎች ይላኩ:</b>',
+  spaceSkipPhotos: 'Skip Photos / ፎቶዎችን እለፍ >',
 
   // Review & Submit
-  spaceReviewTitle: '🏠 <b>Review Space Listing / የሚከራየውን ክፍል መረጃ ይከልሱ</b>',
-  seekerReviewTitle: '📋 <b>Review Your Channel Post / የሚለጠፈውን መረጃ ይከልሱ</b>',
-  submitToAdmin: '📢 Submit for Admin Approval 🚀 / ለአድሚን ማረጋገጫ ላክ 🚀',
-  editDetails: '✏️ Edit Details / መረጃ አሻሽል',
-  editSpaceDetails: '✏️ Edit Space Details / መረጃ አሻሽል',
-  editProfileDetails: '✏️ Edit Profile Details / መረጃ አሻሽል',
+  spaceReviewTitle: '<b>Review Space Listing / መረጃውን ይከልሱ</b>',
+  seekerReviewTitle: '<b>Review Channel Post / መረጃውን ይከልሱ</b>',
+  submitToAdmin: 'Submit Listing / ማስታወቂያውን ላክ >',
+  editDetails: 'Edit Details / መረጃ አሻሽል',
+  editSpaceDetails: 'Edit Details / መረጃ አሻሽል',
+  editProfileDetails: 'Edit Details / መረጃ አሻሽል',
 
   // Match Connection & Payment
-  connectTitle: '🤝 <b>Connect with Roommate / ከቤት አጋር ጋር ይገናኙ</b>',
-  matchRequestSent: '✅ <b>Match Request Delivered! / የግንኙነት ጥያቄዎ ደርሷል!</b>\n\n<blockquote>Your request has been sent to the roommate. You will be notified the moment they accept! / ጥያቄዎ ለተጠቃሚው ተልኳል። ጥያቄዎን እንደተቀበሉ ወዲያውኑ መልዕክት ይደርስዎታል!</blockquote>',
-  bothConnectedTitle: '🎉 <b>You Both Want to Connect! / ሁለታችሁም ለመገናኘት ተስማምታችኋል!</b>',
-  paymentInstructions: `<b>SpaceMatch Addis · 30-Day Pass (300 ETB) / የ30 ቀን ሙሉ አባልነት (300 ብር)</b>\n\n🏦 <b>Payment Options / የክፍያ አማራጮች (Wahid):</b>\n• 📱 <b>Telebirr:</b> <code>0987310978</code>\n• 🏦 <b>Bank of Abyssinia:</b> <code>256861771</code>\n• 🏦 <b>Dashen Bank:</b> <code>2922175078411</code>\n\n<blockquote>Unlocks 30 days of channel posting and unlimited connect requests. / ለ30 ቀናት ማስታወቂያ ለመለጠፍና ያለገደብ ለመገናኘት ያስችላል።</blockquote>\n\nSend transaction reference code / የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REF</code>\nor\n<code>/verify cbe YOUR_REF</code>\nor\n<code>/verify abyssinia YOUR_REF</code>`,
-  privacyShieldNote: '<blockquote>🔒 <b>Personal identity & contact remain sealed until mutual match unlock. / የእርስዎ ትክክለኛ ስም እና ስልክ ቁጥር በሙሉ ሚስጥራዊነቱ የተጠበቀ ነው።</b></blockquote>',
+  connectTitle: '<b>Connect with Roommate / ከቤት አጋር ጋር ተገናኝ</b>',
+  matchRequestSent: '<b>Match Request Delivered / ጥያቄዎ ደርሷል</b>\n\n<blockquote>Your request has been sent. You will be notified when they respond.\nጥያቄዎ ተልኳል። ምላሽ ሲሰጡ መልዕክት ይደርስዎታል።</blockquote>',
+  bothConnectedTitle: '<b>Mutual Match Confirmed / ሁለታችሁም ተስማምታችኋል</b>',
+  paymentInstructions: `<b>SpaceMatch Addis · 30-Day Pass (300 ETB) / የ30 ቀን አባልነት (300 ብር)</b>\n\n<b>Payment Options / የክፍያ አማራጮች:</b>\n• <b>Telebirr:</b> <code>0987310978</code>\n• <b>Bank of Abyssinia:</b> <code>256861771</code>\n• <b>Dashen Bank:</b> <code>2922175078411</code>\n\n<blockquote>Unlocks 30 days of channel posting and unlimited connection requests.\nለ30 ቀናት ማስታወቂያ ለመለጠፍና ያለገደብ ለመገናኘት ያስችላል።</blockquote>\n\nSend transaction reference code / የደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REF</code>\nor\n<code>/verify cbe YOUR_REF</code>\nor\n<code>/verify abyssinia YOUR_REF</code>`,
+  privacyShieldNote: '<blockquote><b>Privacy Protected: Personal identity and contact details remain sealed until mutual match unlock. / የእርስዎ ስም እና ስልክ ቁጥር በሙሉ ሚስጥራዊነቱ የተጠበቀ ነው።</b></blockquote>',
 } as const;
 
 export const I18N = {

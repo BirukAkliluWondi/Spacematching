@@ -812,7 +812,7 @@ House rules: ${houseRulesDisplay}
 Posted by: ${sexDisplay}${ageDisplay}
 <blockquote>${escapeHtml(cleanBio)}</blockquote>
 
-🔑 SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
+SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
 
 ${hashtags}
 `.trim();
@@ -932,7 +932,7 @@ House rules: ${houseRulesDisplay}
 Posted by: ${hostSexDisplay} (Space Host / አከራይ)
 <blockquote>${escapeHtml(cleanBio)}</blockquote>
 
-🔑 SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
+SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
 
 ${hashtags}
 `.trim();
@@ -956,19 +956,19 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
     inline_keyboard: [
       [
         {
-          text: `⚡ Connect with #${cleanCode} / ተገናኝ ↗️`,
+          text: `Connect with #${cleanCode} / ተገናኝ >`,
           url: `https://t.me/${botUsername}?start=req_${cleanCode}`,
         },
       ],
       [
         {
-          text: '📢 Post Profile / መረጃዬን ልለጥፍ ↗️',
+          text: 'Post Profile / መረጃዬን ልለጥፍ >',
           url: `https://t.me/${botUsername}?start=post_profile`,
         },
       ],
       [
         {
-          text: '🔍 Search Roommate / የቤት አጋር ፈልግ ↗️',
+          text: 'Search Roommate / የቤት አጋር ፈልግ >',
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
@@ -1050,11 +1050,11 @@ export async function updateChannelPostAsMatched(
     }
   }
 
-  const closedHeader = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 This listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴`;
+  const closedHeader = `━━━━━━━━━━━━━━━━━━━━━━\n       <b>[CLOSED / የተዘጋ]</b>\nThis listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!\n━━━━━━━━━━━━━━━━━━━━━━`;
 
   const closedText = baseContent
-    ? `${closedHeader}\n\n${baseContent}\n\n🔒 Listing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ክፍት የሆኑ የተረጋገጡ የቤት አጋሮችን ከታች ይመልከቱ:`
-    : `${closedHeader}\n\n✨ <b>Roommate #${escapeHtml(displayCode)} has found a match! 🎉 / የቤት አጋር ተገኝቷል! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted. / ይህ ማስታወቂያ ተዘግቷል። ተጨማሪ ጥያቄዎች አይቀበሉም።</blockquote>`;
+    ? `${closedHeader}\n\n${baseContent}\n\nListing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ክፍት የሆኑ የተረጋገጡ የቤት አጋሮችን ከታች ይመልከቱ:`
+    : `${closedHeader}\n\n<b>Roommate #${escapeHtml(displayCode)} has found a match / የቤት አጋር ተገኝቷል</b>\n\n<blockquote>This listing is officially closed. No further connection requests are accepted. / ይህ ማስታወቂያ ተዘግቷል። ተጨማሪ ጥያቄዎች አይቀበሉም።</blockquote>`;
 
   const safeCaption = truncateTelegramHtml(closedText, 1024);
 
@@ -1062,13 +1062,13 @@ export async function updateChannelPostAsMatched(
     inline_keyboard: [
       [
         {
-          text: '🔒 Listing Closed · Search Roommates / የቤት አጋር ፈልግ ↗️',
+          text: 'Search Roommates / የቤት አጋር ፈልግ >',
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
       [
         {
-          text: '📢 Post My Profile / መረጃዬን ልለጥፍ ↗️',
+          text: 'Post Profile / መረጃዬን ልለጥፍ >',
           url: `https://t.me/${botUsername}?start=post_profile`,
         },
       ],

@@ -399,8 +399,8 @@ export async function broadcastRoommateProfileToChannel(
       : 'Addis Ababa';
 
     const faydaBadge = profile.fayda_status === 'verified' || profile.fayda_status === 'pending'
-      ? 'VERIFIED ✅ 🛡️'
-      : 'UNVERIFIED ⚠️';
+      ? 'VERIFIED'
+      : 'UNVERIFIED';
 
     const displayCode = profile.display_code || cleanCode || 'SPMARBR';
     const cleanDisplayCode = displayCode.replace(/^#/, '');
@@ -438,7 +438,7 @@ export async function broadcastRoommateProfileToChannel(
     const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
     const seekerGenderWord = isFemale ? 'female' : isMale ? 'male' : 'verified';
     const seekerGender = isFemale ? 'Female' : isMale ? 'Male' : 'Verified Roommate';
-    const genderEmoji = isFemale ? '👱‍♀️' : isMale ? '👨' : '🏠';
+    const genderEmoji = '';
 
     const rawPrefGender = (prefGender || '').toLowerCase();
     const isPrefFemale = rawPrefGender.includes('female') || rawPrefGender.includes('ሴት');
@@ -481,8 +481,8 @@ export async function broadcastRoommateProfileToChannel(
         [
           {
             text: hasSpace
-              ? `⚡ Contact Host #${cleanDisplayCode} / ከአከራይ ጋር ተገናኝ ↗️`
-              : `⚡ Connect with #${cleanDisplayCode} / ተገናኝ ↗️`,
+              ? `Contact Host #${cleanDisplayCode} / ከአከራይ ጋር ተገናኝ >`
+              : `Connect with #${cleanDisplayCode} / ተገናኝ >`,
             url: hasSpace
               ? `https://t.me/${botUsername}?start=order_${cleanDisplayCode}`
               : `https://t.me/${botUsername}?start=req_${cleanDisplayCode}`,
@@ -491,8 +491,8 @@ export async function broadcastRoommateProfileToChannel(
         [
           {
             text: hasSpace
-              ? '📢 Post My Space / ክፍሌን ልለጥፍ ↗️'
-              : '📢 Post Profile / መረጃዬን ልለጥፍ ↗️',
+              ? 'Post My Space / ክፍሌን ልለጥፍ >'
+              : 'Post Profile / መረጃዬን ልለጥፍ >',
             url: hasSpace
               ? `https://t.me/${botUsername}?start=post_branch_space`
               : `https://t.me/${botUsername}?start=post_profile`,
@@ -500,7 +500,7 @@ export async function broadcastRoommateProfileToChannel(
         ],
         [
           {
-            text: '🔍 Search Roommate / የቤት አጋር ፈልግ ↗️',
+            text: 'Search Roommate / የቤት አጋር ፈልግ >',
             url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
@@ -706,19 +706,19 @@ export async function broadcastListingToChannel(
       inline_keyboard: [
         [
           {
-            text: `⚡ Contact Host #${cleanSpaceCode} / ከአከራይ ጋር ተገናኝ ↗️`,
+            text: `Contact Host #${cleanSpaceCode} / ከአከራይ ጋር ተገናኝ >`,
             url: `https://t.me/${botUsername}?start=order_${cleanSpaceCode}`,
           },
         ],
         [
           {
-            text: '📢 Post My Space / ክፍሌን ልለጥፍ ↗️',
+            text: 'Post My Space / ክፍሌን ልለጥፍ >',
             url: `https://t.me/${botUsername}?start=post_branch_space`,
           },
         ],
         [
           {
-            text: '🔍 Search Roommate / የቤት አጋር ፈልግ ↗️',
+            text: 'Search Roommate / የቤት አጋር ፈልግ >',
             url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
@@ -833,15 +833,12 @@ export async function postCustomToChannel(
   const inlineKeyboard = {
     inline_keyboard: [
       [
-        { text: '🏠 I Have a Space', url: `https://t.me/${botUsername}?start=property_type`, style: 'primary' },
-        { text: '🔍 I Need a Space', url: `https://t.me/${botUsername}?start=seeker_flow`, style: 'primary' },
+        { text: 'I Have a Space / ክፍል አለኝ', url: `https://t.me/${botUsername}?start=property_type`, style: 'primary' },
+        { text: 'I Need a Space / ክፍል እፈልጋለሁ', url: `https://t.me/${botUsername}?start=seeker_flow`, style: 'primary' },
       ],
       [
-        { text: '🛒 በቦት እዘዝ (Order in Bot)', url: orderUrl, style: 'success' },
+        { text: 'Order in Bot / በቦት እዘዝ', url: orderUrl, style: 'success' },
       ],
-      // [
-      //   { text: '🔍 በሚኒ አፕ ተመልከት (View in Mini App)', url: miniAppUrl, style: 'primary' },
-      // ],
     ],
   };
 
@@ -948,11 +945,11 @@ export async function closeChannelPost(
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
   }
 
-  const closedHeader = `🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴\n       <b>_____CLOSED_____</b>\n🤝 This listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!\n🔴 ━━━━━━━━━━━━━━━━━━━━━━ 🔴`;
+  const closedHeader = `━━━━━━━━━━━━━━━━━━━━━━\n       <b>[CLOSED / የተዘጋ]</b>\nThis listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!\n━━━━━━━━━━━━━━━━━━━━━━`;
 
   const closedNotice = existingContent?.trim()
-    ? `${closedHeader}\n\n${existingContent.trim()}\n\n🔒 Listing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ክፍት የሆኑ የተረጋገጡ የቤት አጋሮችን ከታች ይመልከቱ:`
-    : `${closedHeader}\n\n✨ <b>${itemTitle} has found a match! 🎉 / የቤት አጋር ተገኝቷል! 🎉</b>\n\n<blockquote>✅ This listing is officially closed. No further connection requests are accepted. / ይህ ማስታወቂያ ተዘግቷል። ተጨማሪ ጥያቄዎች አይቀበሉም።</blockquote>`;
+    ? `${closedHeader}\n\n${existingContent.trim()}\n\nListing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ክፍት የሆኑ የተረጋገጡ የቤት አጋሮችን ከታች ይመልከቱ:`
+    : `${closedHeader}\n\n<b>${itemTitle} has found a match / የቤት አጋር ተገኝቷል</b>\n\n<blockquote>This listing is officially closed. No further connection requests are accepted. / ይህ ማስታወቂያ ተዘግቷል። ተጨማሪ ጥያቄዎች አይቀበሉም።</blockquote>`;
 
   const safeCaption = truncateTelegramHtml(closedNotice, 1024);
 
@@ -960,13 +957,13 @@ export async function closeChannelPost(
     inline_keyboard: [
       [
         {
-          text: '🔒 Listing Closed · Search Roommates / የቤት አጋር ፈልግ ↗️',
+          text: 'Search Roommates / የቤት አጋር ፈልግ >',
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
       [
         {
-          text: '📢 Post My Profile / መረጃዬን ልለጥፍ ↗️',
+          text: 'Post Profile / መረጃዬን ልለጥፍ >',
           url: `https://t.me/${botUsername}?start=post_profile`,
         },
       ],

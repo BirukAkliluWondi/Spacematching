@@ -259,7 +259,7 @@ export function FeedView({
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>👥 Roommate Seekers ({seekers.length})</span>
+            <span>Roommate Seekers ({seekers.length})</span>
           </button>
 
           <button
@@ -271,7 +271,7 @@ export function FeedView({
             }`}
           >
             <Home className="w-4 h-4" />
-            <span>🏠 Spaces to Rent ({spaces.length})</span>
+            <span>Spaces to Rent ({spaces.length})</span>
           </button>
         </div>
 
@@ -342,7 +342,7 @@ export function FeedView({
               <span>Fayda Verified Resident · Full Access</span>
             </div>
             <span className="text-[10px] text-emerald-300 font-black bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-500/30">
-              VERIFIED 🛡️
+              VERIFIED
             </span>
           </div>
         )}
@@ -355,7 +355,7 @@ export function FeedView({
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span>Showing <strong>{filteredSeekers.length}</strong> verified roommate seekers</span>
               <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/15 px-2 py-0.5 rounded-md border border-emerald-500/30">
-                🛡️ Fayda Verified First
+                Fayda Verified First
               </span>
             </div>
 
@@ -419,7 +419,7 @@ export function FeedView({
                           key={sub}
                           className="px-2 py-0.5 rounded-md bg-white/[0.06] text-[10px] font-semibold text-slate-300 border border-white/10"
                         >
-                          📍 {sub}
+                          {sub}
                         </span>
                       ))}
                     </div>

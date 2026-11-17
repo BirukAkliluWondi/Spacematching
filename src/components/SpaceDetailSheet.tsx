@@ -325,7 +325,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
 
                 {/* Telebirr Account Box */}
                 <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
-                  <span className="text-[11px] text-slate-400 font-bold uppercase">📱 Telebirr</span>
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">Telebirr</span>
                   <div className="flex items-center justify-between">
                     <div className="flex items-baseline gap-1.5 font-mono text-base font-black text-emerald-400">
                       <span>{receiverPhone}</span>
@@ -343,7 +343,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
 
                 {/* Bank of Abyssinia Box */}
                 <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
-                  <span className="text-[11px] text-slate-400 font-bold uppercase">🏦 Bank of Abyssinia</span>
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">Bank of Abyssinia</span>
                   <div className="flex items-center justify-between">
                     <div className="flex items-baseline gap-1.5 font-mono text-base font-black text-amber-400">
                       <span>{abyssiniaAccount}</span>
@@ -361,7 +361,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
 
                 {/* Dashen Bank Box */}
                 <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
-                  <span className="text-[11px] text-slate-400 font-bold uppercase">🏦 Dashen Bank</span>
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">Dashen Bank</span>
                   <div className="flex items-center justify-between">
                     <div className="flex items-baseline gap-1.5 font-mono text-base font-black text-cyan-400">
                       <span>{dashenAccount}</span>
@@ -379,7 +379,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
 
                 {/* Payment Receipt Reference Guide */}
                 <div className="space-y-1.5">
-                  <span className="text-[11px] text-slate-400 font-bold uppercase">🧾 Receipt Reference Guide (where to find FT...)</span>
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">Receipt Reference Guide (where to find FT...)</span>
                   <div className="rounded-2xl overflow-hidden border border-white/10 bg-slate-950/50 shadow-inner">
                     <img
                       src="https://plusmfmlzzumzsqtlixb.supabase.co/storage/v1/object/public/spaces-public/payment_receipt_guide.png"

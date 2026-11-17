@@ -173,12 +173,12 @@ async function sendGenderStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `<b>Step 1 of 5: Select your gender</b>\n<b>ጾታዎን ይምረጡ:</b>\n\n<blockquote>Please select your gender to personalize roommate matches.\nትክክለኛ የቤት አጋር ለማግኘት ጾታዎን ይምረጡ።</blockquote>`,
+    `<b>Select Gender / ጾታዎን ይምረጡ</b>\n\n<blockquote>Please select your gender to personalize roommate matches.\nትክክለኛ የቤት አጋር ለማግኘት ጾታዎን ይምረጡ።</blockquote>`,
     {
       inline_keyboard: [
         [
-          { text: '👨 Male / ወንድ', callback_data: 'onboard_gender:male' },
-          { text: '👩 Female / ሴት', callback_data: 'onboard_gender:female' },
+          { text: 'Male / ወንድ', callback_data: 'onboard_gender:male' },
+          { text: 'Female / ሴት', callback_data: 'onboard_gender:female' },
         ],
       ],
     }
@@ -191,8 +191,8 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
   rows.push([
     {
       text: selectedLocations.length === LOCATIONS.length
-        ? '✅ ALL Areas Selected / ሁሉም ተመርጠዋል (Proceed ➡️)'
-        : '🌐 Select ALL Areas & Proceed / ሁሉንም ምረጥና ቀጥል ➡️',
+        ? '[X] All Areas Selected / ሁሉም ተመርጠዋል >'
+        : '[ ] Select All Areas / ሁሉንም ምረጥ >',
       callback_data: 'onboard_select_all_locations',
     },
   ]);
@@ -203,7 +203,7 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
     const sel1 = selectedLocations.includes(loc1);
     const am1 = LOCATION_AMHARIC[loc1] || loc1;
     row.push({
-      text: `${sel1 ? '🟢' : '⚪'} ${loc1} (${am1})`,
+      text: `${sel1 ? '[X]' : '[ ]'} ${loc1} (${am1})`,
       callback_data: `onboard_location:${loc1}`,
     });
     if (i + 1 < LOCATIONS.length) {
@@ -211,7 +211,7 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
       const sel2 = selectedLocations.includes(loc2);
       const am2 = LOCATION_AMHARIC[loc2] || loc2;
       row.push({
-        text: `${sel2 ? '🟢' : '⚪'} ${loc2} (${am2})`,
+        text: `${sel2 ? '[X]' : '[ ]'} ${loc2} (${am2})`,
         callback_data: `onboard_location:${loc2}`,
       });
     }
@@ -220,12 +220,12 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 
   rows.push([
     {
-      text: `➡️ Proceed to Budget / በጀት ይወስኑ (${selectedLocations.length}) ➡️`,
+      text: `Proceed to Budget / በጀት ወስን (${selectedLocations.length}) >`,
       callback_data: 'onboard_locations_done',
     },
   ]);
 
-  const text = `<b>Step 2 of 5: Preferred neighborhoods</b>\n<b>የትኛው አካባቢ?</b>\n\n<blockquote>Tap locations to toggle your preferred zones in Addis.\nየሚመርጧቸውን ሰፈሮች ይጫኑ።</blockquote>`;
+  const text = `<b>Preferred Sub-cities / ተመራጭ ሰፈሮች</b>\n\n<blockquote>Tap locations to toggle your preferred zones in Addis Ababa.\nየሚመርጧቸውን ሰፈሮች ይጫኑ።</blockquote>`;
 
   if (messageId) {
     await editMessageText(chatId, messageId, text, { inline_keyboard: rows });
@@ -237,21 +237,21 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 async function sendBudgetStep(chatId: number) {
   await sendMessage(
     chatId,
-    `<b>Step 3 of 5: Monthly Budget</b>\n<b>ወርሃዊ የበጀት ክልልዎን ያስገቡ (በብር):</b>\n\n<blockquote>💡 <b>For example / ለምሳሌ:</b> <code>8000 - 15000</code></blockquote>`
+    `<b>Monthly Budget / ወርሃዊ በጀት</b>\n\n<blockquote>Enter your monthly rent budget in ETB.\nወርሃዊ የኪራይ በጀትዎን በብር ያስገቡ።\n\nExample / ምሳሌ: <code>8000 - 15000</code></blockquote>`
   );
 }
 
 async function sendMoveInStep(chatId: number) {
   await sendMessage(
     chatId,
-    `<b>Step 4 of 5: Move-in Timeline</b>\n<b>መቼ ነው መግባት የሚፈልጉት?</b>\n\n<blockquote>When are you looking to move in?\nወደ ቤቱ መቼ ነው መግባት የሚፈልጉት?</blockquote>`,
+    `<b>Move-in Timeline / የመግቢያ ቀን</b>\n\n<blockquote>When are you looking to move in?\nወደ ቤቱ መቼ ነው መግባት የሚፈልጉት?</blockquote>`,
     {
       inline_keyboard: [
         [
-          { text: '⚡ Immediately / ወዲያውኑ', callback_data: 'onboard_movein:Immediately' },
-          { text: '🗓️ In 2 Weeks / በ2 ሳምንት ውስጥ', callback_data: 'onboard_movein:Within 2 Weeks' },
+          { text: 'Immediately / ወዲያውኑ', callback_data: 'onboard_movein:Immediately' },
+          { text: 'Within 2 Weeks / በ2 ሳምንት ውስጥ', callback_data: 'onboard_movein:Within 2 Weeks' },
         ],
-        [{ text: '📅 Next Month / በሚቀጥለው ወር', callback_data: 'onboard_movein:Next Month' }],
+        [{ text: 'Next Month / በሚቀጥለው ወር', callback_data: 'onboard_movein:Next Month' }],
       ],
     }
   );
@@ -260,17 +260,17 @@ async function sendMoveInStep(chatId: number) {
 async function sendTraitsStep(chatId: number) {
   await sendMessage(
     chatId,
-    `<b>Step 5 of 5: Lifestyle & Rules</b>\n<b>ስለ አኗኗርዎና የቤት ህጎችዎ አጭር መግለጫ ይስጡ:</b>\n\n<blockquote>💡 <b>Clean, remote worker, no smoking / ጽዱ፣ ከቤት የምሰራ፣ ሲጋራ የማያጨስ</b></blockquote>`
+    `<b>Lifestyle & Habits / አኗኗርና ልምዶች</b>\n\n<blockquote>Describe your lifestyle and roommate habits.\nስለ አኗኗርዎና የቤት ህጎችዎ አጭር መግለጫ ይስጡ።\n\nExample / ምሳሌ: Non-smoker, clean, quiet</blockquote>`
   );
 }
 
 async function sendPhoneStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📞 <b>Contact Information</b>\n<b>የስልክ ቁጥርዎን ያስገቡ:</b>\n\n<blockquote>Tap the button below or type your phone number (e.g. <code>0912345678</code>).\nከታች ያለውን ቁልፍ ይጫኑ ወይም ስልክ ቁጥርዎን ይጻፉ።</blockquote>\n\n🔒 <b>Double-Blind Protected:</b> Personal details are concealed until connected. / ስልክዎ ፈቃድ እስካልሰጡ ድረስ ለማንም አይታይም።`,
+    `<b>Contact Information / የስልክ ቁጥር</b>\n\n<blockquote>Tap the button below or type your phone number (e.g. <code>0912345678</code>).\nከታች ያለውን ቁልፍ ይጫኑ ወይም ስልክ ቁጥርዎን ይጻፉ።</blockquote>\n\nPrivacy Protected: Contact details remain sealed until mutual match. / ፈቃድ እስካልሰጡ ድረስ ስልክዎ ለማንም አይታይም።`,
     {
       keyboard: [
-        [{ text: '📱 Share My Contact / ስልክ ቁጥሬን አጋራ', request_contact: true }],
+        [{ text: 'Share My Contact / ስልክ ቁጥሬን አጋራ', request_contact: true }],
       ],
       one_time_keyboard: true,
       resize_keyboard: true,
@@ -301,11 +301,11 @@ async function sendKycStep(chatId: number) {
 
       await sendMessage(
         chatId,
-        `📋 <b>Listing Draft Ready!</b>\n<b>የማስታወቂያ ረቂቅ በተሳካ ሁኔታ ተዘጋጅቷል</b>\n\n<blockquote>🛡️ <b>Draft Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${displayCode}</code>\n• <b>Status / ሁኔታ:</b> 🟢 <b>Verified & Live / ተረጋግጦ የቀረበ</b>\n• <b>Channel / ቻናል:</b> @spacematch_aa</blockquote>\n\n🔒 Your contact details remain private until both parties match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃዎ ሚስጥራዊ ነው።`,
+        `<b>Listing Draft Ready / የማስታወቂያ ረቂቅ ተዘጋጅቷል</b>\n\n<blockquote><b>Draft Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${displayCode}</code>\n• <b>Status / ሁኔታ:</b> <b>Verified & Live / የጸደቀ</b>\n• <b>Channel / ቻናል:</b> @spacematch_aa</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
-            [{ text: '⚡ Find Roommates / የቤት አጋር ፈልግ 🔍', callback_data: 'matchmaker_start' }],
-            [{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+            [{ text: 'Find Roommates / የቤት አጋር ፈልግ', callback_data: 'matchmaker_start' }],
+            [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
           ],
         }
       );
@@ -315,24 +315,24 @@ async function sendKycStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `🛡️ <b>SpaceMatch Addis · Fayda National ID Verification</b>\n<b>የፋይዳ ብሔራዊ መታወቂያ ማረጋገጫ</b>\n\n<blockquote>To maintain a safe, verified network, please upload a clear photo of your Fayda National ID showing the official QR code.\nየታመነና ደህንነቱ የተጠበቀ ማህበረሰብ ለመገንባት፣ እባክዎ የፋይዳ ብሔራዊ መታወቂያዎን ይፋዊ QR ኮድ በግልጽ የሚያሳይ ፎቶ ይላኩ።</blockquote>\n\n🔒 Personal details are verified instantly via digital signature. Photos are never stored. / መረጃዎ በዲጂታል ፊርማ ወዲያውኑ ይረጋገጣል፤ ፎቶዎች በሲስተሙ ውስጥ አይቀመጡም።`,
+    `<b>Fayda National ID Verification / የፋይዳ ብሔራዊ መታወቂያ ማረጋገጫ</b>\n\n<blockquote>To maintain a verified network, please upload a clear photo of your Fayda ID showing the official QR code.\nየተረጋገጠ ማህበረሰብ ለመገንባት፣ የፋይዳ መታወቂያዎን ይፋዊ QR ኮድ በግልጽ የሚያሳይ ፎቶ ይላኩ።</blockquote>\n\nVerified instantly via digital signature. Photos are never stored. / መረጃዎ በዲጂታል ፊርማ ወዲያው ይረጋገጣል፤ ፎቶዎች አይቀመጡም።`,
     {
       inline_keyboard: [
         [
           {
-            text: '🖼️ Upload Fayda Photo in Chat / የፋይዳ ፎቶ ላክ',
+            text: 'Upload Fayda Photo / የፋይዳ ፎቶ ላክ',
             callback_data: 'dyn_upload_fayda',
           },
         ],
         [
           {
-            text: '❔ Why Fayda ID? / ለምን ፋይዳ አስፈለገ?',
+            text: 'Why Fayda ID? / ለምን ፋይዳ አስፈለገ?',
             callback_data: 'why_fayda_id',
           },
         ],
         [
           {
-            text: '🏠 Main Menu / ዋና ማውጫ',
+            text: 'Main Menu / ዋና ማውጫ',
             callback_data: 'nav_start',
           },
         ],
@@ -476,7 +476,7 @@ export async function handleOnboardingMessage(
     if (!parsedRange || parsedRange.max <= 0) {
       await sendMessage(
         chatId,
-        `⚠️ <b>Invalid Budget Range / የተሳሳተ የበጀት መጠን</b>\n\n<blockquote>Please type a valid monthly budget range in ETB.\nእባክዎ ትክክለኛ ወርሃዊ የኪራይ መጠን በብር ያስገቡ።</blockquote>\n\n💡 <b>Example / ምሳሌ:</b> <code>8000 - 14000</code>`
+        `<b>Invalid Budget Range / የተሳሳተ የበጀት መጠን</b>\n\n<blockquote>Please enter a valid monthly budget range in ETB.\nእባክዎ ትክክለኛ ወርሃዊ የኪራይ መጠን በብር ያስገቡ።\n\nExample / ምሳሌ: <code>8000 - 14000</code></blockquote>`
       );
       return true;
     }
@@ -496,7 +496,7 @@ export async function handleOnboardingMessage(
     if (!traits || traits.length < 5) {
       await sendMessage(
         chatId,
-        `⚠️ <b>More Details Required / ተጨማሪ መረጃ ያስፈልጋል</b>\n\n<blockquote>Please describe your lifestyle in a few words (min 5 characters).\nእባክዎ ስለ ባህሪዎ ወይም አኗኗርዎ በጥቂት ቃላት ይግለጹ (ቢያንስ 5 ፊደላት)።</blockquote>`
+        `<b>More Details Required / ተጨማሪ መረጃ ያስፈልጋል</b>\n\n<blockquote>Please describe your lifestyle in a few words (min 5 characters).\nእባክዎ ስለ ባህሪዎ ወይም አኗኗርዎ በጥቂት ቃላት ይግለጹ (ቢያንስ 5 ፊደላት)።</blockquote>`
       );
       return true;
     }
@@ -524,7 +524,7 @@ export async function handleOnboardingMessage(
       } else {
         await sendMessage(
           chatId,
-          `⚠️ <b>Invalid Phone Number / የተሳሳተ ስልክ ቁጥር</b>\n\n<blockquote>Please enter a valid Ethiopian phone number (e.g. <code>0912345678</code>) or tap the button below.\nእባክዎ ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ (ምሳሌ፡ <code>0912345678</code>) ወይም ከታች ያለውን ቁልፍ ይጫኑ።</blockquote>`
+          `<b>Invalid Phone Number / የተሳሳተ ስልክ ቁጥር</b>\n\n<blockquote>Please enter a valid phone number (e.g. <code>0912345678</code>) or tap the button below.\nእባክዎ ትክክለኛ ስልክ ቁጥር ያስገቡ (ምሳሌ፡ <code>0912345678</code>) ወይም ከታች ያለውን ቁልፍ ይጫኑ።</blockquote>`
         );
         return true;
       }
@@ -561,7 +561,7 @@ export async function handleOnboardingMessage(
     try {
       await sendMessage(
         chatId,
-        `⏳ <b>Processing Identity Document in Memory...</b>\n<b>ሰነዱ በሜሞሪ እየተመረመረ ነው...</b>\n\n<blockquote>Validating official cryptographic signature... Zero images are saved to storage.\nይፋዊ ዲጂታል ፊርማው እየተረጋገጠ ነው... ፎቶው በሲስተሙ ውስጥ አይቀመጥም።</blockquote>`
+        `<b>Processing Identity Document in Memory... / ሰነዱ እየተመረመረ ነው...</b>\n\n<blockquote>Validating official cryptographic signature... Zero images are saved to storage.\nይፋዊ ዲጂታል ፊርማው እየተረጋገጠ ነው... ፎቶው በሲስተሙ ውስጥ አይቀመጥም።</blockquote>`
       );
 
       // 1. Download into RAM buffer (Zero persistent storage)
@@ -595,7 +595,7 @@ export async function handleOnboardingMessage(
       if (!updatedProfile) {
         await sendMessage(
           chatId,
-          `❌ <b>Could Not Save Profile / መረጃውን ማስቀመጥ አልተቻለም</b>\n\n<blockquote>Please try again later or contact the coordinator.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ ወይም አስተዳዳሪውን ያነጋግሩ።</blockquote>`
+          `<b>Could Not Save Profile / መረጃውን ማስቀመጥ አልተቻለም</b>\n\n<blockquote>Please try again later or contact the coordinator.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ ወይም አስተዳዳሪውን ያነጋግሩ።</blockquote>`
         );
         return true;
       }
@@ -614,12 +614,12 @@ export async function handleOnboardingMessage(
       // 6. Confirmation message
       await sendMessage(
         chatId,
-        `📋 <b>Listing Draft Ready!</b>\n<b>የማስታወቂያ ረቂቅ በተሳካ ሁኔታ ተዘጋጅቷል</b>\n\n<blockquote>🛡️ <b>Draft Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> 🟢 <b>Verified & Live / ተረጋግጦ የቀረበ</b>\n• <b>Budget / በጀት:</b> <code>${updatedProfile.budget_min || 0} – ${updatedProfile.budget_max || 0} ETB</code>\n• <b>Areas / ሰፈሮች:</b> <code>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</code>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\n🔒 Your contact details remain private until both parties match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃዎ ሚስጥራዊ ነው።`,
+        `<b>Listing Draft Ready / የማስታወቂያ ረቂቅ ተዘጋጅቷል</b>\n\n<blockquote><b>Draft Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>Verified & Live / የጸደቀ</b>\n• <b>Budget / በጀት:</b> <code>${updatedProfile.budget_min || 0} – ${updatedProfile.budget_max || 0} ETB</code>\n• <b>Areas / ሰፈሮች:</b> <code>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</code>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
-            [{ text: '🚀 View on Channel / በቻናል ላይ እይ ↗️', url: 'https://t.me/spacematch_aa' }],
-            [{ text: '⚡ Find Roommates / የቤት አጋር ፈልግ 🔍', callback_data: 'matchmaker_start' }],
-            [{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+            [{ text: 'View on Channel / በቻናል ላይ እይ >', url: 'https://t.me/spacematch_aa' }],
+            [{ text: 'Find Roommates / የቤት አጋር ፈልግ', callback_data: 'matchmaker_start' }],
+            [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
           ],
         }
       );
@@ -628,7 +628,7 @@ export async function handleOnboardingMessage(
       console.error('[onboarding] KYC handler error:', err);
       await sendMessage(
         chatId,
-        `⚠️ <b>Verification Error / የማረጋገጫ ስህተት</b>\n\n<blockquote>Could not process the uploaded file. Please try again with a clear photo of the QR code on the back of your Fayda ID card. / የተላከውን ሰነድ ማንበብ አልተቻለም። እባክዎ የQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>`
+        `<b>Verification Error / የማረጋገጫ ስህተት</b>\n\n<blockquote>Could not process the uploaded file. Please try again with a clear photo of the QR code on the back of your Fayda ID card.\nየተላከውን ሰነድ ማንበብ አልተቻለም። እባክዎ የQR ኮዱ በግልጽ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>`
       );
       return true;
     }
