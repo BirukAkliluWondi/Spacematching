@@ -40,18 +40,35 @@ import {
 
 const LOCATIONS = [
   'Bole',
-  'Megenagna',
   'Kazanchis',
   'CMC',
   'Sarbet',
+  'Megenagna',
   'Piassa',
-  'Arada',
-  'Kirkos',
+  'Bisrate Gabriel',
   '4 Kilo',
   'Lideta',
+  'Kirkos',
+  'Arada',
   'Nifas Silk',
   'Akaki Kality',
 ];
+
+const LOCATION_AMHARIC: Record<string, string> = {
+  Bole: 'ቦሌ',
+  Kazanchis: 'ካዛንቺስ',
+  CMC: 'ሲኤምሲ',
+  Sarbet: 'ሳርቤት',
+  Megenagna: 'መገናኛ',
+  Piassa: 'ፒያሳ',
+  'Bisrate Gabriel': 'ብስራተ ገብርኤል',
+  '4 Kilo': '4 ኪሎ',
+  Lideta: 'ልደታ',
+  Kirkos: 'ቂርቆስ',
+  Arada: 'አራዳ',
+  'Nifas Silk': 'ንፋስ ስልክ',
+  'Akaki Kality': 'አቃቂ ቃሊቲ',
+};
 
 const ONBOARDING_STEPS = [
   'gender',
@@ -156,7 +173,7 @@ async function sendGenderStep(chatId: number) {
 
   await sendMessage(
     chatId,
-    `✨ <b>SpaceMatch Addis · Roommate Profile</b>\n<b>የቤት አጋር መገለጫ ዝግጅት</b>\n\n<blockquote>Step 1 of 5: Select your gender to personalize roommate matches.\nደረጃ 1 ከ 5፡ ትክክለኛ የቤት አጋር ለማግኘት ጾታዎን ይምረጡ።</blockquote>`,
+    `<b>Step 1 of 5: Select your gender</b>\n<b>ጾታዎን ይምረጡ:</b>\n\n<blockquote>Please select your gender to personalize roommate matches.\nትክክለኛ የቤት አጋር ለማግኘት ጾታዎን ይምረጡ።</blockquote>`,
     {
       inline_keyboard: [
         [
@@ -184,15 +201,17 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
     const row = [];
     const loc1 = LOCATIONS[i];
     const sel1 = selectedLocations.includes(loc1);
+    const am1 = LOCATION_AMHARIC[loc1] || loc1;
     row.push({
-      text: `${sel1 ? '🟢' : '⚪'} ${loc1}`,
+      text: `${sel1 ? '🟢' : '⚪'} ${loc1} (${am1})`,
       callback_data: `onboard_location:${loc1}`,
     });
     if (i + 1 < LOCATIONS.length) {
       const loc2 = LOCATIONS[i + 1];
       const sel2 = selectedLocations.includes(loc2);
+      const am2 = LOCATION_AMHARIC[loc2] || loc2;
       row.push({
-        text: `${sel2 ? '🟢' : '⚪'} ${loc2}`,
+        text: `${sel2 ? '🟢' : '⚪'} ${loc2} (${am2})`,
         callback_data: `onboard_location:${loc2}`,
       });
     }
@@ -201,12 +220,12 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 
   rows.push([
     {
-      text: `➡️ Proceed (${selectedLocations.length} Selected) / ቀጥል (${selectedLocations.length} ተመርጠዋል) ✅`,
+      text: `➡️ Proceed to Budget / በጀት ይወስኑ (${selectedLocations.length}) ➡️`,
       callback_data: 'onboard_locations_done',
     },
   ]);
 
-  const text = `📍 <b>SpaceMatch Addis · Preferred Neighborhoods</b>\n<b>የሚመርጡት አካባቢ ወይም ሰፈር</b>\n\n<blockquote>Step 2 of 5: Tap areas to toggle selection, then tap Proceed.\nደረጃ 2 ከ 5፡ የሚመርጧቸውን ሰፈሮች ይምረጡና 'ቀጥል' የሚለውን ይጫኑ።</blockquote>`;
+  const text = `<b>Step 2 of 5: Preferred neighborhoods</b>\n<b>የትኛው አካባቢ?</b>\n\n<blockquote>Tap locations to toggle your preferred zones in Addis.\nየሚመርጧቸውን ሰፈሮች ይጫኑ።</blockquote>`;
 
   if (messageId) {
     await editMessageText(chatId, messageId, text, { inline_keyboard: rows });
@@ -218,14 +237,14 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 async function sendBudgetStep(chatId: number) {
   await sendMessage(
     chatId,
-    `💰 <b>SpaceMatch Addis · Monthly Rent Budget</b>\n<b>ወርሃዊ የኪራይ በጀት</b>\n\n<blockquote>Step 3 of 5: Type your monthly budget range in ETB.\nደረጃ 3 ከ 5፡ ወርሃዊ የበጀት ክልልዎን በብር ይጻፉ።</blockquote>\n\n💡 <b>Example / ምሳሌ:</b> <code>8000 - 14000</code>`
+    `<b>Step 3 of 5: Monthly Budget</b>\n<b>ወርሃዊ የበጀት ክልልዎን ያስገቡ (በብር):</b>\n\n<blockquote>💡 <b>For example / ለምሳሌ:</b> <code>8000 - 15000</code></blockquote>`
   );
 }
 
 async function sendMoveInStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📅 <b>SpaceMatch Addis · Move-in Timeline</b>\n<b>የመግቢያ ጊዜ</b>\n\n<blockquote>Step 4 of 5: When are you looking to move in?\nደረጃ 4 ከ 5፡ መቼ ነው መግባት የሚፈልጉት?</blockquote>`,
+    `<b>Step 4 of 5: Move-in Timeline</b>\n<b>መቼ ነው መግባት የሚፈልጉት?</b>\n\n<blockquote>When are you looking to move in?\nወደ ቤቱ መቼ ነው መግባት የሚፈልጉት?</blockquote>`,
     {
       inline_keyboard: [
         [
@@ -241,14 +260,14 @@ async function sendMoveInStep(chatId: number) {
 async function sendTraitsStep(chatId: number) {
   await sendMessage(
     chatId,
-    `🏠 <b>SpaceMatch Addis · Habits & House Rules</b>\n<b>ስለ ባህሪዎ ወይም የቤት ደንቦች</b>\n\n<blockquote>Step 5 of 5: Describe your habits, profession, and house preferences.\nደረጃ 5 ከ 5፡ ስለ ራስዎ ሙያ፣ ባህሪ ወይም የቤት ደንብ ባጭሩ ይጻፉልን።</blockquote>\n\n💡 <b>Example / ምሳሌ:</b> <code>Non-smoker, clean, student / ሲጋራ የማያጨስ፣ ጽዱ፣ ተማሪ</code>`
+    `<b>Step 5 of 5: Lifestyle & Rules</b>\n<b>ስለ አኗኗርዎና የቤት ህጎችዎ አጭር መግለጫ ይስጡ:</b>\n\n<blockquote>💡 <b>Clean, remote worker, no smoking / ጽዱ፣ ከቤት የምሰራ፣ ሲጋራ የማያጨስ</b></blockquote>`
   );
 }
 
 async function sendPhoneStep(chatId: number) {
   await sendMessage(
     chatId,
-    `📞 <b>SpaceMatch Addis · Share Phone Number</b>\n<b>ስልክ ቁጥርዎን ያጋሩ</b>\n\n<blockquote>Tap the button below or type your phone number (e.g. <code>0912345678</code>).\nከታች ያለውን ቁልፍ ይጫኑ ወይም ስልክ ቁጥርዎን ይጻፉ።</blockquote>\n\n🔒 <b>Double-Blind Protected / በሚስጥር የተጠበቀ:</b> Phone numbers are never shared until you accept a connection request. / ስልክዎ ፈቃድ እስካልሰጡ ድረስ ለማንም አይታይም።`,
+    `📞 <b>Contact Information</b>\n<b>የስልክ ቁጥርዎን ያስገቡ:</b>\n\n<blockquote>Tap the button below or type your phone number (e.g. <code>0912345678</code>).\nከታች ያለውን ቁልፍ ይጫኑ ወይም ስልክ ቁጥርዎን ይጻፉ።</blockquote>\n\n🔒 <b>Double-Blind Protected:</b> Personal details are concealed until connected. / ስልክዎ ፈቃድ እስካልሰጡ ድረስ ለማንም አይታይም።`,
     {
       keyboard: [
         [{ text: '📱 Share My Contact / ስልክ ቁጥሬን አጋራ', request_contact: true }],
@@ -282,7 +301,7 @@ async function sendKycStep(chatId: number) {
 
       await sendMessage(
         chatId,
-        `🎉 <b>Profile Approved &amp; Live! / መረጃዎ ጸድቆ ተለጥፏል!</b>\n\n<blockquote>Your Fayda ID is verified, and listing <b>#${displayCode}</b> is open on the channel! / የፋይዳ መታወቂያዎ ተረጋግጧል፤ ማስታወቂያ #${displayCode} በቻናሉ ላይ ክፍት ሆኗል!</blockquote>`,
+        `📋 <b>Listing Draft Ready!</b>\n<b>የማስታወቂያ ረቂቅ በተሳካ ሁኔታ ተዘጋጅቷል</b>\n\n<blockquote>🛡️ <b>Draft Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${displayCode}</code>\n• <b>Status / ሁኔታ:</b> 🟢 <b>Verified & Live / ተረጋግጦ የቀረበ</b>\n• <b>Channel / ቻናል:</b> @spacematch_aa</blockquote>\n\n🔒 Your contact details remain private until both parties match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃዎ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
             [{ text: '⚡ Find Roommates / የቤት አጋር ፈልግ 🔍', callback_data: 'matchmaker_start' }],
@@ -303,6 +322,12 @@ async function sendKycStep(chatId: number) {
           {
             text: '🖼️ Upload Fayda Photo in Chat / የፋይዳ ፎቶ ላክ',
             callback_data: 'dyn_upload_fayda',
+          },
+        ],
+        [
+          {
+            text: '❔ Why Fayda ID? / ለምን ፋይዳ አስፈለገ?',
+            callback_data: 'why_fayda_id',
           },
         ],
         [
@@ -589,9 +614,10 @@ export async function handleOnboardingMessage(
       // 6. Confirmation message
       await sendMessage(
         chatId,
-        `🎉 <b>Profile Approved &amp; Posted! / መረጃዎ ጸድቆ ተለጥፏል!</b>\n\n<blockquote>Your listing <b>#${escapeHtml(displayCode)}</b> is now open on the channel! We will notify you here when someone connects. / ማስታወቂያዎ በቻናሉ ላይ ክፍት ሆኗል፤ ተዛማጅ ሲገኝ ወዲያውኑ እናሳውቆታለን!</blockquote>\n\n🔒 Your contact details remain private until both parties match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃዎ ሚስጥራዊ ነው።`,
+        `📋 <b>Listing Draft Ready!</b>\n<b>የማስታወቂያ ረቂቅ በተሳካ ሁኔታ ተዘጋጅቷል</b>\n\n<blockquote>🛡️ <b>Draft Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> 🟢 <b>Verified & Live / ተረጋግጦ የቀረበ</b>\n• <b>Budget / በጀት:</b> <code>${updatedProfile.budget_min || 0} – ${updatedProfile.budget_max || 0} ETB</code>\n• <b>Areas / ሰፈሮች:</b> <code>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</code>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\n🔒 Your contact details remain private until both parties match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃዎ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
+            [{ text: '🚀 View on Channel / በቻናል ላይ እይ ↗️', url: 'https://t.me/spacematch_aa' }],
             [{ text: '⚡ Find Roommates / የቤት አጋር ፈልግ 🔍', callback_data: 'matchmaker_start' }],
             [{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
           ],

@@ -1177,27 +1177,27 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 ✅ <b>Fayda Verified Successfully!</b>
 <b>ፋይዳዎ በትክክል ተረጋግጧል!</b>
 
-• 👤 <b>Name / ስም:</b> <b>${officialName}</b>
-• 🛡️ <b>FAN:</b> <code>${maskedFan}</code>
-• 🎂 <b>DOB / የልደት ቀን:</b> <code>${dobDisplay}</code>
-• ⚧ <b>Gender / ጾታ:</b> <code>${genderDisplay}</code>
-• 🛡️ <b>Status / ሁኔታ:</b> 🟢 <b>Verified Resident / የተረጋገጠ ነዋሪ</b>
+<blockquote>🛡️ <b>Zero-Storage Guarantee / ከማከማቻ ነፃ ማረጋገጫ</b>
+Your ID photo was verified cryptographically in RAM and immediately deleted. No images remain on our servers.
+የራስዎ ፎቶ በጊዜያዊ ሚሞሪ ብቻ ተረጋግጦ ወዲያው ተሰርዟል።</blockquote>
 
-<blockquote>🛡️ Institutional Trust Badge Active · Verification photo permanently purged from memory.
-የማረጋገጫ ፎቶው ከሲስተም ሜሞሪ ሙሉ በሙሉ ተሰርዟል።</blockquote>
+• 👤 <b>Name / ስም:</b> <b>${officialName}</b>
+• 🛡️ <b>FAN ID:</b> <code>${maskedFan}</code>
+• 🎂 <b>DOB:</b> <code>${dobDisplay}</code>
+• 🚻 <b>Gender / ጾታ:</b> <code>${genderDisplay}</code>
       `.trim();
 
       const inlineKeyboard = [
         [
           {
-            text: '⚡ Find Roommate / የቤት አጋር ፈልግ 🔍',
+            text: '🚀 Continue Profile Setup / ቀጥል ➡️',
             callback_data: 'matchmaker_start',
           },
         ],
         [
           {
-            text: '📢 Post Profile / መረጃህን ቻናል ላይ ልጠፍ ↗️',
-            callback_data: 'post_to_channel_start',
+            text: '❔ Why Fayda ID? / ለምን ፋይዳ አስፈለገ?',
+            callback_data: 'why_fayda_id',
           },
         ],
         [
@@ -2148,23 +2148,22 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
         const prefGenderDisplayStr = userPrefGender === 'Female' ? 'Female Only / ሴት ብቻ' : userPrefGender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
 
         const targetNotifyText = `
-🤝 <b>SpaceMatch Addis · New Connection Request!</b>
-<b>አዲስ የግንኙነት ጥያቄ!</b>
+🤝 <b>SpaceMatch · New Connection Request!</b>
+<b>አዲስ የግንኙነት ጥያቄ ደርሶዎታል!</b>
 
-<blockquote>A verified roommate saw your listing and wants to connect!
+<blockquote>A verified roommate saw listing <b>#${targetProfile.display_code}</b> and wants to connect!
 አንድ የተረጋገጠ አባል ማስታወቂያዎን አይቶ ሊገናኝዎት ይፈልጋል!</blockquote>
 
-• <b>Profile / መገለጫ:</b> ${genderDisplayStr}, Age ${userAge} / ዕድሜ ${userAge}
-• <b>Occupation / ስራ:</b> ${escapeHtml(userJob || 'Not specified / አልተገለጸም')}
-• <b>Religion / ሃይማኖት:</b> ${escapeHtml(userReligion || 'Not specified / አልተገለጸም')}
-• <b>Prefers / የሚመርጡት:</b> ${escapeHtml(prefGenderDisplayStr)}
-• <b>Budget / በጀት:</b> <code>${budgetDisplay}</code>
-• <b>Target Areas / አካባቢዎች:</b> <code>${escapeHtml(reqSubcities)}</code>
-• <b>Status / ሁኔታ:</b> 🛡️ <b>Fayda Verified ✅</b>
+🛡️ <b>Identity Verified Candidate</b> · <code>Fayda ID ✅</code>
+
+• 👤 <b>Profile / መገለጫ:</b> ${genderDisplayStr}, Age ${userAge}
+• 💼 <b>Occupation / ስራ:</b> ${escapeHtml(userJob || 'Professional')}
+• 💰 <b>Budget / በጀት:</b> <code>${budgetDisplay}</code>
 
 <blockquote>"${escapeHtml(userTraits)}"</blockquote>
 
-🔒 Personal contact details are protected until you accept. / ስልክና አድራሻዎ ጥያቄውን እስኪቀበሉ ድረስ በሚስጥር የተጠበቀ ነው።
+🔒 <b>Personal contact details are protected until you accept.</b>
+ስልክና አድራሻዎ ጥያቄውን እስኪቀበሉ ድረስ በሚስጥር የተጠበቀ ነው።
         `.trim();
 
         const targetNotifyId = targetProfile.telegram_id > 0
@@ -3017,27 +3016,29 @@ ${postPreview}
 
       const paywallText = `
 👑 <b>SpaceMatch Addis · 30-Day Pass</b>
-<b>የ30 ቀን ሙሉ አባልነት</b>
+<b>የ30 ቀን ሙሉ አባልነት ሁኔታ እና ማብራሪያ</b>
 
 🏷️ <b>Fee / ክፍያ:</b> <code>300 ETB / 30 Days</code>
 
 <blockquote>${purposeNotice}</blockquote>
 
 ✨ <b>Active Benefits / የአባልነት ጥቅሞች:</b>
-• 📢 Post listings to channel / ማስታወቂያዎችን ቻናል ላይ መለጠፍ
-• 🚀 Unlimited connection requests / ያልተገደበ የግንኙነት ጥያቄ መላክ
-• 🔓 Instant mutual contact reveals / ያለምንም ተጨማሪ ክፍያ ስልክ እና ቴሌግራም መክፈት!
+• 📢 Broadcast listings to channel / ማስታወቂያ ቻናል ላይ
+• 🚀 Unlimited connection requests / ያልተገደበ ግንኙነት
+• 🔓 Instant mutual contact reveals / ያለምንም ክፍያ ስልክ እና ቴሌግራም መክፈት!
 
-💳 <b>Payment Channels / የክፍያ አማራጮች (Holder: ${paymentAccountHolder}):</b>
+🏛️ <b>Payment Accounts (Wahid):</b>
 • 📱 <b>Telebirr:</b> <code>${receiverPhone}</code>
-• 🏦 <b>Bank of Abyssinia:</b> <code>${abyssiniaAccount}</code>
-• 🏦 <b>Dashen Bank:</b> <code>${dashenAccount}</code>
+• 🏦 <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>
+• 🏦 <b>Dashen:</b> <code>${dashenAccount}</code>
 
-<blockquote>Send transaction reference code / የደረሰኝ ቁጥርዎን ይላኩ:
-<code>/verify telebirr YOUR_REF</code> or <code>/verify abyssinia YOUR_REF</code></blockquote>
+<blockquote>Send transaction reference code / ደረሰኝ ቁጥር:
+<code>/verify telebirr YOUR_REF</code></blockquote>
       `.trim();
 
       const paywallKeyboard = [
+        [{ text: '📱 Pay via Telebirr SuperApp ↗️', url: 'https://telebirr.et' }],
+        [{ text: '🛡️ 🔄 Verify Receipt / ደረሰኝ አረጋግጥ', callback_data: 'view_membership_pass' }],
         [{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
       ];
 
@@ -3208,11 +3209,11 @@ ${postPreview}
           ? `<blockquote>💡 Managed by SpaceMatch Concierge. Tap below to coordinate directly with our coordinator! / ይህ ማስታወቂያ በአስተዳዳሪ በኩል የሚስተናገድ ነው። ከታች ያለውን ቁልፍ በመጫን በቀጥታ ይገናኙ።</blockquote>`
           : `<blockquote>Good luck finding your home together! / መልካም የጋራ ኑሮ ይሁንላችሁ! 🏠🤝</blockquote>`;
 
-        const msg = `🎉 <b>YOU'RE MATCHED!</b>\n<b>እንኳን ደስ አላችሁ! ተዛምዳችኋል!</b>\n\n<blockquote>Membership confirmed! Your connection is complete. / አባልነትዎ ተረጋግጧል። ግንኙነታችሁ ተጠናቋል!</blockquote>\n\n• 👤 <b>Name / ስም:</b> <b>${escapeHtml(displayName)}</b>\n• 📞 <b>Phone / ስልክ:</b> <code>${escapeHtml(displayPhone)}</code>\n• 💬 <b>Telegram / ቴሌግራም:</b> ${tgHandle}\n\n${closingBlockquote}`;
+        const msg = `🎉 <b>YOU'RE MATCHED!</b>\n<b>እንኳን ደስ አላችሁ! ተዛምዳችኋል!</b>\n\n<blockquote>Membership confirmed! Your connection is complete.\nአባልነትዎ ተረጋግጧል። ግንኙነታችሁ ተጠናቋል!</blockquote>\n\n🔓 <b>MUTUAL CONTACT DETAILS / የግል መረጃ</b>\n\n• 👤 <b>Name / ስም:</b> <b>${escapeHtml(displayName)}</b>\n• 📞 <b>Phone / ስልክ:</b> <code>${escapeHtml(displayPhone)}</code>\n• 💬 <b>Telegram / ቴሌግራም:</b> ${tgHandle}\n\n${closingBlockquote}`;
 
         const buttonText = isConcierge
           ? `💬 Chat with Coordinator / ከአስተዳዳሪ ጋር አውራ (@${cleanHandle}) ↗️`
-          : '💬 Open Chat on Telegram / በቴሌግራም አውራ ↗️';
+          : `💬 Open Chat with ${escapeHtml(displayName.split(' ')[0])} / በቴሌግራም አውራ ↗️`;
 
         const markup = cleanHandle
           ? { inline_keyboard: [[{ text: buttonText, url: `https://t.me/${cleanHandle}` }]] }
@@ -5912,13 +5913,22 @@ ${res.message}
         const targetCode = callbackData.split(':')[1];
         await executeChannelPostClose(targetCode, chatId);
         const closeMsg = `
-🔴 <b>Listing Marked as CLOSED! / ማስታወቂያው ተዘግቷል!</b>
+🔴 <b>Listing Marked as CLOSED!</b>
+<b>ማስታወቂያው በተሳካ ሁኔታ ተዘግቷል!</b>
 
-<blockquote>Congratulations on finding a roommate! Post <b>#${targetCode}</b> has been updated on the channel with <b>_____CLOSED_____</b> and action buttons were removed.
-እንኳን ደስ አለዎት! ማስታወቂያው በቻናሉ ላይ ተዘግቷል።</blockquote>
+<blockquote>System Notification · @spacematch_aa
+Post <b>#${targetCode}</b> has been updated on channel with red banner and all contact buttons removed. Your direct contact details are safe.</blockquote>
         `.trim();
 
-        await sendOrEditCard(chatId, closeMsg, [[{ text: '🏠 Main Menu', callback_data: 'nav_start' }]], msgId);
+        await sendOrEditCard(
+          chatId,
+          closeMsg,
+          [
+            [{ text: '➕ Post New / አዲስ ልጠፍ', callback_data: 'post_profile_start' }],
+            [{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+          ],
+          msgId
+        );
         return NextResponse.json({ ok: true });
       }
 
@@ -6658,17 +6668,29 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
 
         if (mem.isActive) {
           const expiryStr = mem.expiresAt ? mem.expiresAt.toLocaleDateString() : 'N/A';
+          const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
+          const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
+          const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';
+
           const activeText = `
 👑 <b>SpaceMatch Addis · 30-Day Pass</b>
-<b>የ30 ቀን ሙሉ አባልነት</b>
+<b>የ30 ቀን ሙሉ አባልነት ሁኔታ እና ማብራሪያ</b>
 
-• <b>Status / ሁኔታ:</b> 🟢 Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል)
-• <b>Expires on / የማብቂያ ቀን:</b> <code>${expiryStr}</code>
+• <b>Status / ሁኔታ:</b> 🟢 <b>Active (${mem.daysRemaining}d) / የሚሰራ</b>
+• <b>Expires / ማብቂያ:</b> <code>${expiryStr}</code>
 
 ✨ <b>Active Benefits / የአባልነት ጥቅሞች:</b>
-• 📢 Broadcast listings to channel / ማስታወቂያዎችን ቻናል ላይ መለጠፍ
-• 🚀 Send unlimited connection requests / ያልተገደበ የግንኙነት ጥያቄ መላክ
-• 🔓 Instant mutual contact reveals / ያለምንም ተጨማሪ ክፍያ ስልክ እና ቴሌግራም መክፈት!
+• 📢 Broadcast listings to channel / ማስታወቂያ ቻናል ላይ
+• 🚀 Unlimited connection requests / ያልተገደበ ግንኙነት
+• 🔓 Instant mutual contact reveals / ያለምንም ክፍያ ስልክ እና ቴሌግራም መክፈት!
+
+🏛️ <b>Payment Accounts (Wahid):</b>
+• 📱 <b>Telebirr:</b> <code>${receiverPhone}</code>
+• 🏦 <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>
+• 🏦 <b>Dashen:</b> <code>${dashenAccount}</code>
+
+<blockquote>Send transaction reference code / ደረሰኝ ቁጥር:
+<code>/verify telebirr YOUR_REF</code></blockquote>
           `.trim();
 
           await sendOrEditCard(
@@ -6676,8 +6698,8 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
             activeText,
             [
               [{ text: '🔍 Search Roommate / የቤት ጓደኛ ፈልግ', callback_data: 'search_roommate_start' }],
-              [{ text: '📢 Post Profile to Channel / ቻናል ላይ መረጃዬን ልለጥፍ', callback_data: 'post_profile_start' }],
-              [{ text: '📋 My Listings & Status / ማስታወቂያዎቼና ሁኔታዬ', callback_data: 'my_listings' }],
+              [{ text: '📢 Post Profile / መረጃዬን ልለጥፍ', callback_data: 'post_profile_start' }],
+              [{ text: '📋 My Listings / ማስታወቂያዎቼ', callback_data: 'my_listings' }],
               [{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
             ],
             msgId
@@ -6743,6 +6765,29 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
       if (callbackData === 'nav_start' || callbackData === 'admin_cancel') {
         await clearSession(chatId);
         await sendPrimaryWelcomeMenu(chatId, msgId);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (callbackData === 'why_fayda_id') {
+        const text = `
+🛡️ <b>Why Fayda ID? / ለምን ፋይዳ መታወቂያ አስፈለገ?</b>
+
+<blockquote>1. <b>Zero Fake Profiles & Delalas / ከአጭበርባሪ ደላላ ነፃ:</b>
+Every resident is cryptographically authenticated via National ID (RS256).
+
+2. <b>Zero Image Storage / ፎቶዎች አይቀመጡም:</b>
+Your ID photo is verified in volatile RAM and instantly deleted. No ID cards are ever stored.
+
+3. <b>Double-Blind Contact Shield / ሙሉ ሚስጥራዊነት:</b>
+Your phone and Telegram handle remain 100% hidden until both parties accept a connection request.</blockquote>
+        `.trim();
+
+        await sendOrEditCard(
+          chatId,
+          text,
+          [[{ text: '⬅️ Back / ተመለስ', callback_data: 'nav_start' }]],
+          msgId
+        );
         return NextResponse.json({ ok: true });
       }
 
@@ -6991,16 +7036,22 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
         }
 
         const closedSuccessText = `
-✅ <b>Listing Closed &amp; Updated</b>
+🔴 <b>Listing Marked as CLOSED!</b>
+<b>ማስታወቂያው በተሳካ ሁኔታ ተዘግቷል!</b>
 
-Your listing <b>#${displayCode}</b> has been marked as matched! 🎉
-
-<blockquote>The channel broadcast post has been updated to <b>CLOSED · MATCHED</b>, and action buttons have been removed.</blockquote>
+<blockquote>System Notification · @spacematch_aa
+Post <b>#${displayCode}</b> has been updated on channel with red banner and all contact buttons removed. Your direct contact details are safe.</blockquote>
         `.trim();
 
-        await sendOrEditCard(chatId, closedSuccessText, [
-          [{ text: '🏠 Back to Main Menu', callback_data: 'nav_start' }],
-        ], msgId);
+        await sendOrEditCard(
+          chatId,
+          closedSuccessText,
+          [
+            [{ text: '➕ Post New / አዲስ ልጠፍ', callback_data: 'post_profile_start' }],
+            [{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+          ],
+          msgId
+        );
         return NextResponse.json({ ok: true });
       }
 
@@ -7104,10 +7155,13 @@ Your listing <b>#${displayCode}</b> has been marked as matched! 🎉
         await clearSession(chatId);
 
         const confirmationText = `
-🎉 <b>SpaceMatch Addis · Profile Published! / መረጃዎ ተለጥፏል!</b>
+📋 <b>Listing Draft Ready &amp; Published!</b>
+<b>የማስታወቂያ ረቂቅ በተሳካ ሁኔታ ተለጥፏል</b>
 
-Your roommate listing (<code>#${displayCode}</code>) is now <b>LIVE</b> on our Telegram channel and in the Matchmaker!
-የእርስዎ የቤት አጋር መረጃ (<code>#${displayCode}</code>) አሁን በቴሌግራም ቻናላችን እና በማችሜከሩ ላይ <b>ክፍት ሆኗል</b>!
+<blockquote>🛡️ <b>Draft Overview • Addis Ababa</b>
+• <b>Listing Code / መለያ:</b> <code>#${displayCode}</code>
+• <b>Status / ሁኔታ:</b> 🟢 <b>Verified &amp; Live / ተረጋግጦ የቀረበ</b>
+• <b>Channel / ቻናል:</b> @spacematch_aa</blockquote>
 
 <blockquote>🔒 <b>Privacy Shield / ሚስጥራዊነት የተጠበቀ:</b>
 Your name, phone number, and Telegram handle remain strictly confidential until mutual match.
@@ -7117,7 +7171,8 @@ Your name, phone number, and Telegram handle remain strictly confidential until 
         `.trim();
 
         const successKeyboard = [
-          [{ text: '⚡ Find Roommates Now · Matchmaker / የቤት አጋር ፈልግ 🔍', callback_data: 'matchmaker_start' }],
+          [{ text: '🚀 View on Channel / በቻናል ላይ እይ ↗️', url: 'https://t.me/spacematch_aa' }],
+          [{ text: '⚡ Find Roommates / የቤት አጋር ፈልግ 🔍', callback_data: 'matchmaker_start' }],
           [{ text: '🏠 Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
         ];
 
