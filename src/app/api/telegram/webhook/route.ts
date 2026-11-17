@@ -2260,31 +2260,31 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       updated_at: new Date().toISOString(),
     });
 
-    const text = '<b>Post Profile / መረጃ መለጠፊያ</b>\n\n<blockquote>Select listing type:\nየማስታወቂያ አይነት ይምረጡ:</blockquote>';
+    const text = '<b>Post Profile / መረጃ መለጠፊያ</b>\n\n<blockquote>Select your situation:\nሁኔታዎን ይምረጡ:</blockquote>';
 
- const inlineKeyboard = [
- [
- {
- text: 'Room available / የሚከራይ ክፍል አለኝ',
- callback_data: 'post_branch_space',
- },
- ],
- [
- {
- text: 'Looking for room / ክፍል እፈልጋለሁ',
- callback_data: 'post_branch_seeker',
- },
- ],
- [
- {
- text: 'Main Menu / ዋና ማውጫ',
- callback_data: 'nav_start',
- },
- ],
- ];
+    const inlineKeyboard = [
+      [
+        {
+          text: 'I want a roommate & we look for room together / የቤት አጋር እፈልጋለሁ (አብረን ቤት እንፈልጋለን)',
+          callback_data: 'post_branch_seeker',
+        },
+      ],
+      [
+        {
+          text: 'I have a space & I want a roommate / የሚከራይ ክፍል አለኝ (የቤት አጋር እፈልጋለሁ)',
+          callback_data: 'post_branch_space',
+        },
+      ],
+      [
+        {
+          text: 'Main Menu / ዋና ማውጫ',
+          callback_data: 'nav_start',
+        },
+      ],
+    ];
 
- return await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
- };
+    return await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+  };
 
  // ── Branch A: Space Owner Questionnaire Helpers ─────────────────────────
  const sendSpaceStep1Type = async (

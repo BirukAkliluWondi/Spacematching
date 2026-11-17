@@ -42,9 +42,9 @@ export const I18N_BILINGUAL = {
   btnVerifyFayda: 'Verify Fayda ID / የፋይዳ መታወቂያ አረጋግጥ',
 
   // Post Profile Branch Selection
-  postBranchTitle: '<b>Select Listing Type / የማስታወቂያ አይነት ይምረጡ:</b>',
-  btnBranchSpace: 'Room Available / ክፍል አለኝ',
-  btnBranchSeeker: 'Looking for Room / ክፍል እፈልጋለሁ',
+  postBranchTitle: '<b>Post Profile / መረጃ መለጠፊያ</b>',
+  btnBranchSeeker: 'I want a roommate & we look for room together / የቤት አጋር እፈልጋለሁ (አብረን ቤት እንፈልጋለን)',
+  btnBranchSpace: 'I have a space & I want a roommate / የሚከራይ ክፍል አለኝ (የቤት አጋር እፈልጋለሁ)',
 
   // Section Badges
   section1Badge: '<b>SECTION 1: PROFILE / ክፍል ፩: መረጃ</b>',
