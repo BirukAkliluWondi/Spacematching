@@ -112,8 +112,8 @@ export function invalidateFaydaStatusCache(chatId: number) {
 // Module-level deduplication lock to guarantee idempotent match contact unlocks under rapid concurrent clicks
 const _activeMatchUnlocks = new Set<string>();
 
-// Feature Flag: Toggle dynamic start card image banner (set to 'false' to instantly revert to classic text card)
-export const ENABLE_DYNAMIC_START_IMAGE = process.env.ENABLE_DYNAMIC_START_IMAGE !== 'false';
+// Feature Flag: Toggle dynamic start card image banner (defaults to false to preserve fast, stable native text UI; set to 'true' to enable)
+export const ENABLE_DYNAMIC_START_IMAGE = process.env.ENABLE_DYNAMIC_START_IMAGE === 'true';
 
 export async function POST(request: Request) {
  try {
