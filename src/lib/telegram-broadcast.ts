@@ -945,7 +945,7 @@ export async function closeChannelPost(
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
   }
 
-  const closedHeader = `━━━━━━━━━━━━━━━━━━━━━━\n       <b>[CLOSED / የተዘጋ]</b>\nThis listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!\n━━━━━━━━━━━━━━━━━━━━━━`;
+  const closedHeader = `━━━━━━━━━━━━━━━━━━━━━━\n       <b>CLOSED / የተዘጋ</b>\nThis listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!\n━━━━━━━━━━━━━━━━━━━━━━`;
 
   const closedNotice = existingContent?.trim()
     ? `${closedHeader}\n\n${existingContent.trim()}\n\nListing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ክፍት የሆኑ የተረጋገጡ የቤት አጋሮችን ከታች ይመልከቱ:`

@@ -339,7 +339,7 @@ export async function preloadSession(telegramId: number): Promise<BotSession> {
 // Per-user write queue to guarantee database persistence ordering without blocking webhook responses
 const _sessionWriteQueues: Record<string, Promise<any>> = {};
 
-export async function saveSession(session: BotSession, awaitDb = true): Promise<void> {
+export async function saveSession(session: BotSession, awaitDb = false): Promise<void> {
   // Ensure draft_data is an object and retains language
   session.draft_data = session.draft_data ?? {};
   const activeLang = session.draft_data.lang || _userLanguageCache.get(String(session.telegram_id));

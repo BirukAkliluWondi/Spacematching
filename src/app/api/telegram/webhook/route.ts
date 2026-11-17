@@ -496,7 +496,7 @@ export async function POST(request: Request) {
  ` <b>Post Not Found</b>\n\nNo active or historical post was found matching code <code>${escapeHtml(rawQuery)}</code>.\n\nPlease check the code (e.g. <code>SPMARBR5</code>, <code>SPMARWR1</code>, or <code>5</code>) and try again.`,
  [
  [{ text: 'Search Another Code', callback_data: 'admin_search_code_prompt' }],
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  ],
  messageIdToEdit
  );
@@ -565,7 +565,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  dossierButtons.push([{ text: `Direct Message Candidate / መልእክት ላክ >`, url: sanitizedContact.telegramUrl }]);
  }
  dossierButtons.push([{ text: 'Search Another Code / ሌላ ኮድ ፈልግ', callback_data: 'admin_search_code_prompt' }]);
- dossierButtons.push([{ text: '⬅ Back to Admin Menu / ወደ ዋና ማውጫ ተመለስ', callback_data: 'admin_menu' }]);
+ dossierButtons.push([{ text: 'Back to Admin Menu / ወደ ዋና ማውጫ ተመለስ', callback_data: 'admin_menu' }]);
 
  await sendOrEditCard(chatId, dossierText, dossierButtons, messageIdToEdit);
  };
@@ -590,7 +590,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  ` <b>User Not Found</b>\n\nNo user account or profile was found with Telegram ID <code>${targetTelegramId}</code>.`,
  [
  [{ text: 'Search Another User', callback_data: 'admin_search_user_prompt' }],
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  ],
  messageIdToEdit
  );
@@ -718,7 +718,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  }
 
  dossierButtons.push([{ text: 'Search Another User / ሌላ ተጠቃሚ ፈልግ', callback_data: 'admin_search_user_prompt' }]);
- dossierButtons.push([{ text: '⬅ Back to Admin Menu / ወደ ዋና ማውጫ ተመለስ', callback_data: 'admin_menu' }]);
+ dossierButtons.push([{ text: 'Back to Admin Menu / ወደ ዋና ማውጫ ተመለስ', callback_data: 'admin_menu' }]);
 
  await sendOrEditCard(chatId, dossierText, dossierButtons, messageIdToEdit);
  };
@@ -736,7 +736,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  ` <b>Please provide a name, username, or Fayda ID to search.</b>`,
  [
  [{ text: 'Search User', callback_data: 'admin_search_user_prompt' }],
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  ],
  messageIdToEdit
  );
@@ -913,7 +913,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  ` <b>No Users Found</b>\n\nNo resident or Fayda record was found matching <code>${escapeHtml(rawQuery)}</code>.\n\n Try searching by first name, last name, Telegram @username, or 16-digit Fayda FAN.`,
  [
  [{ text: 'Search Another Name', callback_data: 'admin_search_user_prompt' }],
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  ],
  messageIdToEdit
  );
@@ -965,7 +965,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  }
 
  buttons.push([{ text: 'Search Another Name', callback_data: 'admin_search_user_prompt' }]);
- buttons.push([{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }]);
+ buttons.push([{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }]);
 
  await sendOrEditCard(chatId, listText.trim(), buttons, messageIdToEdit);
  };
@@ -1416,7 +1416,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  { text: 'Female / ሴት', callback_data: 'dyn_gender:Female' },
  ],
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'dyn_back_to_age' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_age' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -1454,7 +1454,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  { text: 'Other / Any / ሌላ ወይም ማንኛውም', callback_data: 'dyn_religion:Other' },
  ],
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'dyn_back_to_gender' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_gender' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -1485,7 +1485,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
 
  const inlineKeyboard = [
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'dyn_back_to_religion' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_religion' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -1522,7 +1522,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  },
  ],
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'dyn_back_to_job' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_job' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -1553,7 +1553,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
 
  const inlineKeyboard = [
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'dyn_back_to_job' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_job' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -1587,7 +1587,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  { text: 'Any Gender / ማንኛውም ጾታ', callback_data: 'dyn_pref_gender:Any' },
  ],
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'dyn_back_to_budget' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_budget' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -1618,7 +1618,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
 
  const inlineKeyboard = [
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'dyn_back_to_pref_gender' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_pref_gender' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -1643,14 +1643,14 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  step: 'dyn_card_subcities',
  draft_data: { ...draft, lang, preferred_subcity: selectedList, card_msg_id: activeMsgId },
  updated_at: new Date().toISOString(),
- });
+ }, false);
 
  const gridRows: any[] = [];
  gridRows.push([
  {
  text: isAllSelected
- ? '[X] All Selected / ሁሉም ተመርጠዋል (Proceed )'
- : '[ ] Select All Areas / ሁሉንም ምረጥና ቀጥል >',
+ ? '✅ All Selected / ሁሉም ተመርጠዋል (Proceed )'
+ : 'Select All Areas / ሁሉንም ምረጥና ቀጥል >',
  callback_data: 'dyn_sub_all',
  },
  ]);
@@ -1660,7 +1660,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  const item1 = ALL_SUBCITIES[i];
  const isSel1 = selectedList.includes(item1);
  row.push({
- text: `${isSel1 ? '[X]' : '[ ]'} ${item1}`,
+ text: `${isSel1 ? '✅ ' : ''}${item1}`,
  callback_data: `dyn_sub_toggle:${item1}`,
  });
 
@@ -1668,7 +1668,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  const item2 = ALL_SUBCITIES[i + 1];
  const isSel2 = selectedList.includes(item2);
  row.push({
- text: `${isSel2 ? '[X]' : '[ ]'} ${item2}`,
+ text: `${isSel2 ? '✅ ' : ''}${item2}`,
  callback_data: `dyn_sub_toggle:${item2}`,
  });
  }
@@ -1679,7 +1679,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  { text: 'Proceed / ቀጥል >', callback_data: 'dyn_sub_proceed' },
  ]);
  gridRows.push([
- { text: '⬅ Back / ተመለስ', callback_data: 'dyn_back_to_traits' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_traits' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ]);
 
@@ -1728,7 +1728,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  },
  ],
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'dyn_back_to_subs' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_subs' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -1760,7 +1760,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
 
  const inlineKeyboard = [
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'dyn_back_to_subs' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_subs' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -2059,7 +2059,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  if (String(targetProfile.telegram_id) === String(chatId)) {
  await sendOrEditCard(
  chatId,
- `ℹ <b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
+ `<b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
  [[{ text: 'Main Menu', callback_data: 'nav_start' }]],
  activeMsgId
  );
@@ -2105,7 +2105,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  if (existingMatch) {
  await sendOrEditCard(
  chatId,
- `ℹ You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
+ `You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
  [[{ text: 'Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu', callback_data: 'nav_start' }]],
  activeMsgId
  );
@@ -2346,7 +2346,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  const text = `${errorMsg ? ` <b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
  const inlineKeyboard = [
- [{ text: '⬅ Back / ተመለስ', callback_data: 'post_profile_start' }],
+ [{ text: 'Back / ተመለስ', callback_data: 'post_profile_start' }],
  [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ];
 
@@ -2375,7 +2375,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
 
  const inlineKeyboard = [
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'post_branch_space' },
+ { text: 'Back / ተመለስ', callback_data: 'post_branch_space' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -2413,7 +2413,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  { text: splitText, callback_data: `space_share:${halfRent}` },
  ],
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'space_back_to_rent' },
+ { text: 'Back / ተመለስ', callback_data: 'space_back_to_rent' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -2443,7 +2443,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
 
  const inlineKeyboard = [
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'space_back_to_share' },
+ { text: 'Back / ተመለስ', callback_data: 'space_back_to_share' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -2475,7 +2475,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  { text: 'Female / ሴት', callback_data: 'space_host_gender:Female' },
  ],
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'space_back_to_amenities' },
+ { text: 'Back / ተመለስ', callback_data: 'space_back_to_amenities' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -2510,7 +2510,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  { text: 'Any Gender / ማንኛውም ጾታ', callback_data: 'space_pref_gender:Any' },
  ],
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'space_back_to_host_gender' },
+ { text: 'Back / ተመለስ', callback_data: 'space_back_to_host_gender' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -2540,7 +2540,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
 
  const inlineKeyboard = [
  [
- { text: '⬅ Back / ተመለስ', callback_data: 'space_back_to_pref_gender' },
+ { text: 'Back / ተመለስ', callback_data: 'space_back_to_pref_gender' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -2577,7 +2577,7 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  }
 
  gridRows.push([
- { text: '⬅ Back / ተመለስ', callback_data: 'space_back_to_pref_roommate' },
+ { text: 'Back / ተመለስ', callback_data: 'space_back_to_pref_roommate' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ]);
 
@@ -2608,14 +2608,14 @@ Your ID photo was verified cryptographically in RAM and immediately deleted. No 
  const text = `${photos.length > 0 ? uploadedNotice : ''}${promptText}`.trim();
 
  const proceedText = ` Proceed with ${photos.length} Photo(s) / ቀጥል `;
- const skipText = '⏭ Skip Photos / ፎቶዎችን ይለፉ';
+ const skipText = 'Skip Photos / ፎቶዎችን ይለፉ >';
 
  const inlineKeyboard = [
  ...(photos.length > 0
  ? [[{ text: proceedText, callback_data: 'space_photos_done' }]]
  : []),
  [{ text: skipText, callback_data: 'space_photos_skip' }],
- [{ text: '⬅ Back / ተመለስ', callback_data: 'space_back_to_subcity' }],
+ [{ text: 'Back / ተመለስ', callback_data: 'space_back_to_subcity' }],
  [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ];
 
@@ -2695,12 +2695,12 @@ Select the category of the post to broadcast to ${targetChannel}:
  step: 'admin_post_subs',
  draft_data: { ...draft, locations: selectedList, card_msg_id: activeMsgId },
  updated_at: new Date().toISOString(),
- });
+ }, false);
 
  const gridRows: any[] = [];
  gridRows.push([
  {
- text: isAllSelected ? '[X] All Selected' : ' Select ALL Sub-Cities',
+ text: isAllSelected ? '✅ All Selected' : 'Select ALL Sub-Cities',
  callback_data: 'admin_post_sub_all',
  },
  ]);
@@ -2710,7 +2710,7 @@ Select the category of the post to broadcast to ${targetChannel}:
  const item1 = ALL_SUBCITIES[i];
  const isSel1 = selectedList.includes(item1);
  row.push({
- text: `${isSel1 ? '[X]' : '[ ]'} ${item1}`,
+ text: `${isSel1 ? '✅ ' : ''}${item1}`,
  callback_data: `admin_post_sub_toggle:${item1}`,
  });
 
@@ -2718,7 +2718,7 @@ Select the category of the post to broadcast to ${targetChannel}:
  const item2 = ALL_SUBCITIES[i + 1];
  const isSel2 = selectedList.includes(item2);
  row.push({
- text: `${isSel2 ? '[X]' : '[ ]'} ${item2}`,
+ text: `${isSel2 ? '✅ ' : ''}${item2}`,
  callback_data: `admin_post_sub_toggle:${item2}`,
  });
  }
@@ -2729,7 +2729,7 @@ Select the category of the post to broadcast to ${targetChannel}:
  { text: 'Proceed to Price / Rent >', callback_data: 'admin_post_proceed_budget' },
  ]);
  gridRows.push([
- { text: '⬅ Back to Category', callback_data: 'admin_post_start' },
+ { text: 'Back to Category', callback_data: 'admin_post_start' },
  { text: 'Cancel', callback_data: 'nav_start' },
  ]);
 
@@ -2764,7 +2764,7 @@ ${errorMsg ? ` <b>${errorMsg}</b>\n\n` : ''} <b>Please reply with the monthly re
  `.trim();
 
  const inlineKeyboard = [
- [{ text: '⬅ Back to Sub-Cities', callback_data: 'admin_post_back_to_subs' }],
+ [{ text: 'Back to Sub-Cities', callback_data: 'admin_post_back_to_subs' }],
  [{ text: 'Cancel', callback_data: 'nav_start' }],
  ];
 
@@ -2795,7 +2795,7 @@ Select the sex/gender of the person who is listing:
  { text: 'Female Candidate', callback_data: 'admin_post_gender:Female' },
  ],
  [{ text: 'Any / Unspecified', callback_data: 'admin_post_gender:Any' }],
- [{ text: '⬅ Back to Price', callback_data: 'admin_post_back_to_budget' }],
+ [{ text: 'Back to Price', callback_data: 'admin_post_back_to_budget' }],
  [{ text: 'Cancel', callback_data: 'nav_start' }],
  ];
 
@@ -2826,7 +2826,7 @@ Select which sex is accepted/preferred to connect with this roommate:
  { text: 'Male Only', callback_data: 'admin_post_pref_gender:Male' },
  ],
  [{ text: 'Any Gender Accepted', callback_data: 'admin_post_pref_gender:Any' }],
- [{ text: '⬅ Back to Candidate Sex', callback_data: 'admin_post_back_to_gender' }],
+ [{ text: 'Back to Candidate Sex', callback_data: 'admin_post_back_to_gender' }],
  [{ text: 'Cancel', callback_data: 'nav_start' }],
  ];
 
@@ -2855,7 +2855,7 @@ Please reply with the description, perks, or notes for this channel post.
 
  const inlineKeyboard = [
  [{ text: 'Use Standard Description', callback_data: 'admin_post_use_default_bio' }],
- [{ text: '⬅ Back to Preferred Sex', callback_data: 'admin_post_back_to_pref_gender' }],
+ [{ text: 'Back to Preferred Sex', callback_data: 'admin_post_back_to_pref_gender' }],
  [{ text: 'Cancel', callback_data: 'nav_start' }],
  ];
 
@@ -2903,7 +2903,7 @@ Example: <code>Selamawit Tadesse | 0911223344 | @selam_t</code>
 
  const inlineKeyboard = [
  [{ text: `SpaceMatch Concierge (@${adminHandle}) / የስፔስማች አስተባባሪ`, callback_data: 'admin_post_contact_concierge' }],
- [{ text: '⬅ Back to Description / ወደ መግለጫ ተመለስ', callback_data: 'admin_post_back_to_bio' }],
+ [{ text: 'Back to Description / ወደ መግለጫ ተመለስ', callback_data: 'admin_post_back_to_bio' }],
  [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ];
 
@@ -3339,7 +3339,7 @@ ${postPreview}
  const targetChannel = await getPrimaryChannel();
 
  const userConfirmText = `
-⏳ <b>SpaceMatch Addis · Submitted for Admin Approval! / ለአድሚን ማረጋገጫ ተልኳል!</b>
+<b>SpaceMatch Addis · Submitted for Admin Approval! / ለአድሚን ማረጋገጫ ተልኳል!</b>
 
 Your anonymous roommate listing (<code>#${displayCode}</code>) has been submitted. (30-Day Pass applied )
 የእርስዎ ሚስጥራዊ የቤት ጓደኛ መረጃ (<code>#${displayCode}</code>) ተልኳል። (የ30 ቀን አባልነት ተፈጻሚ ሆኗል )
@@ -3347,7 +3347,7 @@ Your anonymous roommate listing (<code>#${displayCode}</code>) has been submitte
 • <b>Listing Code / የመለያ ኮድ:</b> <b>#${displayCode}</b>
 • <b>Target Areas / ተመራጭ አካባቢዎች:</b> <code>${subcitiesStr}</code>
 • <b>Budget Cap / የበጀት መጠን:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / ብር</code>
-• <b>Status / ሁኔታ:</b> ⏳ <b>Pending Admin Review / አድሚን እስኪያረጋግጥ በመጠባበቅ ላይ</b>
+• <b>Status / ሁኔታ:</b> <b>Pending Admin Review / አድሚን እስኪያረጋግጥ በመጠባበቅ ላይ</b>
 • <b>Target Channel / ዒላማ ቻናል:</b> <code>${targetChannel}</code>
 
 <blockquote><b>Privacy Shield Active / ሚስጥራዊነት የተጠበቀ:</b>
@@ -3483,7 +3483,7 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  const targetChannel = await getPrimaryChannel();
 
  const userConfirmText = `
-⏳ <b>SpaceMatch Addis · Space Listing Submitted for Review! / የሚከራየው ክፍል መረጃ ለአድሚን ተልኳል!</b>
+<b>SpaceMatch Addis · Space Listing Submitted for Review! / የሚከራየው ክፍል መረጃ ለአድሚን ተልኳል!</b>
 
 Your room listing (<code>#${cleanCode}</code>) has been submitted to channel administrators. (Active 30-Day Pass applied )
 የእርስዎ የክፍል መረጃ (<code>#${cleanCode}</code>) ወደ ቻናል አስተዳዳሪዎች ተልኳል። (የ30 ቀን አባልነት ተፈጻሚ ሆኗል )
@@ -3493,7 +3493,7 @@ Your room listing (<code>#${cleanCode}</code>) has been submitted to channel adm
 • <b>Total Rent / ጠቅላላ ኪራይ:</b> <code>${rentNum.toLocaleString()} ETB / ብር</code>
 • <b>Roommate Share / የቤት ጓደኛ ድርሻ:</b> <code>${shareNum.toLocaleString()} ETB / ብር</code>
 • <b>Photos Attached / የተያያዙ ፎቶዎች:</b> ${photos.length} photo(s) / ፎቶዎች
-• <b>Status / ሁኔታ:</b> ⏳ <b>Pending Admin Review / አድሚን እስኪያረጋግጥ በመጠባበቅ ላይ</b>
+• <b>Status / ሁኔታ:</b> <b>Pending Admin Review / አድሚን እስኪያረጋግጥ በመጠባበቅ ላይ</b>
 • <b>Target Channel / ዒላማ ቻናል:</b> <code>${targetChannel}</code>
 
 <blockquote>Once approved, your listing will be published directly to the channel!
@@ -3643,7 +3643,7 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  if (existingMatch) {
  await sendOrEditCard(
  chatId,
- `ℹ You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
+ `You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
  [[{ text: 'Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu', callback_data: 'nav_start' }]],
  messageIdToEdit
  );
@@ -3932,8 +3932,8 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  gridRows.push([
  {
  text: isAllSelected
- ? '[X] All Selected / ሁሉም ተመርጠዋል (Proceed )'
- : '[ ] Select All Sub-Cities / ሁሉንም ምረጥ & ቀጥል >',
+ ? '✅ All Selected / ሁሉም ተመርጠዋል (Proceed )'
+ : 'Select All Sub-Cities / ሁሉንም ምረጥ & ቀጥል >',
  callback_data: 'match_select_all_subs',
  },
  ]);
@@ -3943,7 +3943,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  const item1 = ALL_SUBCITIES[i];
  const isSel1 = selectedList.includes(item1);
  row.push({
- text: `${isSel1 ? '[X]' : '[ ]'} ${item1}`,
+ text: `${isSel1 ? '✅ ' : ''}${item1}`,
  callback_data: `match_toggle_sub:${item1}`,
  });
 
@@ -3951,7 +3951,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  const item2 = ALL_SUBCITIES[i + 1];
  const isSel2 = selectedList.includes(item2);
  row.push({
- text: `${isSel2 ? '[X]' : '[ ]'} ${item2}`,
+ text: `${isSel2 ? '✅ ' : ''}${item2}`,
  callback_data: `match_toggle_sub:${item2}`,
  });
  }
@@ -3977,7 +3977,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  step: 'awaiting_match_subcities',
  draft_data: { ...currentDraft, lang },
  updated_at: new Date().toISOString(),
- });
+ }, false);
  };
 
  // Matchmaker Step 2: My Gender (In-Place Edit)
@@ -3996,7 +3996,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  { text: 'Male / ወንድ', callback_data: 'match_set_my_gender:Male' },
  ],
  [
- { text: '⬅ Back to Areas / ወደ አካባቢዎች ተመለስ', callback_data: 'matchmaker_start' },
+ { text: 'Back to Areas / ወደ አካባቢዎች ተመለስ', callback_data: 'matchmaker_start' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -4027,7 +4027,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 
  const keyboard = [
  [
- { text: '⬅ Back to Gender / ወደ ጾታ ተመለስ', callback_data: 'match_goto_gender' },
+ { text: 'Back to Gender / ወደ ጾታ ተመለስ', callback_data: 'match_goto_gender' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -4063,7 +4063,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  { text: 'Any Gender Compatible / ማናቸውም ጾታ', callback_data: 'match_set_pref_gender:Any' },
  ],
  [
- { text: '⬅ Back to Age / ወደ ዕድሜ ተመለስ', callback_data: 'match_goto_age' },
+ { text: 'Back to Age / ወደ ዕድሜ ተመለስ', callback_data: 'match_goto_age' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -4097,7 +4097,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  { text: 'Any Budget (No Cap) / ማንኛውም በጀት (ገደብ የለሽ)', callback_data: 'match_set_budget:0' },
  ],
  [
- { text: '⬅ Back to Preference / ወደ ምርጫ ተመለስ', callback_data: 'match_goto_pref_gender' },
+ { text: 'Back to Preference / ወደ ምርጫ ተመለስ', callback_data: 'match_goto_pref_gender' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -4140,8 +4140,8 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  gridRows.push([
  {
  text: isAllSelected
- ? '[X] All Selected / ሁሉም ተመርጠዋል (Proceed )'
- : '[ ] Select All Sub-Cities / ሁሉንም ምረጥና ቀጥል >',
+ ? '✅ All Selected / ሁሉም ተመርጠዋል (Proceed )'
+ : 'Select All Sub-Cities / ሁሉንም ምረጥና ቀጥል >',
  callback_data: 'seeker_select_all_and_proceed',
  },
  ]);
@@ -4151,7 +4151,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  const item1 = ALL_SUBCITIES[i];
  const isSel1 = selectedList.includes(item1);
  row.push({
- text: `${isSel1 ? '[X]' : '[ ]'} ${item1}`,
+ text: `${isSel1 ? '✅ ' : ''}${item1}`,
  callback_data: `seeker_toggle_sub:${item1}`,
  });
 
@@ -4159,7 +4159,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  const item2 = ALL_SUBCITIES[i + 1];
  const isSel2 = selectedList.includes(item2);
  row.push({
- text: `${isSel2 ? '[X]' : '[ ]'} ${item2}`,
+ text: `${isSel2 ? '✅ ' : ''}${item2}`,
  callback_data: `seeker_toggle_sub:${item2}`,
  });
  }
@@ -4185,7 +4185,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  step: 'awaiting_seeker_subcities_grid',
  draft_data: { ...currentDraft, lang },
  updated_at: new Date().toISOString(),
- });
+ }, false);
  };
 
  // Helper: Seeker Step 2 (My Gender)
@@ -4199,7 +4199,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  { text: 'Female / ሴት', callback_data: 'seeker_my_gender:Female' },
  { text: 'Male / ወንድ', callback_data: 'seeker_my_gender:Male' },
  ],
- [{ text: '⬅ Back to Areas / ተመለስ', callback_data: 'seeker_subcity_menu' }],
+ [{ text: 'Back to Areas / ተመለስ', callback_data: 'seeker_subcity_menu' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -4228,7 +4228,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 
  const keyboard = [
  [
- { text: '⬅ Back to Gender / ተመለስ', callback_data: 'seeker_goto_gender' },
+ { text: 'Back to Gender / ተመለስ', callback_data: 'seeker_goto_gender' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -4260,7 +4260,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  { text: 'Any Gender Compatible / ማንኛውም ጾታ', callback_data: 'seeker_pref_gender:Any' },
  ],
  [
- { text: '⬅ Back to Age / ተመለስ', callback_data: 'seeker_goto_age' },
+ { text: 'Back to Age / ተመለስ', callback_data: 'seeker_goto_age' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -4291,7 +4291,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 
  const keyboard = [
  [
- { text: '⬅ Back to Preference / ተመለስ', callback_data: 'seeker_goto_pref_gender' },
+ { text: 'Back to Preference / ተመለስ', callback_data: 'seeker_goto_pref_gender' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -4315,9 +4315,9 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
  const text = ` <b>SpaceMatch Addis · Habits & Lifestyle</b>\n<b>ስለራስዎ በአጭሩ ይንገሩን</b>\n\n<blockquote>Step 6: Describe yourself or tap Skip (e.g. <code>Quiet professional, clean</code>).\nደረጃ 6፡ ስለራስዎ ባህሪ ባጭሩ ይጻፉ ወይም 'ይህን እለፍ' የሚለውን ይጫኑ።</blockquote>`;
 
  const keyboard = [
- [{ text: '⏭ Skip Bio / ይህን እለፍ', callback_data: 'seeker_skip_bio' }],
+ [{ text: 'Skip Bio / ይህን እለፍ >', callback_data: 'seeker_skip_bio' }],
  [
- { text: '⬅ Back to Budget / ተመለስ', callback_data: 'seeker_goto_budget' },
+ { text: 'Back to Budget / ተመለስ', callback_data: 'seeker_goto_budget' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -4348,7 +4348,7 @@ Welcome to SpaceMatch Addis, the premier verified housing platform in Addis Abab
 
  const keyboard = [
  [
- { text: '⬅ Back to Bio / ተመለስ', callback_data: 'seeker_goto_bio' },
+ { text: 'Back to Bio / ተመለስ', callback_data: 'seeker_goto_bio' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -6328,7 +6328,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  if (userTgId) {
  await tgSend(
  userTgId,
- `ℹ <b>SpaceMatch · Profile Review Update</b>\n\nYour listing (<code>#${targetCode}</code>) was reviewed by our admin team and could not be approved for channel broadcast at this time.\n\n<blockquote>You can edit your details and submit again anytime.</blockquote>`,
+ `<b>SpaceMatch · Profile Review Update</b>\n\nYour listing (<code>#${targetCode}</code>) was reviewed by our admin team and could not be approved for channel broadcast at this time.\n\n<blockquote>You can edit your details and submit again anytime.</blockquote>`,
  {
  inline_keyboard: [
  [{ text: 'Edit Profile', callback_data: 'post_to_channel_start' }],
@@ -6369,7 +6369,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  if (requesterProfile.id === targetProfileId) {
  await sendOrEditCard(
  chatId,
- `ℹ <b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
+ `<b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
  [[{ text: 'Main Menu', callback_data: 'nav_start' }]],
  msgId
  );
@@ -6536,7 +6536,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  if (String(targetProfile.telegram_id) === String(chatId)) {
  await sendOrEditCard(
  chatId,
- `ℹ <b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
+ `<b>This is your own listing!</b>\n\nYou cannot send a match request to yourself.`,
  [[{ text: 'Main Menu', callback_data: 'nav_start' }]],
  msgId
  );
@@ -6575,7 +6575,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  if (existingMatch) {
  await sendOrEditCard(
  chatId,
- `ℹ You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
+ `You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
  [[{ text: 'Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu', callback_data: 'nav_start' }]],
  msgId
  );
@@ -6651,7 +6651,7 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
  .single();
 
  if (!match || match.status !== 'pending_acceptance') {
- await tgSend(chatId, acceptIsAm ? `ℹ ይህ የግንኙነት ጥያቄ በአሁኑ ሰዓት ክፍት አይደለም።` : `ℹ This match request is no longer pending.`);
+ await tgSend(chatId, acceptIsAm ? `ይህ የግንኙነት ጥያቄ በአሁኑ ሰዓት ክፍት አይደለም።` : `This match request is no longer pending.`);
  return NextResponse.json({ ok: true });
  }
 
@@ -6724,7 +6724,7 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
  .single();
 
  if (!match) {
- await tgSend(chatId, `ℹ Match request not found. / ጥያቄው አልተገኘም።`);
+ await tgSend(chatId, `Match request not found. / ጥያቄው አልተገኘም።`);
  return NextResponse.json({ ok: true });
  }
 
@@ -6785,7 +6785,7 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  await sendOrEditCard(
  chatId,
  text,
- [[{ text: '⬅ Back / ተመለስ', callback_data: 'nav_start' }]],
+ [[{ text: 'Back / ተመለስ', callback_data: 'nav_start' }]],
  msgId
  );
  return NextResponse.json({ ok: true });
@@ -7386,7 +7386,7 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
  inline_keyboard: [
  [{ text: 'Search User by Name (Fayda Dossier) >', callback_data: 'admin_search_user_prompt' }],
  [{ text: 'Search Post by Code (#SPMARBR / #SPMARWR) ', callback_data: 'admin_search_code_prompt' }],
- [{ text: `⏳ Pending Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
+ [{ text: `Pending Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
  [{ text: 'Post to Channel as Admin >', callback_data: 'admin_post_start' }],
  [{ text: 'Add Admin by Username >', callback_data: 'admin_add_prompt' }],
  [{ text: 'View Administrators', callback_data: 'admin_list_team' }],
@@ -7439,8 +7439,8 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
  if (pendingList.length === 0) {
  await sendOrEditCard(
  chatId,
- `⏳ <b>SpaceMatch Admin · Pending Approvals</b>\n\n<blockquote>No profiles are currently waiting for admin approval. All caught up! </blockquote>`,
- [[{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }]],
+ `<b>SpaceMatch Admin · Pending Approvals</b>\n\n<blockquote>No profiles are currently waiting for admin approval. All caught up! </blockquote>`,
+ [[{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }]],
  msgId
  );
  return NextResponse.json({ ok: true });
@@ -7455,11 +7455,11 @@ Connect via mutual match or instant contact unlock with Fayda-verified security.
  { text: `Reject`, callback_data: `admin_reject_profile:${code}` },
  ]);
  }
- buttons.push([{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }]);
+ buttons.push([{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }]);
 
  await sendOrEditCard(
  chatId,
- `⏳ <b>SpaceMatch Admin · Pending Profiles (${pendingList.length})</b>\n\nReview the listings waiting for approval below:`,
+ `<b>SpaceMatch Admin · Pending Profiles (${pendingList.length})</b>\n\nReview the listings waiting for approval below:`,
  buttons,
  msgId
  );
@@ -7496,7 +7496,7 @@ Please send the identification code or number of the listing you want to inspect
  `.trim();
 
  const buttons = [
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  [{ text: 'Cancel', callback_data: 'admin_cancel' }],
  ];
 
@@ -7534,7 +7534,7 @@ Please send the resident's <b>Full Name</b>, <b>First Name</b>, <b>@username</b>
  `.trim();
 
  const buttons = [
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  [{ text: 'Cancel', callback_data: 'admin_cancel' }],
  ];
 
@@ -7590,7 +7590,7 @@ Please send the Telegram username of the user you want to appoint as an administ
  `.trim();
 
  const buttons = [
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  [{ text: 'Cancel', callback_data: 'admin_cancel' }],
  ];
 
@@ -7633,7 +7633,7 @@ Please send the Telegram username of the user you want to appoint as an administ
  }
 
  if (pendingUsernames.length > 0) {
- msg += `⏳ <b>Registered Admin Usernames:</b>\n`;
+ msg += `<b>Registered Admin Usernames:</b>\n`;
  for (const u of pendingUsernames) {
  msg += `• @${u} (Active upon opening bot)\n`;
  }
@@ -7645,7 +7645,7 @@ Please send the Telegram username of the user you want to appoint as an administ
 
  const buttons = [
  [{ text: 'Add Admin by Username >', callback_data: 'admin_add_prompt' }],
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  [{ text: 'Main Menu', callback_data: 'nav_start' }],
  ];
 
@@ -7678,7 +7678,7 @@ Please send the Telegram username of the user you want to appoint as an administ
  }
 
  const buttons = [
- [{ text: '⬅ Back to Admin Menu / ወደ አድሚን ማውጫ ተመለስ', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu / ወደ አድሚን ማውጫ ተመለስ', callback_data: 'admin_menu' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
@@ -7748,7 +7748,7 @@ Please send the Telegram username of the user you want to appoint as an administ
  if (activePosts.length === 0) {
  const text = ` <b>SpaceMatch Admin · Open Channel Posts / ክፍት ማስታወቂያዎች</b>\n\n<blockquote>No open channel posts found at this time. / በአሁኑ ሰዓት ምንም ክፍት ማስታወቂያ የለም።</blockquote>`;
  const keyboard = {
- inline_keyboard: [[{ text: '⬅ Back to Admin Menu / ወደ አድሚን ማውጫ ተመለስ', callback_data: 'admin_menu' }]],
+ inline_keyboard: [[{ text: 'Back to Admin Menu / ወደ አድሚን ማውጫ ተመለስ', callback_data: 'admin_menu' }]],
  };
  if (msgId) {
  await sendTelegram('editMessageText', {
@@ -7778,7 +7778,7 @@ Please send the Telegram username of the user you want to appoint as an administ
  },
  ]);
  }
- buttons.push([{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }]);
+ buttons.push([{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }]);
 
  const text = ` <b>SpaceMatch Admin</b> · <b>Active Channel Posts (${activePosts.length})</b>\n\nTap any post below to mark it as <b>CLOSED · MATCHED</b> on the channel and remove connect buttons:`;
 
@@ -7860,7 +7860,7 @@ Please send the Telegram username of the user you want to appoint as an administ
  const keyboard = {
  inline_keyboard: [
  [{ text: 'View Remaining Open Posts / የቀሩትን ክፍት ማስታወቂያዎች እይ', callback_data: 'admin_list_active_posts' }],
- [{ text: '⬅ Back to Admin Menu / ወደ አድሚን ማውጫ ተመለስ', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu / ወደ አድሚን ማውጫ ተመለስ', callback_data: 'admin_menu' }],
  ],
  };
 
@@ -8311,7 +8311,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  await sendOrEditCard(
  chatId,
  ` Search cancelled.`,
- [[{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }]],
+ [[{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }]],
  activeMsgId
  );
  return NextResponse.json({ ok: true });
@@ -8341,7 +8341,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  await sendOrEditCard(
  chatId,
  ` User search cancelled.`,
- [[{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }]],
+ [[{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }]],
  activeMsgId
  );
  return NextResponse.json({ ok: true });
@@ -8377,7 +8377,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  await sendOrEditCard(
  chatId,
  ` <b>Invalid Username.</b> Please enter a valid Telegram username (e.g. <code>@username</code> or <code>username</code>):`,
- [[{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }]],
+ [[{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }]],
  activeMsgId
  );
  return NextResponse.json({ ok: true });
@@ -8433,7 +8433,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  [
  [{ text: 'View Administrators', callback_data: 'admin_list_team' }],
  [{ text: 'Add Another Admin', callback_data: 'admin_add_prompt' }],
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  ],
  activeMsgId
  );
@@ -9211,7 +9211,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  if (String(targetProfile.telegram_id) === String(chatId)) {
  await sendOrEditCard(
  chatId,
- `ℹ <b>Your Open Listing / የእርስዎ ክፍት ማስታወቂያ</b>\n\nThis is your listing for Roommate <b>#${targetProfile.display_code || lookupCode}</b> on the channel.\n\n<blockquote>If you have found a roommate, tap below to mark it as closed: / የቤት አጋር ካገኙ ማስታወቂያውን ለመዝጋት ከታች ይጫኑ:</blockquote>`,
+ `<b>Your Open Listing / የእርስዎ ክፍት ማስታወቂያ</b>\n\nThis is your listing for Roommate <b>#${targetProfile.display_code || lookupCode}</b> on the channel.\n\n<blockquote>If you have found a roommate, tap below to mark it as closed: / የቤት አጋር ካገኙ ማስታወቂያውን ለመዝጋት ከታች ይጫኑ:</blockquote>`,
  [
  [{ text: 'Mark as Closed / እንደተዘጋ ምልክት አድርግ', callback_data: `user_close_listing:${targetProfile.id}` }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
@@ -9591,8 +9591,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  await tgSend(
  chatId,
  payerIsAm
- ? `⏳ <b>ክፍያዎ በ Verify.ET እየተረጋገጠ ነው...</b>`
- : `⏳ <b>Verifying payment with Verify.ET...</b>`
+ ? `<b>ክፍያዎ በ Verify.ET እየተረጋገጠ ነው...</b>`
+ : `<b>Verifying payment with Verify.ET...</b>`
  );
 
  // 3. Call Verify.ET with 300 ETB, prioritizing selected bank
@@ -9739,7 +9739,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  inline_keyboard: [
  [{ text: 'Search User by Name (Fayda Dossier) >', callback_data: 'admin_search_user_prompt' }],
  [{ text: 'Search Post by Code (#SPMARBR...) ', callback_data: 'admin_search_code_prompt' }],
- [{ text: `⏳ Pending Channel Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
+ [{ text: `Pending Channel Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
  [{ text: 'Post to Channel as Admin >', callback_data: 'admin_post_start' }],
  [{ text: 'Add Admin by Username >', callback_data: 'admin_add_prompt' }],
  [{ text: 'View Administrators', callback_data: 'admin_list_team' }],
@@ -9783,7 +9783,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  parse_mode: 'HTML',
  reply_markup: {
  inline_keyboard: [
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  ],
  },
  });
@@ -9824,7 +9824,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  parse_mode: 'HTML',
  reply_markup: {
  inline_keyboard: [
- [{ text: '⬅ Back to Admin Menu', callback_data: 'admin_menu' }],
+ [{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }],
  ],
  },
  });
@@ -10179,7 +10179,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `ℹ <b>${displayName}</b> has been removed from SpaceMatch Administrators.`,
+ text: `<b>${displayName}</b> has been removed from SpaceMatch Administrators.`,
  parse_mode: 'HTML',
  });
  return NextResponse.json({ ok: true });
@@ -10376,7 +10376,7 @@ All administrators of this channel can now use bot admin features, and approved 
 
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `⏳ <b>Verifying transaction reference <code>${escapeHtml(txRef)}</code> with Verify.ET... / የግብይት ደረሰኝ ቁጥር <code>${escapeHtml(txRef)}</code> በ Verify.ET እየተረጋገጠ ነው...</b>`,
+ text: `<b>Verifying transaction reference <code>${escapeHtml(txRef)}</code> with Verify.ET... / የግብይት ደረሰኝ ቁጥር <code>${escapeHtml(txRef)}</code> በ Verify.ET እየተረጋገጠ ነው...</b>`,
  parse_mode: 'HTML',
  });
 
@@ -10499,7 +10499,7 @@ All administrators of this channel can now use bot admin features, and approved 
 
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `⏳ <b>Verifying transaction reference <code>${escapeHtml(txRef)}</code> with Verify.ET... / የግብይት ደረሰኝ ቁጥር <code>${escapeHtml(txRef)}</code> እየተረጋገጠ ነው...</b>`,
+ text: `<b>Verifying transaction reference <code>${escapeHtml(txRef)}</code> with Verify.ET... / የግብይት ደረሰኝ ቁጥር <code>${escapeHtml(txRef)}</code> እየተረጋገጠ ነው...</b>`,
  parse_mode: 'HTML',
  });
 

@@ -100,17 +100,26 @@ export function isOnboardingSession(step: string): boolean {
   return ONBOARDING_STEPS.includes(step as OnboardingStep);
 }
 
+// ─── Profile In-Memory Cache ──────────────────────────────────────────────────
+const _profileCache = new Map<number, any>();
+
 // ─── Profile DB Helpers ───────────────────────────────────────────────────────
 
 async function getOrCreateProfile(telegramId: number, username?: string): Promise<Profile | null> {
+  const cached = _profileCache.get(telegramId);
+  if (cached && cached.display_code) return cached as Profile;
+
   // Try to fetch existing
   const { data: existing } = await supabaseAdmin
     .from('profiles')
     .select('*')
     .eq('telegram_id', telegramId)
-    .single();
+    .maybeSingle();
 
-  if (existing) return existing as Profile;
+  if (existing) {
+    _profileCache.set(telegramId, existing as Profile);
+    return existing as Profile;
+  }
 
   // Generate next display code via SQL function
   const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
@@ -133,6 +142,7 @@ async function getOrCreateProfile(telegramId: number, username?: string): Promis
     return null;
   }
 
+  _profileCache.set(telegramId, created as Profile);
   return created as Profile;
 }
 
@@ -140,29 +150,36 @@ async function updateProfile(
   telegramId: number,
   updates: Record<string, unknown>
 ): Promise<Profile | null> {
+  const cached = _profileCache.get(telegramId) || {};
+  _profileCache.set(telegramId, { ...cached, ...updates } as Profile);
+
   const { data, error } = await supabaseAdmin
     .from('profiles')
     .update(updates)
     .eq('telegram_id', telegramId)
     .select('*')
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error('[onboarding] Failed to update profile:', error.message);
     return null;
   }
 
-  // Keep bot_sessions table in sync with onboarding step
+  if (data) {
+    _profileCache.set(telegramId, data as Profile);
+  }
+
+  // Keep bot_sessions table in sync with onboarding step (non-blocking)
   if (updates.onboarding_step) {
-    await saveSession({
+    saveSession({
       telegram_id: telegramId,
       step: String(updates.onboarding_step),
       draft_data: {},
       updated_at: new Date().toISOString(),
-    });
+    }, false).catch(() => {});
   }
 
-  return data as Profile;
+  return (data || _profileCache.get(telegramId)) as Profile;
 }
 
 // ─── Step UIs ─────────────────────────────────────────────────────────────────
@@ -191,8 +208,8 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
   rows.push([
     {
       text: selectedLocations.length === LOCATIONS.length
-        ? '[X] All Areas Selected / ሁሉም ተመርጠዋል >'
-        : '[ ] Select All Areas / ሁሉንም ምረጥ >',
+        ? '✅ All Areas Selected / ሁሉም ተመርጠዋል >'
+        : 'Select All Areas / ሁሉንም ምረጥ >',
       callback_data: 'onboard_select_all_locations',
     },
   ]);
@@ -203,7 +220,7 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
     const sel1 = selectedLocations.includes(loc1);
     const am1 = LOCATION_AMHARIC[loc1] || loc1;
     row.push({
-      text: `${sel1 ? '[X]' : '[ ]'} ${loc1} (${am1})`,
+      text: `${sel1 ? '✅ ' : ''}${loc1} (${am1})`,
       callback_data: `onboard_location:${loc1}`,
     });
     if (i + 1 < LOCATIONS.length) {
@@ -211,7 +228,7 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
       const sel2 = selectedLocations.includes(loc2);
       const am2 = LOCATION_AMHARIC[loc2] || loc2;
       row.push({
-        text: `${sel2 ? '[X]' : '[ ]'} ${loc2} (${am2})`,
+        text: `${sel2 ? '✅ ' : ''}${loc2} (${am2})`,
         callback_data: `onboard_location:${loc2}`,
       });
     }
@@ -367,28 +384,28 @@ export async function handleOnboardingCallback(
     const gender = callbackData.split(':')[1]; // 'male' | 'female'
     const normalised = gender.charAt(0).toUpperCase() + gender.slice(1);
 
-    await updateProfile(chatId, {
+    const cached = _profileCache.get(chatId) || {};
+    _profileCache.set(chatId, { ...cached, gender: normalised, onboarding_step: 'locations', locations: [] });
+
+    updateProfile(chatId, {
       gender: normalised,
       onboarding_step: 'locations',
-    });
+    }).catch((err) => console.error('[onboarding] gender update error:', err));
 
-    // Retrieve current profile to get empty locations list
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('locations')
-      .eq('telegram_id', chatId)
-      .single();
-
-    await sendLocationsStep(chatId, profile?.locations ?? [], messageId);
+    await sendLocationsStep(chatId, [], messageId);
     return;
   }
 
   // ── Select all locations & proceed ────────────────────────────────────────
   if (callbackData === 'onboard_select_all_locations') {
-    await updateProfile(chatId, {
+    const cached = _profileCache.get(chatId) || {};
+    _profileCache.set(chatId, { ...cached, locations: [...LOCATIONS], onboarding_step: 'budget' });
+
+    updateProfile(chatId, {
       locations: [...LOCATIONS],
       onboarding_step: 'budget',
-    });
+    }).catch((err) => console.error('[onboarding] select all error:', err));
+
     await sendBudgetStep(chatId);
     return;
   }
@@ -397,21 +414,31 @@ export async function handleOnboardingCallback(
   if (callbackData.startsWith('onboard_location:')) {
     const loc = callbackData.split(':')[1];
 
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('locations')
-      .eq('telegram_id', chatId)
-      .single();
+    let cached = _profileCache.get(chatId);
+    let current: string[] = cached?.locations ?? [];
 
-    const current: string[] = profile?.locations ?? [];
+    if (!cached || !cached.locations) {
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('locations')
+        .eq('telegram_id', chatId)
+        .maybeSingle();
+      current = profile?.locations ?? [];
+    }
+
     const updated = current.includes(loc)
       ? current.filter((l) => l !== loc)
       : [...current, loc];
 
-    await supabaseAdmin
-      .from('profiles')
-      .update({ locations: updated })
-      .eq('telegram_id', chatId);
+    _profileCache.set(chatId, { ...cached, locations: updated });
+
+    // Non-blocking background update to Supabase
+    (async () => {
+      await supabaseAdmin
+        .from('profiles')
+        .update({ locations: updated })
+        .eq('telegram_id', chatId);
+    })().catch((err: unknown) => console.error('[onboarding] location bg update error:', err));
 
     await sendLocationsStep(chatId, updated, messageId);
     return;
@@ -419,15 +446,21 @@ export async function handleOnboardingCallback(
 
   // ── Locations done ────────────────────────────────────────────────────────
   if (callbackData === 'onboard_locations_done') {
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('locations')
-      .eq('telegram_id', chatId)
-      .single();
+    let cached = _profileCache.get(chatId);
+    let current = cached?.locations;
+    if (!current) {
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('locations')
+        .eq('telegram_id', chatId)
+        .maybeSingle();
+      current = profile?.locations ?? [];
+    }
 
-    if (!profile?.locations || profile.locations.length === 0) {
-      // Default to all areas so user is never stuck repeating preferred areas
-      await updateProfile(chatId, { locations: [...LOCATIONS], onboarding_step: 'budget' });
+    if (!current || current.length === 0) {
+      current = [...LOCATIONS];
+      _profileCache.set(chatId, { ...cached, locations: current, onboarding_step: 'budget' });
+      await updateProfile(chatId, { locations: current, onboarding_step: 'budget' });
       await sendBudgetStep(chatId);
       return;
     }
@@ -678,12 +711,16 @@ async function resumeOnboardingStep(chatId: number, step: OnboardingStep) {
       await sendGenderStep(chatId);
       break;
     case 'locations': {
-      const { data: p } = await supabaseAdmin
-        .from('profiles')
-        .select('locations')
-        .eq('telegram_id', chatId)
-        .single();
-      await sendLocationsStep(chatId, p?.locations ?? []);
+      let locs = _profileCache.get(chatId)?.locations;
+      if (!locs) {
+        const { data: p } = await supabaseAdmin
+          .from('profiles')
+          .select('locations')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
+        locs = p?.locations ?? [];
+      }
+      await sendLocationsStep(chatId, locs);
       break;
     }
     case 'budget':

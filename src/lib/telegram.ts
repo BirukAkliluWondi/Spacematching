@@ -1050,7 +1050,7 @@ export async function updateChannelPostAsMatched(
     }
   }
 
-  const closedHeader = `━━━━━━━━━━━━━━━━━━━━━━\n       <b>[CLOSED / የተዘጋ]</b>\nThis listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!\n━━━━━━━━━━━━━━━━━━━━━━`;
+  const closedHeader = `━━━━━━━━━━━━━━━━━━━━━━\n       <b>CLOSED / የተዘጋ</b>\nThis listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!\n━━━━━━━━━━━━━━━━━━━━━━`;
 
   const closedText = baseContent
     ? `${closedHeader}\n\n${baseContent}\n\nListing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ክፍት የሆኑ የተረጋገጡ የቤት አጋሮችን ከታች ይመልከቱ:`

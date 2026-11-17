@@ -86,8 +86,8 @@ export const I18N_BILINGUAL = {
   errTraits: 'Please describe your preferred roommate / እባክዎ የሚፈልጉትን የቤት አጋር ይግለጹ:',
 
   stepLocations: '<b>Preferred Sub-city / ተመራጭ ክፍለ ከተማ:</b>',
-  btnSelectAll: '[ ] Select All Areas / ሁሉንም ምረጥ >',
-  btnAllSelected: '[X] All Areas Selected / ሁሉም ተመርጠዋል >',
+  btnSelectAll: 'Select All Areas / ሁሉንም ምረጥ >',
+  btnAllSelected: '✅ All Areas Selected / ሁሉም ተመርጠዋል >',
 
   stepFayda: '<b>Upload Fayda ID Photo / የፋይዳ ፎቶ ይላኩ:</b>\n\n<blockquote>Upload a clear photo of the back of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>',
   btnScanQr: 'Upload Fayda Photo / የፋይዳ ፎቶ ላክ >',
