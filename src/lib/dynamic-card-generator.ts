@@ -2,11 +2,16 @@
  * lib/dynamic-card-generator.ts
  * ─────────────────────────────────────────────────────────────────────────────
  * Dynamic Visual Card Generator for Telegram Welcome & Status Screens.
- * Generates modern dark luxury SVG banners rendered into high-DPI PNGs
- * via Sharp for instantaneous in-memory transmission.
+ * Uses Next.js native ImageResponse (Satori + resvg-wasm) with bundled
+ * Open-Source TTF fonts (Geist + Noto Sans Ethiopic) to guarantee 100% font
+ * fidelity on all environments (Vercel serverless Linux, Docker, Windows, macOS)
+ * without depending on host OS system fonts.
  */
 
-import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
+import React from 'react';
+import { ImageResponse } from 'next/og';
 
 export interface StartCardParams {
   userName?: string;
@@ -15,164 +20,384 @@ export interface StartCardParams {
   lang?: 'en' | 'am' | 'bilingual';
 }
 
-function escapeXml(unsafe: string): string {
-  return unsafe
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+interface FontCache {
+  geist: Buffer;
+  ethiopicBold: Buffer;
+  ethiopicRegular: Buffer;
+}
+
+let _fontCache: FontCache | null = null;
+
+function loadFonts(): FontCache {
+  if (_fontCache) return _fontCache;
+
+  const fontsDir = path.join(process.cwd(), 'src', 'assets', 'fonts');
+  const geist = fs.readFileSync(path.join(fontsDir, 'Geist-Regular.ttf'));
+  const ethiopicBold = fs.readFileSync(path.join(fontsDir, 'NotoSansEthiopic-Bold.ttf'));
+  const ethiopicRegular = fs.readFileSync(path.join(fontsDir, 'NotoSansEthiopic-Regular.ttf'));
+
+  _fontCache = { geist, ethiopicBold, ethiopicRegular };
+  return _fontCache;
 }
 
 /**
- * Builds high-fidelity 1200x630 vector SVG adhering to the Stitch dark UI palette.
+ * Builds the React element representing the Stitch dark luxury welcome card.
  */
-export function buildStartCardSvg(params: StartCardParams): string {
+export function buildStartCardElement(params: StartCardParams) {
   const rawName = params.userName?.trim() || 'Resident';
-  const cleanName = escapeXml(rawName.slice(0, 24));
+  const cleanName = rawName.slice(0, 24);
   const isMember = Boolean(params.isMember);
   const days = Math.max(0, params.daysRemaining || 0);
 
   const statusColor = isMember ? '#10b981' : '#94a3b8';
   const statusBg = isMember ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)';
   const statusBorder = isMember ? '#059669' : '#475569';
-  const statusPillText = isMember
+  const statusText = isMember
     ? `ACTIVE PASS · ${days} DAYS`
     : '30-DAY PASS · 300 ETB';
 
-  return `
-<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <!-- Background Gradient -->
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#070f18"/>
-      <stop offset="50%" stop-color="#0c1829"/>
-      <stop offset="100%" stop-color="#14243b"/>
-    </linearGradient>
+  return React.createElement(
+    'div',
+    {
+      style: {
+        width: '1200px',
+        height: '630px',
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: '#070f18',
+        backgroundImage: 'linear-gradient(135deg, #070f18 0%, #0c1829 50%, #14243b 100%)',
+        padding: '40px',
+        fontFamily: '"Geist", "Noto Sans Ethiopic", sans-serif',
+        position: 'relative',
+        boxSizing: 'border-box',
+      },
+    },
+    // Glass inner frame
+    React.createElement(
+      'div',
+      {
+        style: {
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          borderRadius: '24px',
+          border: '1.5px solid rgba(56, 189, 248, 0.35)',
+          backgroundColor: 'rgba(255, 255, 255, 0.02)',
+          padding: '36px 40px',
+          boxSizing: 'border-box',
+        },
+      },
+      // Top row: Brand Logo + Status Pill
+      React.createElement(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            width: '100%',
+          },
+        },
+        // Brand left
+        React.createElement(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: '16px' } },
+          // Shield emblem
+          React.createElement(
+            'div',
+            {
+              style: {
+                width: '46px',
+                height: '46px',
+                borderRadius: '12px',
+                backgroundColor: '#003258',
+                border: '1.5px solid #9ecaff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              },
+            },
+            React.createElement(
+              'svg',
+              { width: '26', height: '26', viewBox: '0 0 24 24', fill: 'none' },
+              React.createElement('path', {
+                d: 'M12 2 L20 6 V13 C20 18 12 22 12 22 C12 22 4 18 4 13 V6 Z',
+                stroke: '#9ecaff',
+                strokeWidth: '2',
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+              }),
+              React.createElement('path', {
+                d: 'M9 12 L11 14 L15 10',
+                stroke: '#4ae176',
+                strokeWidth: '2',
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+              })
+            )
+          ),
+          React.createElement(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column' } },
+            React.createElement(
+              'span',
+              { style: { fontSize: '22px', fontWeight: 'bold', color: '#ffffff', letterSpacing: '0.5px' } },
+              'SPACEMATCH ADDIS'
+            ),
+            React.createElement(
+              'span',
+              { style: { fontSize: '13px', fontWeight: 'bold', color: '#9ecaff', letterSpacing: '1px' } },
+              'VERIFIED RESIDENCE NETWORK · አዲስ አበባ'
+            )
+          )
+        ),
+        // Status Pill right
+        React.createElement(
+          'div',
+          {
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '8px 20px',
+              borderRadius: '20px',
+              backgroundColor: statusBg,
+              border: `1.2px solid ${statusBorder}`,
+            },
+          },
+          React.createElement('div', {
+            style: { width: '8px', height: '8px', borderRadius: '4px', backgroundColor: statusColor },
+          }),
+          React.createElement(
+            'span',
+            { style: { fontSize: '14px', fontWeight: 'bold', color: statusColor, letterSpacing: '0.8px' } },
+            statusText
+          )
+        )
+      ),
 
-    <!-- Glow Orbs -->
-    <radialGradient id="glowCyan" cx="15%" cy="15%" r="55%">
-      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.22"/>
-      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="glowIndigo" cx="85%" cy="85%" r="55%">
-      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
-    </radialGradient>
+      // Hero Center
+      React.createElement(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', marginTop: '12px', marginBottom: '12px' } },
+        React.createElement(
+          'span',
+          { style: { fontSize: '19px', color: '#94a3b8', marginBottom: '6px' } },
+          `Welcome, ${cleanName}! · እንኳን ደህና መጡ!`
+        ),
+        React.createElement(
+          'span',
+          {
+            style: {
+              fontSize: '46px',
+              fontWeight: 'bold',
+              color: '#9ecaff',
+              letterSpacing: '-0.5px',
+              lineHeight: 1.1,
+            },
+          },
+          'Find Your Ideal Roommate'
+        ),
+        React.createElement(
+          'span',
+          { style: { fontSize: '22px', fontWeight: 'bold', color: '#dbe3f1', marginTop: '6px' } },
+          'የተረጋገጡ የቤት አጋሮች እና ክፍሎች በአዲስ አበባ'
+        )
+      ),
 
-    <!-- Glass card linear gradient -->
-    <linearGradient id="glassGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.06"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.015"/>
-    </linearGradient>
-    <linearGradient id="glassBorder" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.45"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.08"/>
-    </linearGradient>
-    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#9ecaff"/>
-      <stop offset="100%" stop-color="#60a5fa"/>
-    </linearGradient>
-  </defs>
+      // 3 Feature Cards
+      React.createElement(
+        'div',
+        { style: { display: 'flex', justifyContent: 'space-between', gap: '20px', width: '100%' } },
+        // Feature 1
+        React.createElement(
+          'div',
+          {
+            style: {
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              backgroundColor: 'rgba(20, 28, 38, 0.9)',
+              borderRadius: '16px',
+              border: '1.2px solid #2d3540',
+              padding: '18px 20px',
+            },
+          },
+          React.createElement(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' } },
+            React.createElement(
+              'div',
+              {
+                style: {
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '16px',
+                  backgroundColor: '#003258',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                },
+              },
+              React.createElement(
+                'svg',
+                { width: '16', height: '16', viewBox: '0 0 24 24', fill: 'none', stroke: '#9ecaff', strokeWidth: '2.2', strokeLinecap: 'round', strokeLinejoin: 'round' },
+                React.createElement('circle', { cx: '11', cy: '11', r: '7' }),
+                React.createElement('line', { x1: '21', y1: '21', x2: '16', y2: '16' })
+              )
+            ),
+            React.createElement(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column' } },
+              React.createElement('span', { style: { fontSize: '15px', fontWeight: 'bold', color: '#ffffff' } }, 'Smart Matchmaker'),
+              React.createElement('span', { style: { fontSize: '12px', color: '#9ecaff' } }, 'የቤት አጋር ፈልግ')
+            )
+          ),
+          React.createElement('span', { style: { fontSize: '13px', color: '#94a3b8', lineHeight: 1.3 } }, 'Filter verified roommates by sub-city, budget & lifestyle.')
+        ),
 
-  <!-- Background Base -->
-  <rect width="1200" height="630" fill="url(#bgGrad)"/>
-  <rect width="1200" height="630" fill="url(#glowCyan)"/>
-  <rect width="1200" height="630" fill="url(#glowIndigo)"/>
+        // Feature 2
+        React.createElement(
+          'div',
+          {
+            style: {
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              backgroundColor: 'rgba(20, 28, 38, 0.9)',
+              borderRadius: '16px',
+              border: '1.2px solid #2d3540',
+              padding: '18px 20px',
+            },
+          },
+          React.createElement(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' } },
+            React.createElement(
+              'div',
+              {
+                style: {
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '16px',
+                  backgroundColor: '#003915',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                },
+              },
+              React.createElement(
+                'svg',
+                { width: '16', height: '16', viewBox: '0 0 24 24', fill: 'none', stroke: '#4ae176', strokeWidth: '2.5', strokeLinecap: 'round', strokeLinejoin: 'round' },
+                React.createElement('polyline', { points: '20 6 9 17 4 12' })
+              )
+            ),
+            React.createElement(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column' } },
+              React.createElement('span', { style: { fontSize: '15px', fontWeight: 'bold', color: '#ffffff' } }, 'Fayda ID Verified'),
+              React.createElement('span', { style: { fontSize: '12px', color: '#4ae176' } }, 'የፋይዳ ማረጋገጫ')
+            )
+          ),
+          React.createElement('span', { style: { fontSize: '13px', color: '#94a3b8', lineHeight: 1.3 } }, 'Instant cryptographic QR verification in volatile RAM.')
+        ),
 
-  <!-- Subtle Blueprint Tech Grid -->
-  <g stroke="#ffffff" stroke-opacity="0.025" stroke-width="1">
-    <line x1="0" y1="105" x2="1200" y2="105"/>
-    <line x1="0" y1="210" x2="1200" y2="210"/>
-    <line x1="0" y1="315" x2="1200" y2="315"/>
-    <line x1="0" y1="420" x2="1200" y2="420"/>
-    <line x1="0" y1="525" x2="1200" y2="525"/>
-    <line x1="200" y1="0" x2="200" y2="630"/>
-    <line x1="400" y1="0" x2="400" y2="630"/>
-    <line x1="600" y1="0" x2="600" y2="630"/>
-    <line x1="800" y1="0" x2="800" y2="630"/>
-    <line x1="1000" y1="0" x2="1000" y2="630"/>
-  </g>
+        // Feature 3
+        React.createElement(
+          'div',
+          {
+            style: {
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              backgroundColor: 'rgba(20, 28, 38, 0.9)',
+              borderRadius: '16px',
+              border: '1.2px solid #2d3540',
+              padding: '18px 20px',
+            },
+          },
+          React.createElement(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' } },
+            React.createElement(
+              'div',
+              {
+                style: {
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '16px',
+                  backgroundColor: '#21496f',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                },
+              },
+              React.createElement(
+                'svg',
+                { width: '16', height: '16', viewBox: '0 0 24 24', fill: 'none', stroke: '#a4caf6', strokeWidth: '2.2', strokeLinecap: 'round', strokeLinejoin: 'round' },
+                React.createElement('path', { d: 'M5 12h14' }),
+                React.createElement('path', { d: 'M12 5l7 7-7 7' })
+              )
+            ),
+            React.createElement(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column' } },
+              React.createElement('span', { style: { fontSize: '15px', fontWeight: 'bold', color: '#ffffff' } }, 'Direct Connection'),
+              React.createElement('span', { style: { fontSize: '12px', color: '#a4caf6' } }, 'ቀጥተኛ ግንኙነት')
+            )
+          ),
+          React.createElement('span', { style: { fontSize: '13px', color: '#94a3b8', lineHeight: 1.3 } }, 'Unrestricted Telegram & phone reveals upon mutual accept.')
+        )
+      ),
 
-  <!-- Outer Glassmorphic Container -->
-  <rect x="50" y="50" width="1100" height="530" rx="28" fill="url(#glassGrad)" stroke="url(#glassBorder)" stroke-width="1.5"/>
-
-  <!-- Top Brand Logo -->
-  <g transform="translate(90, 85)">
-    <rect width="48" height="48" rx="12" fill="#003258" stroke="#9ecaff" stroke-width="1.5"/>
-    <path d="M24 10 L36 16 V26 C36 33 24 38 24 38 C24 38 12 33 12 26 V16 Z" fill="none" stroke="#9ecaff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M20 24 L23 27 L29 20" fill="none" stroke="#4ae176" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
-
-  <text x="155" y="110" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#ffffff" letter-spacing="0.5">SPACEMATCH ADDIS</text>
-  <text x="155" y="128" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#9ecaff" letter-spacing="1.5">VERIFIED RESIDENCE NETWORK · አዲስ አበባ</text>
-
-  <!-- Top Right Membership Pill -->
-  <g transform="translate(810, 88)">
-    <rect width="250" height="42" rx="21" fill="${statusBg}" stroke="${statusBorder}" stroke-width="1.2"/>
-    <circle cx="26" cy="21" r="5" fill="${statusColor}"/>
-    <text x="42" y="27" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="${statusColor}" letter-spacing="0.8">${statusPillText}</text>
-  </g>
-
-  <!-- Hero Content -->
-  <text x="90" y="210" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="20" font-weight="600" fill="#94a3b8">Welcome, <tspan fill="#ffffff" font-weight="700">${cleanName}</tspan>! · እንኳን ደህና መጡ!</text>
-  <text x="90" y="275" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="52" font-weight="900" fill="url(#accentGrad)" letter-spacing="-0.5">Find Your Ideal Roommate</text>
-  <text x="90" y="325" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" fill="#dbe3f1">የተረጋገጡ የቤት አጋሮች እና ክፍሎች በአዲስ አበባ</text>
-
-  <!-- 3 Glassmorphic Feature Cards -->
-  <!-- Feature 1: Search -->
-  <g transform="translate(90, 375)">
-    <rect width="310" height="155" rx="18" fill="#141c26" fill-opacity="0.85" stroke="#2d3540" stroke-width="1.2"/>
-    <circle cx="40" cy="40" r="18" fill="#003258"/>
-    <g transform="translate(31, 31)" stroke="#9ecaff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="7.5" cy="7.5" r="5"/>
-      <line x1="11.5" y1="11.5" x2="16.5" y2="16.5"/>
-    </g>
-    <text x="70" y="38" font-family="sans-serif" font-size="16" font-weight="700" fill="#ffffff">Smart Matchmaker</text>
-    <text x="70" y="55" font-family="sans-serif" font-size="12" font-weight="600" fill="#9ecaff">የቤት አጋር ፈልግ</text>
-    <text x="24" y="95" font-family="sans-serif" font-size="13" fill="#94a3b8">Filter verified roommates by</text>
-    <text x="24" y="115" font-family="sans-serif" font-size="13" fill="#94a3b8">area, budget and lifestyle.</text>
-  </g>
-
-  <!-- Feature 2: Fayda ID -->
-  <g transform="translate(445, 375)">
-    <rect width="310" height="155" rx="18" fill="#141c26" fill-opacity="0.85" stroke="#2d3540" stroke-width="1.2"/>
-    <circle cx="40" cy="40" r="18" fill="#003915"/>
-    <g transform="translate(30, 30)" stroke="#4ae176" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4.5 10 L8.5 14 L16 5.5"/>
-    </g>
-    <text x="70" y="38" font-family="sans-serif" font-size="16" font-weight="700" fill="#ffffff">Fayda ID Verified</text>
-    <text x="70" y="55" font-family="sans-serif" font-size="12" font-weight="600" fill="#4ae176">የፋይዳ ማረጋገጫ</text>
-    <text x="24" y="95" font-family="sans-serif" font-size="13" fill="#94a3b8">Instant cryptographic QR</text>
-    <text x="24" y="115" font-family="sans-serif" font-size="13" fill="#94a3b8">verification in RAM.</text>
-  </g>
-
-  <!-- Feature 3: Post Profile -->
-  <g transform="translate(800, 375)">
-    <rect width="310" height="155" rx="18" fill="#141c26" fill-opacity="0.85" stroke="#2d3540" stroke-width="1.2"/>
-    <circle cx="40" cy="40" r="18" fill="#21496f"/>
-    <g transform="translate(30, 30)" stroke="#a4caf6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4 7 L16 7 M12 3 L16 7 L12 11"/>
-      <path d="M16 13 L4 13 M8 9 L4 13 L8 17"/>
-    </g>
-    <text x="70" y="38" font-family="sans-serif" font-size="16" font-weight="700" fill="#ffffff">Direct Connection</text>
-    <text x="70" y="55" font-family="sans-serif" font-size="12" font-weight="600" fill="#a4caf6">ቀጥተኛ ግንኙነት</text>
-    <text x="24" y="95" font-family="sans-serif" font-size="13" fill="#94a3b8">Unrestricted Telegram &amp;</text>
-    <text x="24" y="115" font-family="sans-serif" font-size="13" fill="#94a3b8">phone reveals upon match.</text>
-  </g>
-
-  <!-- Footer Notice -->
-  <text x="600" y="565" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="500" fill="#64748b" letter-spacing="0.5">SpaceMatch Addis Ababa · Select an option below to get started</text>
-</svg>
-`.trim();
+      // Footer
+      React.createElement(
+        'div',
+        { style: { display: 'flex', justifyContent: 'center', width: '100%', marginTop: '6px' } },
+        React.createElement(
+          'span',
+          { style: { fontSize: '12px', color: '#64748b', letterSpacing: '0.5px' } },
+          'SpaceMatch Addis Ababa · Select an option below to get started'
+        )
+      )
+    )
+  );
 }
 
 /**
- * Converts dynamic vector SVG into an optimized PNG Buffer in memory.
+ * Generates an optimized PNG buffer of the start card with full font fidelity.
  */
 export async function generateStartCardPng(params: StartCardParams): Promise<Buffer> {
-  const svg = buildStartCardSvg(params);
-  return await sharp(Buffer.from(svg))
-    .png({ quality: 90, compressionLevel: 8 })
-    .toBuffer();
+  const fonts = loadFonts();
+  const element = buildStartCardElement(params);
+
+  const response = new ImageResponse(element, {
+    width: 1200,
+    height: 630,
+    fonts: [
+      {
+        name: 'Geist',
+        data: fonts.geist,
+        style: 'normal',
+        weight: 400,
+      },
+      {
+        name: 'Noto Sans Ethiopic',
+        data: fonts.ethiopicBold,
+        style: 'normal',
+        weight: 700,
+      },
+      {
+        name: 'Noto Sans Ethiopic',
+        data: fonts.ethiopicRegular,
+        style: 'normal',
+        weight: 400,
+      },
+    ],
+  });
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
