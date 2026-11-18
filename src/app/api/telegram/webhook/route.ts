@@ -66,7 +66,14 @@ import {
  type FaydaSuccessResult,
 } from '@/lib/bot/fayda-photo-verifier';
 import { getLanguage, I18N, SupportedLang } from '@/lib/bot-i18n';
-import { generateStartCardPng } from '@/lib/dynamic-card-generator';
+import {
+  generateStartCardPng,
+  generatePostBranchCardPng,
+  generateMembershipCardPng,
+  generateFaydaCardPng,
+  generateSearchCardPng,
+  generateMyListingsCardPng,
+} from '@/lib/dynamic-card-generator';
 
 const ALL_SUBCITIES = [
  'Bole',
@@ -1071,33 +1078,53 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  };
 
  // Helper: Universal Fayda Gate Card
- const sendFaydaGateCard = async (
- chatId: number,
- targetAction: string,
- messageIdToEdit?: number
- ): Promise<number | undefined> => {
- const session = getSession(chatId);
- const lang = getLanguage(session.draft_data, chatId);
+  const sendFaydaGateCard = async (
+    chatId: number,
+    targetAction: string,
+    messageIdToEdit?: number
+  ): Promise<number | undefined> => {
+    const session = getSession(chatId);
+    const lang = getLanguage(session.draft_data, chatId);
 
- await saveSession({
- telegram_id: chatId,
- step: 'awaiting_standalone_fayda_fan',
- draft_data: { ...session.draft_data, card_msg_id: messageIdToEdit, target_action: targetAction },
- updated_at: new Date().toISOString(),
- });
+    await saveSession({
+      telegram_id: chatId,
+      step: 'awaiting_standalone_fayda_fan',
+      draft_data: { ...session.draft_data, card_msg_id: messageIdToEdit, target_action: targetAction },
+      updated_at: new Date().toISOString(),
+    });
 
- const gateText = `<b>Fayda ID Verification / የፋይዳ ማረጋገጫ</b>\n\n<blockquote>Upload a clear photo of the back of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>\n\nVerified instantly via QR. Photos are never stored. / በQR ወዲያው ይረጋገጣል፤ ፎቶዎች አይቀመጡም።`;
+    const gateText = `<b>Fayda ID Verification / የፋይዳ ማረጋገጫ</b>\n\n<blockquote>Upload a clear photo of the back of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>\n\nVerified instantly via QR. Photos are never stored. / በQR ወዲያው ይረጋገጣል፤ ፎቶዎች አይቀመጡም።`;
 
- const inlineKeyboard = [
- [
- {
- text: 'Main Menu / ዋና ማውጫ',
- callback_data: 'nav_start',
- },
- ],
- ];
+    // Strict Grid Symmetry: 2-Column Action Grid
+    const inlineKeyboard = [
+      [
+        { text: 'Why Fayda? / ለምን ፋይዳ?', callback_data: 'why_fayda_id' },
+        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+      ],
+    ];
 
- return await sendOrEditCard(chatId, gateText, inlineKeyboard, messageIdToEdit);
+    let activeId: number | null | undefined = null;
+
+    if (ENABLE_DYNAMIC_START_IMAGE) {
+      try {
+        const pngBuffer = await generateFaydaCardPng();
+        if (messageIdToEdit) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
+        }
+        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, gateText, inlineKeyboard);
+        if (photoRes?.ok && photoRes.result?.message_id) {
+          activeId = photoRes.result.message_id;
+        }
+      } catch (err) {
+        console.warn('Dynamic card generation failed for Fayda gate:', err);
+      }
+    }
+
+    if (!activeId) {
+      activeId = await sendOrEditCard(chatId, gateText, inlineKeyboard, messageIdToEdit);
+    }
+
+    return activeId;
  };
 
  const calculateAgeFromDob = (dobStr?: string | null): number | null => {
@@ -1745,7 +1772,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  };
 
  // Step 9: Fayda FAN Verification (Dual-Mode: Type or Camera Scan)
- const sendDynamicCardStep9FaydaFan = async (
+  const sendDynamicCardStep9FaydaFan = async (
     chatId: number,
     draft: Record<string, any>,
     messageIdToEdit?: number,
@@ -1761,17 +1788,37 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       updated_at: new Date().toISOString(),
     });
 
-    const promptText = '<b>Fayda ID Verification / የፋይዳ ማረጋገጫ</b>\n\n<blockquote>Upload a clear photo of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>';
+    const promptText = '<b>Fayda ID Verification / የፋይዳ ማረጋገጫ</b>\n\n<blockquote>Upload a clear photo of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>\n\nVerified instantly via QR. Photos are never stored. / በQR ወዲያው ይረጋገጣል፤ ፎቶዎች አይቀመጡም።';
     const text = `${errorMsg ? `<b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
- const inlineKeyboard = [
- [
- { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_subs' },
- { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
- ],
- ];
+    // Strict Grid Symmetry: 2-Column Action Grid
+    const inlineKeyboard = [
+      [
+        { text: 'Why Fayda? / ለምን ፋይዳ?', callback_data: 'why_fayda_id' },
+        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+      ],
+    ];
 
- await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    let activeId: number | null | undefined = null;
+
+    if (ENABLE_DYNAMIC_START_IMAGE) {
+      try {
+        const pngBuffer = await generateFaydaCardPng();
+        if (activeMsgId) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: activeMsgId }).catch(() => {});
+        }
+        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, text, inlineKeyboard);
+        if (photoRes?.ok && photoRes.result?.message_id) {
+          activeId = photoRes.result.message_id;
+        }
+      } catch (err) {
+        console.warn('Dynamic card generation failed for Fayda fan step:', err);
+      }
+    }
+
+    if (!activeId) {
+      activeId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    }
  };
 
  // Helper: Final Preview Card before publishing to channel
@@ -2288,7 +2335,11 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  };
 
  // ── Helper: 2-Branch Selection: "I have a space" vs "We look for space together" ──
- const sendPostProfileBranchPrompt = async (chatId: number, messageIdToEdit?: number) => {
+  const sendPostProfileBranchPrompt = async (
+    chatId: number,
+    messageIdToEdit?: number,
+    fromUser?: { first_name?: string; last_name?: string; username?: string }
+  ) => {
     const session = getSession(chatId);
     const lang = getLanguage(session.draft_data, chatId);
 
@@ -2301,20 +2352,21 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
     const text = '<b>Post Profile / መረጃ መለጠፊያ</b>\n\n<blockquote>Select your situation:\nሁኔታዎን ይምረጡ:</blockquote>';
 
+    // Strict Grid Symmetry: Hero CTA on Top + 2-Column Action Grid
     const inlineKeyboard = [
+      // Hero CTA on Top: Roommate seeker (look together)
       [
         {
-          text: 'I want a roommate & we look for room together / የቤት አጋር እፈልጋለሁ (አብረን ቤት እንፈልጋለን)',
+          text: 'Need Roommate (Look Together) / አብረን ቤት እንፈልጋለን',
           callback_data: 'post_branch_seeker',
         },
       ],
+      // 2-Column Action Grid: Space host + navigation
       [
         {
-          text: 'I have a space & I want a roommate / የሚከራይ ክፍል አለኝ (የቤት አጋር እፈልጋለሁ)',
+          text: 'Have Space / ክፍል አለኝ',
           callback_data: 'post_branch_space',
         },
-      ],
-      [
         {
           text: 'Main Menu / ዋና ማውጫ',
           callback_data: 'nav_start',
@@ -2322,7 +2374,31 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       ],
     ];
 
-    return await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+    let activeId: number | null | undefined = null;
+
+    if (ENABLE_DYNAMIC_START_IMAGE) {
+      try {
+        const resolvedName = fromUser?.first_name || session.draft_data?.full_name || 'Resident';
+        const pngBuffer = await generatePostBranchCardPng({ userName: resolvedName });
+
+        if (messageIdToEdit) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
+        }
+
+        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, text, inlineKeyboard);
+        if (photoRes?.ok && photoRes.result?.message_id) {
+          activeId = photoRes.result.message_id;
+        }
+      } catch (err) {
+        console.error('[sendPostProfileBranchPrompt] Dynamic image error:', err);
+      }
+    }
+
+    if (!activeId) {
+      activeId = await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+    }
+
+    return activeId;
   };
 
  // ── Branch A: Space Owner Questionnaire Helpers ─────────────────────────
@@ -2997,30 +3073,32 @@ ${postPreview}
 
     const paywallText = `<b>30-Day Pass / የ30 ቀን አባልነት (300 ETB)</b>\n\n<blockquote>${purposeNotice}</blockquote>\n\n<b>Payment Accounts (Wahid):</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code>\n• <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>\n• <b>Dashen:</b> <code>${dashenAccount}</code>\n\n<blockquote>Send transaction reference code:\nየደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REF</code></blockquote>`.trim();
 
+    // Strict Grid Symmetry: Hero CTA on Top + 2-Column Action Grid
     const paywallKeyboard = [
+      // Hero CTA on Top: Single most important payment action
       [{ text: 'Pay via Telebirr SuperApp >', url: 'https://telebirr.et' }],
-      [{ text: 'Verify Receipt / ደረሰኝ አረጋግጥ', callback_data: 'view_membership_pass' }],
-      [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+      // 2-Column Action Grid: Group secondary actions side-by-side
+      [
+        { text: 'Verify Receipt / ደረሰኝ አረጋግጥ', callback_data: 'view_membership_pass' },
+        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+      ],
     ];
 
     let cardMessageId: number | undefined;
 
-    try {
-      if (messageIdToEdit) {
-        sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
+    if (ENABLE_DYNAMIC_START_IMAGE) {
+      try {
+        if (messageIdToEdit) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
+        }
+        const pngBuffer = await generateMembershipCardPng({ isMember: false });
+        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, paywallText.slice(0, 1024), paywallKeyboard);
+        if (photoRes?.ok && photoRes.result?.message_id) {
+          cardMessageId = photoRes.result.message_id;
+        }
+      } catch (err) {
+        console.warn('Dynamic card generation failed for membership paywall:', err);
       }
-      const photoRes = await sendTelegram('sendPhoto', {
-        chat_id: chatId,
-        photo: receiptGuideImg,
-        caption: paywallText.slice(0, 1024),
-        parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: paywallKeyboard },
-      });
-      if (photoRes?.ok && photoRes.result?.message_id) {
-        cardMessageId = photoRes.result.message_id;
-      }
-    } catch (err) {
-      console.warn('sendPhoto failed for membership paywall card:', err);
     }
 
     if (!cardMessageId) {
@@ -3707,24 +3785,35 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
     const welcomeText = `<b>SpaceMatch Addis / ስፔስማች አዲስ</b>\n\n<blockquote>Verified Roommate Network · Addis Ababa\nየተረጋገጡ የቤት አጋሮች መፈለጊያ</blockquote>\n\n<b>Pass / አባልነት:</b> ${memBadge}`;
 
     const inlineKeyboard = [
+      // Hero CTA on Top: Keep single most important action full-width at top
       [
         {
           text: 'Search Roommate / የቤት አጋር ፈልግ',
           callback_data: 'search_roommate_start',
         },
       ],
+      // 2-Column Action Grid: Group secondary actions side-by-side
       [
         {
-          text: 'Post Profile / መረጃዬን ልለጥፍ',
+          text: 'Post Profile / መረጃ ልለጥፍ',
           callback_data: 'post_profile_start',
         },
-      ],
-      [
         {
           text: mem.isActive
-            ? `Pass: Active (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining} ቀናት)`
-            : '30-Day Pass (300 ETB) / የ30 ቀን ፓስ (300 ብር)',
+            ? `Pass: Active (${mem.daysRemaining}d)`
+            : '30-Day Pass / አባልነት',
           callback_data: 'view_membership_pass',
+        },
+      ],
+      // 2-Column Secondary / Utility Grid
+      [
+        {
+          text: 'My Listings / ማስታወቂያዎቼ',
+          callback_data: 'my_listings',
+        },
+        {
+          text: 'Language / ቋንቋ',
+          callback_data: 'open_lang_select',
         },
       ],
     ];
@@ -3771,6 +3860,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
   const sendMyListingsScreen = async (chatId: number, messageIdToEdit?: number) => {
     const userLang = getUserLanguage(chatId);
+    const session = getSession(chatId);
 
     const mem = await getUserMembershipStatus(chatId);
     const memBadge = mem.isActive
@@ -3824,15 +3914,40 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  if (count === 0) {
  text += `<blockquote>You do not have any open listings yet. Post your profile to broadcast to the channel! / እስካሁን ምንም ክፍት ማስታወቂያ የለዎትም። መረጃዎን በመለጠፍ ቻናሉ ላይ ያሰራጩ!</blockquote>\n\n`;
- buttons.push([{ text: 'Post Seeker Profile / መረጃዬን ልለጥፍ', callback_data: 'seeker_flow' }]);
- }
+      // Hero CTA on Top
+      buttons.push([{ text: 'Post Seeker Profile / መረጃዬን ልለጥፍ', callback_data: 'seeker_flow' }]);
+    }
 
- buttons.push([
- { text: 'Find Roommates / የቤት አጋር ፈልግ >', callback_data: 'matchmaker_start' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ]);
+    // Strict Grid Symmetry: 2-Column Action Grid
+    buttons.push([
+      { text: 'Find Roommates / የቤት አጋር ፈልግ >', callback_data: 'matchmaker_start' },
+      { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+    ]);
 
- await sendOrEditCard(chatId, text.trim(), buttons, messageIdToEdit);
+    let cardMessageId: number | undefined;
+
+    if (ENABLE_DYNAMIC_START_IMAGE) {
+      try {
+        if (messageIdToEdit) {
+          sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
+        }
+        const pngBuffer = await generateMyListingsCardPng({
+          userName: session.draft_data?.full_name,
+          isMember: mem.isActive,
+          daysRemaining: mem.daysRemaining,
+        });
+        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, text.trim(), buttons);
+        if (photoRes?.ok && photoRes.result?.message_id) {
+          cardMessageId = photoRes.result.message_id;
+        }
+      } catch (err) {
+        console.warn('Dynamic card generation failed for my listings:', err);
+      }
+    }
+
+    if (!cardMessageId) {
+      cardMessageId = await sendOrEditCard(chatId, text.trim(), buttons, messageIdToEdit);
+    }
  };
 
  // Helper: Platform Help & User Guide
