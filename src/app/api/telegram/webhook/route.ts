@@ -73,6 +73,7 @@ import {
   generateFaydaCardPng,
   generateSearchCardPng,
   generateMyListingsCardPng,
+  generateCongratulationsCardPng,
 } from '@/lib/dynamic-card-generator';
 
 const ALL_SUBCITIES = [
@@ -1823,27 +1824,56 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
  // Helper: Final Preview Card before publishing to channel
  const sendChannelPublishPreviewCard = async (
- chatId: number,
- profileData: Record<string, any>,
- messageIdToEdit?: number
- ) => {
- const text = formatRoommatePost(profileData);
- const targetIdentifier = profileData.display_code || profileData.id;
- const inlineKeyboard = [
- [
- {
- text: 'Submit for Admin Approval / ለአድሚን ማረጋገጫ ላክ >',
- callback_data: `dyn_submit_channel:${targetIdentifier}`,
- },
- ],
- [
- { text: 'Edit Profile Details / መረጃ አሻሽል', callback_data: 'post_profile_start' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
- ];
+    chatId: number,
+    profileData: Record<string, any>,
+    messageIdToEdit?: number
+  ) => {
+    const codeDisplay = profileData.display_code ? `#${profileData.display_code.replace(/^#/, '')}` : '#PENDING';
+    const targetIdentifier = profileData.display_code || profileData.id;
+    const areasDisplay = Array.isArray(profileData.locations || profileData.preferred_subcity)
+      ? (profileData.locations || profileData.preferred_subcity).join(', ')
+      : 'Addis Ababa';
+    const budgetNum = Number(profileData.budget_max || profileData.budget || 0);
+    const budgetDisplay = budgetNum > 0 ? `${budgetNum.toLocaleString()} ETB/month` : 'Flexible';
+    const myGender = profileData.gender || profileData.my_gender || 'Any';
+    const myGenderDisplay = myGender === 'Female' ? 'Female / ሴት' : myGender === 'Male' ? 'Male / ወንድ' : myGender;
+    const prefGender = profileData.preferred_gender || 'Any';
+    const prefGenderDisplay = prefGender === 'Female' ? 'Female Only / ሴት ብቻ' : prefGender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
+    const userAge = profileData.age ? `, Age ${profileData.age}` : '';
+    const moveInDate = profileData.move_in_date || profileData.move_in || 'Immediately / አሁኑኑ';
+    const userBio = (profileData.details || profileData.lifestyle_bio || profileData.description || 'Compatible roommate looking for a room in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
- await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
- };
+    const text = `<b>SpaceMatch Profile Review / የመረጃ ክለሳ</b>
+<code>${codeDisplay}</code> · <b>Ready to Submit / ለግምገማ ዝግጁ</b>
+
+<blockquote>• <b>Target Areas / አካባቢ:</b> <code>${areasDisplay}</code>
+• <b>Budget Cap / በጀት:</b> <code>${budgetDisplay}</code>
+• <b>Candidate / ተፈላጊ:</b> ${myGenderDisplay}${userAge}
+• <b>Looking For / የሚፈልጉት:</b> ${prefGenderDisplay}
+• <b>Move-in / መግቢያ:</b> ${moveInDate}</blockquote>
+
+<b>ABOUT ME / ስለ እኔ</b>
+<blockquote>${userBio}</blockquote>
+
+<i>🔒 Contacts remain strictly protected under double-blind privacy shield.
+ስልክ እና አድራሻዎ በጋራ ፈቃድ ብቻ ሚስጥራዊ ሆነው ይገለጣሉ።</i>
+    `.trim();
+
+    const inlineKeyboard = [
+      [
+        {
+          text: 'Submit for Admin Approval / ለአድሚን ማረጋገጫ ላክ >',
+          callback_data: `dyn_submit_channel:${targetIdentifier}`,
+        },
+      ],
+      [
+        { text: 'Edit Profile Details / መረጃ አሻሽል', callback_data: 'post_profile_start' },
+        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+      ],
+    ];
+
+    await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+  };
 
  // Helper: Complete seeker onboarding and route to Branch A (connection) or Branch B (channel post)
  const completeSeekerOnboarding = async (
@@ -2691,34 +2721,58 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  };
 
  const sendSpacePreviewCard = async (
- chatId: number,
- draft: Record<string, any>,
- messageIdToEdit?: number
- ) => {
- let displayCode = draft.display_code;
- if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARWR')) {
- displayCode = await getNextSpmarbrCode('space_available');
- draft.display_code = displayCode;
- }
- const cleanDisplayCode = displayCode.replace(/^#/, '');
+    chatId: number,
+    draft: Record<string, any>,
+    messageIdToEdit?: number
+  ) => {
+    let displayCode = draft.display_code;
+    if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARWR')) {
+      displayCode = await getNextSpmarbrCode('space_available');
+      draft.display_code = displayCode;
+    }
+    const cleanDisplayCode = displayCode.replace(/^#/, '');
 
- const text = formatSpacePost(draft);
+    const subcity = draft.preferred_subcity?.[0] || draft.location || 'Addis Ababa';
+    const rentNum = Number(draft.space_rent || 0);
+    const shareNum = Number(draft.space_share || 0);
+    const spaceType = draft.space_type || 'Private Bedroom in Shared Flat';
+    const prefGender = draft.preferred_tenant_gender || draft.preferred_gender || 'Any';
+    const prefGenderDisplay = prefGender === 'Female' ? 'Female Only / ሴት ብቻ' : prefGender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
+    const photosCount = Array.isArray(draft.space_photos) ? draft.space_photos.length : 0;
+    const desc = (draft.description || draft.preferred_roommate || draft.roommate_traits || 'Room available for rent in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
- const inlineKeyboard = [
- [
- {
- text: 'Submit for Admin Approval / ለአድሚን ማረጋገጫ ላክ >',
- callback_data: `space_submit_admin:${cleanDisplayCode}`,
- },
- ],
- [
- { text: 'Edit Space Details / መረጃ አሻሽል', callback_data: 'post_branch_space' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
- ];
+    const text = `<b>Space Listing Review / የክፍል መረጃ ክለሳ</b>
+<code>#${cleanDisplayCode}</code> · <b>Ready to Submit / ለግምገማ ዝግጁ</b>
 
- return await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
- };
+<blockquote>• <b>Sub-City / አካባቢ:</b> <code>${subcity}</code>
+• <b>Space Type / አይነት:</b> ${spaceType}
+• <b>Total Rent / ጠቅላላ ኪራይ:</b> <code>${rentNum > 0 ? rentNum.toLocaleString() + ' ETB/mo' : 'Contact for Rent'}</code>
+• <b>Roommate Share / ድርሻ:</b> <code>${shareNum > 0 ? shareNum.toLocaleString() + ' ETB/mo' : 'Split equally'}</code>
+• <b>Preferred Roommate / አጋር:</b> ${prefGenderDisplay}
+• <b>Photos Attached / ፎቶዎች:</b> ${photosCount} photo(s)</blockquote>
+
+<b>SPACE DETAILS / ስለ ክፍሉ</b>
+<blockquote>${desc}</blockquote>
+
+<i>🔒 Direct contacts remain strictly protected under double-blind privacy shield.
+ቀጥተኛ አድራሻዎ በጋራ ፈቃድ ብቻ ሚስጥራዊ ሆኖ ይገለጣሉ።</i>
+    `.trim();
+
+    const inlineKeyboard = [
+      [
+        {
+          text: 'Submit for Admin Approval / ለአድሚን ማረጋገጫ ላክ >',
+          callback_data: `space_submit_admin:${cleanDisplayCode}`,
+        },
+      ],
+      [
+        { text: 'Edit Space Details / መረጃ አሻሽል', callback_data: 'post_branch_space' },
+        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+      ],
+    ];
+
+    return await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+  };
 
  // ── Helper: Admin Channel Post Wizard Card Helpers ─────────────────────────
  const sendAdminPostCategoryStep = async (chatId: number, messageIdToEdit?: number) => {
@@ -3377,30 +3431,44 @@ ${postPreview}
  const isAm = lang === 'am';
  const targetChannel = await getPrimaryChannel();
 
- const userConfirmText = `<b>SpaceMatch Addis · Submitted for Admin Approval! / ለአድሚን ማረጋገጫ ተልኳል!</b>
+ const userConfirmText = `<b>Congratulations! / እንኳን ደስ አለዎት!</b>
+<b>Profile Submitted for Activation / መረጃዎ ለግምገማ ደርሷል</b>
 
-Your anonymous roommate listing (<code>#${displayCode}</code>) has been submitted. (30-Day Pass applied )
-የእርስዎ ሚስጥራዊ የቤት ጓደኛ መረጃ (<code>#${displayCode}</code>) ተልኳል። (የ30 ቀን አባልነት ተፈጻሚ ሆኗል )
+<blockquote>• <b>Listing Code / መለያ ኮድ:</b> <code>#${displayCode}</code>
+• <b>Target Areas / አካባቢዎች:</b> <code>${subcitiesStr}</code>
+• <b>Budget Cap / በጀት:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB/mo</code>
+• <b>Status / ሁኔታ:</b> <b>Pending Admin Review / በግምገማ ላይ</b>
+• <b>Target Channel / ዒላማ ቻናል:</b> <code>${targetChannel}</code></blockquote>
 
-• <b>Listing Code / የመለያ ኮድ:</b> <b>#${displayCode}</b>
-• <b>Target Areas / ተመራጭ አካባቢዎች:</b> <code>${subcitiesStr}</code>
-• <b>Budget Cap / የበጀት መጠን:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / ብር</code>
-• <b>Status / ሁኔታ:</b> <b>Pending Admin Review / አድሚን እስኪያረጋግጥ በመጠባበቅ ላይ</b>
-• <b>Target Channel / ዒላማ ቻናል:</b> <code>${targetChannel}</code>
-<blockquote><b>Privacy Shield Active / ሚስጥራዊነት የተጠበቀ:</b>
+<blockquote><b>Privacy Shield / ሚስጥራዊነት የተጠበቀ:</b>
 Your real name, phone number, and Telegram handle remain 100% private. Once approved, your listing will be published and you will be notified immediately!
 ትክክለኛ ስምዎ፣ ስልክ ቁጥርዎ እና የቴሌግራም አድራሻዎ በፍጹም አይገለጥም። አድሚኑ መረጃውን እንዳረጋገጠ ወደ ቻናሉ ይለጠፋል!</blockquote>
  `.trim();
 
- await sendOrEditCard(
- chatId,
- userConfirmText,
+ const userConfirmKeyboard = [
+ [{ text: 'Find Matching Roommates Now / አጋሮችን አሁኑኑ ፈልግ >', callback_data: 'matchmaker_start' }],
  [
- [{ text: 'Find Roommates Now / የቤት ጓደኛ ፈልግ >', callback_data: 'matchmaker_start' }],
- [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+ { text: 'View My Listings / ማስታወቂያዎቼ', callback_data: 'nav_my_listings' },
+ { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
- messageIdToEdit
- );
+ ];
+
+ if (ENABLE_DYNAMIC_START_IMAGE) {
+ try {
+ const pngBuffer = await generateCongratulationsCardPng({
+ userName: fromCallbackUser?.first_name || 'Resident',
+ isMember: true,
+ });
+ if (messageIdToEdit) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
+ }
+ await sendTelegramPhotoBuffer(chatId, pngBuffer, userConfirmText, userConfirmKeyboard);
+ } catch {
+ await sendOrEditCard(chatId, userConfirmText, userConfirmKeyboard, messageIdToEdit);
+ }
+ } else {
+ await sendOrEditCard(chatId, userConfirmText, userConfirmKeyboard, messageIdToEdit);
+ }
 
  // Notify admins
  try {
@@ -3517,26 +3585,45 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  const isAm = lang === 'am';
  const targetChannel = await getPrimaryChannel();
 
- const userConfirmText = `<b>SpaceMatch Addis · Space Listing Submitted for Review! / የሚከራየው ክፍል መረጃ ለአድሚን ተልኳል!</b>
+ const userConfirmText = `<b>Congratulations! / እንኳን ደስ አለዎት!</b>
+<b>Space Listing Submitted for Activation / የክፍል መረጃዎ ለግምገማ ደርሷል</b>
 
-Your room listing (<code>#${cleanCode}</code>) has been submitted to channel administrators. (Active 30-Day Pass applied )
-የእርስዎ የክፍል መረጃ (<code>#${cleanCode}</code>) ወደ ቻናል አስተዳዳሪዎች ተልኳል። (የ30 ቀን አባልነት ተፈጻሚ ሆኗል )
+<blockquote>• <b>Listing Code / መለያ ኮድ:</b> <code>#${cleanCode}</code>
+• <b>Space Type / አይነት:</b> ${spaceType}
+• <b>Total Rent / ጠቅላላ ኪራይ:</b> <code>${rentNum > 0 ? rentNum.toLocaleString() + ' ETB/mo' : 'Contact for Rent'}</code>
+• <b>Roommate Share / ድርሻ:</b> <code>${shareNum > 0 ? shareNum.toLocaleString() + ' ETB/mo' : 'Split equally'}</code>
+• <b>Status / ሁኔታ:</b> <b>Pending Admin Review / በግምገማ ላይ</b>
+• <b>Target Channel / ዒላማ ቻናል:</b> <code>${targetChannel}</code></blockquote>
 
-• <b>Listing Code / የመለያ ኮድ:</b> <b>#${cleanCode}</b>
-• <b>Space Type / የክፍሉ አይነት:</b> ${spaceType}
-• <b>Total Rent / ጠቅላላ ኪራይ:</b> <code>${rentNum.toLocaleString()} ETB / ብር</code>
-• <b>Roommate Share / የቤት ጓደኛ ድርሻ:</b> <code>${shareNum.toLocaleString()} ETB / ብር</code>
-• <b>Photos Attached / የተያያዙ ፎቶዎች:</b> ${photos.length} photo(s) / ፎቶዎች
-• <b>Status / ሁኔታ:</b> <b>Pending Admin Review / አድሚን እስኪያረጋግጥ በመጠባበቅ ላይ</b>
-• <b>Target Channel / ዒላማ ቻናል:</b> <code>${targetChannel}</code>
-<blockquote>Once approved, your listing will be published directly to the channel!
-ልክ በአድሚን እንደጸደቀ፣ መረጃዎ በቀጥታ ወደ ቻናሉ ይለጠፋል!</blockquote>
- `.trim();
+<blockquote><b>Privacy Shield / ሚስጥራዊነት የተጠበቀ:</b>
+Direct contact details stay protected. Once approved, your space listing will be published and you will be notified immediately!
+ቀጥተኛ አድራሻዎ ሙሉ በሙሉ የተጠበቀ ነው። ልክ በአድሚን እንደጸደቀ ወደ ቻናሉ ይለጠፋል!</blockquote>
+  `.trim();
 
- await sendOrEditCard(chatId, userConfirmText, [
- [{ text: 'Search Active Roommates / የቤት ጓደኛ ፈልግ >', callback_data: 'search_roommate_start' }],
- [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
- ], messageIdToEdit);
+  const userConfirmKeyboard = [
+    [{ text: 'Find Matching Roommates Now / አጋሮችን አሁኑኑ ፈልግ >', callback_data: 'matchmaker_start' }],
+    [
+      { text: 'View My Listings / ማስታወቂያዎቼ', callback_data: 'nav_my_listings' },
+      { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+    ],
+  ];
+
+  if (ENABLE_DYNAMIC_START_IMAGE) {
+    try {
+      const pngBuffer = await generateCongratulationsCardPng({
+        userName: fromCallbackUser?.first_name || 'Resident',
+        isMember: true,
+      });
+      if (messageIdToEdit) {
+        sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
+      }
+      await sendTelegramPhotoBuffer(chatId, pngBuffer, userConfirmText, userConfirmKeyboard);
+    } catch {
+      await sendOrEditCard(chatId, userConfirmText, userConfirmKeyboard, messageIdToEdit);
+    }
+  } else {
+    await sendOrEditCard(chatId, userConfirmText, userConfirmKeyboard, messageIdToEdit);
+  }
 
  // Notify admins
  try {
@@ -3700,7 +3787,7 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
 
  await sendOrEditCard(
  chatId,
- `<b>Match Request Delivered! / የግንኙነት ጥያቄ ተልኳል!</b>\n\nYour request has been sent to Roommate <b>#${targetProfile.display_code}</b> (30-Day Pass applied )\nጥያቄዎ ወደ የቤት አጋር <b>#${targetProfile.display_code}</b> ደርሷል (የ30 ቀን አባልነት ተፈጻሚ ሆኗል )\n\n<blockquote>You will receive contact details once accepted! / እንደተቀበሉ ወዲያውኑ የስልክና ቴሌግራም አድራሻ ይደርስዎታል!</blockquote>`,
+ `<b>Match Request Delivered! / የግንኙነት ጥያቄ ተልኳል!</b>\n\nYour request has been sent to Roommate <b>#${targetProfile.display_code}</b> (30-Day Pass active)\nጥያቄዎ ወደ የቤት አጋር <b>#${targetProfile.display_code}</b> ደርሷል (የ30 ቀን አባልነት ተፈጻሚ ሆኗል)\n\n<blockquote>You will receive contact details once accepted! / እንደተቀበሉ ወዲያውኑ የስልክና ቴሌግራም አድራሻ ይደርስዎታል!</blockquote>`,
  [
  [{ text: 'Find Other Roommates / ሌሎች ፈላጊዎችን ፈልግ >', callback_data: 'matchmaker_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
@@ -4408,54 +4495,64 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  // Helper: Seeker Review & Final Submit
  const sendSeekerFaydaStep = async (chatId: number, currentDraft: Record<string, any> = {}, messageIdToEdit?: number) => {
- const isVerified = await isUserFaydaVerified(chatId);
- if (!isVerified) {
- await sendDynamicCardStep9FaydaFan(chatId, currentDraft, messageIdToEdit);
- return;
- }
+    const isVerified = await isUserFaydaVerified(chatId);
+    if (!isVerified) {
+      await sendDynamicCardStep9FaydaFan(chatId, currentDraft, messageIdToEdit);
+      return;
+    }
 
- const lang = getLanguage(currentDraft, chatId);
- const isAm = lang === 'am';
+    const lang = getLanguage(currentDraft, chatId);
+    const isAm = lang === 'am';
 
- const postDraft = {
- ...currentDraft,
- display_code: currentDraft.display_code || 'PENDING',
- locations: currentDraft.preferred_subcity || ['Addis Ababa'],
- details: currentDraft.description || currentDraft.details || currentDraft.lifestyle_bio,
- roommate_traits: currentDraft.lifestyle_bio || currentDraft.roommate_traits,
- full_name: currentDraft.full_name || currentDraft.user_name,
- };
- const formattedPreview = formatRoommatePost(postDraft);
+    const codeDisplay = currentDraft.display_code ? `#${currentDraft.display_code.replace(/^#/, '')}` : '#PENDING';
+    const areasDisplay = Array.isArray(currentDraft.preferred_subcity) && currentDraft.preferred_subcity.length > 0
+      ? currentDraft.preferred_subcity.join(', ')
+      : 'Addis Ababa';
+    const budgetNum = Number(currentDraft.budget_max || currentDraft.budget || 0);
+    const budgetDisplay = budgetNum > 0 ? `${budgetNum.toLocaleString()} ETB/month` : 'Flexible';
+    const myGender = currentDraft.my_gender || currentDraft.gender || 'Any';
+    const myGenderDisplay = myGender === 'Female' ? 'Female / ሴት' : myGender === 'Male' ? 'Male / ወንድ' : myGender;
+    const prefGender = currentDraft.preferred_gender || 'Any';
+    const prefGenderDisplay = prefGender === 'Female' ? 'Female Only / ሴት ብቻ' : prefGender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
+    const userAge = currentDraft.age ? `, Age ${currentDraft.age}` : '';
+    const moveInDate = currentDraft.move_in_date || currentDraft.move_in || 'Immediately / አሁኑኑ';
+    const userBio = (currentDraft.lifestyle_bio || currentDraft.description || currentDraft.details || 'Compatible roommate looking for a room in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
- const summaryText = `<b>Profile Review / የመረጃ ክለሳ</b>
-This is how your post will appear in the channel / ማስታወቂያዎ በቻናል ላይ እንዲህ ይታያል:
+    const summaryText = `<b>SpaceMatch Profile Review / የመረጃ ክለሳ</b>
+<code>${codeDisplay}</code> · <b>Ready to Publish / ለስርጭት ዝግጁ</b>
 
-━━━━━━━━━━━━━━━━━━━━━
-${formattedPreview}
-━━━━━━━━━━━━━━━━━━━━━
-<blockquote>Review your details before publishing to the channel & matchmaker.
-ወደ ቻናል እና ማችሜከር ከመለጠፉ በፊት መረጃዎን ያረጋግጡ።</blockquote>
- `.trim();
+<blockquote>• <b>Target Areas / አካባቢ:</b> <code>${areasDisplay}</code>
+• <b>Budget Cap / በጀት:</b> <code>${budgetDisplay}</code>
+• <b>Candidate / ተፈላጊ:</b> ${myGenderDisplay}${userAge}
+• <b>Looking For / የሚፈልጉት:</b> ${prefGenderDisplay}
+• <b>Move-in / መግቢያ:</b> ${moveInDate}</blockquote>
 
- const keyboard = [
- [{ text: 'Publish to Channel & Matchmaker / ቻናል እና ማችሜከር ላይ ይለጠፍ >', callback_data: 'seeker_final_submit' }],
- [
- { text: '⬅ Edit Details / መረጃ አሻሽል', callback_data: 'seeker_flow' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
- ];
+<b>ABOUT ME / ስለ እኔ</b>
+<blockquote>${userBio}</blockquote>
 
- const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
- const activeMsgId = await sendOrEditCard(chatId, summaryText, keyboard, targetMsgId);
- if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+<i>🔒 Contacts remain strictly protected under double-blind privacy shield.
+ስልክ እና አድራሻዎ በጋራ ፈቃድ ብቻ ሚስጥራዊ ሆነው ይገለጣሉ።</i>
+    `.trim();
 
- await saveSession({
- telegram_id: chatId,
- step: 'awaiting_seeker_fayda_upload',
- draft_data: { ...currentDraft, lang },
- updated_at: new Date().toISOString(),
- });
- };
+    const keyboard = [
+      [{ text: 'Publish to Channel & Matchmaker / ቻናል እና ማችሜከር ላይ ይለጠፍ >', callback_data: 'seeker_final_submit' }],
+      [
+        { text: 'Edit Details / መረጃ አሻሽል', callback_data: 'seeker_flow' },
+        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+      ],
+    ];
+
+    const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+    const activeMsgId = await sendOrEditCard(chatId, summaryText, keyboard, targetMsgId);
+    if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+
+    await saveSession({
+      telegram_id: chatId,
+      step: 'awaiting_seeker_fayda_upload',
+      draft_data: { ...currentDraft, lang },
+      updated_at: new Date().toISOString(),
+    });
+  };
 
  // Helper: Automated Matchmaking Engine Driven directly by User's Input Criteria (Live DB & In-Place Paginated Feed)
  const executeAutomatedMatchmaker = async (
@@ -4706,55 +4803,59 @@ ${formattedPreview}
  const badge = match.fayda_status === 'verified'
  ? 'Verified / የተረጋገጠ'
  : 'Pending Review / በግምገማ ላይ';
- const ageDisplay = match.age ? `, Age ${match.age} / ${match.age} ዓመት` : '';
+ const ageDisplay = match.age ? `, Age ${match.age}` : '';
  const bioContent = (match.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa. / በአዲስ አበባ ውስጥ ተስማሚ የቤት ጓደኛ እፈልጋለሁ።').replace(/</g, '&lt;').replace(/>/g, '&gt;');
  const genderDisplay = match.my_gender === 'Female' ? 'Female / ሴት' : match.my_gender === 'Male' ? 'Male / ወንድ' : match.my_gender;
  const prefGenderDisplay = match.preferred_gender === 'Female' ? 'Female Only / ሴት ብቻ' : match.preferred_gender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
+ const matchDisplayCode = match.display_code ? `#${match.display_code.replace(/^#/, '')}` : `#${safeIndex + 1}`;
+ const budgetDisplay = Number(match.budget_max || 0) > 0 ? `Up to ${Number(match.budget_max).toLocaleString()} ETB/mo` : 'Flexible';
 
- const matchCardText = `<b>Match #${safeIndex + 1} of ${scoredMatches.length}</b>
-<b>ተዛማጅ #${safeIndex + 1} ከ ${scoredMatches.length} · ${match.matchScore}% Match</b>
+ const matchCardText = `<b>Roommate Candidate ${matchDisplayCode}</b>
+<b>${match.matchScore}% Match · ${safeIndex + 1} of ${scoredMatches.length}</b>
 
-• <b>Areas / አካባቢዎች:</b> <code>${subcitiesStr}</code>
-• <b>Status / ሁኔታ:</b> <b>${badge}</b>
-<b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
-• <b>Candidate / ተፈላጊ:</b> Verified Seeker (${genderDisplay}${ageDisplay})
+<blockquote>• <b>Preferred Areas / አካባቢ:</b> <code>${subcitiesStr}</code>
+• <b>Candidate / ተፈላጊ:</b> ${genderDisplay}${ageDisplay}
 • <b>Looking For / የሚፈልጉት:</b> ${prefGenderDisplay}
-• <b>Monthly Budget / ወርሃዊ በጀት:</b> <code>Up to ${Number(match.budget_max).toLocaleString()} ETB / እስከ ${Number(match.budget_max).toLocaleString()} ብር</code>
+• <b>Monthly Budget / በጀት:</b> <code>${budgetDisplay}</code>
+• <b>Status / ሁኔታ:</b> <b>${badge}</b></blockquote>
+
 <b>ABOUT ME / ስለ እኔ</b>
 <blockquote>${bioContent}</blockquote>
-<b>Double-Blind Protected:</b> Personal details are concealed until connected. / የግለሰቡ ማንነት ግንኙነት እስኪፈጠር ድረስ የተጠበቀ ነው።
+
+<i>🔒 Direct contact revealed strictly upon mutual accept.
+ቀጥተኛ ስልክ እና አድራሻ በጋራ ፈቃድ ብቻ ሚስጥራዊ ሆነው ይገለጣሉ።</i>
  `.trim();
 
  const inlineKeyboardRows: any[] = [];
 
- // Primary Action: Unlock Contact Information
+ // Row 1 (Hero CTA): Unlock Direct Contact
  inlineKeyboardRows.push([
  {
- text: 'Unlock Contact Information / የስልክ አድራሻቸውን ክፈት',
+ text: 'Unlock Direct Contact / አድራሻቸውን ክፈት >',
  callback_data: `search_unlock_contact:${match.id}`,
  },
  ]);
 
- // Pagination Controls
+ // Row 2 (Pagination Grid): Clean 2-column or 3-column pagination
  if (scoredMatches.length > 1) {
  const navRow: any[] = [];
  if (safeIndex > 0) {
  navRow.push({ text: '⬅ Prev / ወደ ኋላ', callback_data: `match_page:${safeIndex - 1}` });
+ } else {
+ navRow.push({ text: '• Start •', callback_data: 'match_noop' });
  }
  navRow.push({ text: `${safeIndex + 1} / ${scoredMatches.length}`, callback_data: 'match_noop' });
  if (safeIndex < scoredMatches.length - 1) {
  navRow.push({ text: 'Next / ወደ ፊት >', callback_data: `match_page:${safeIndex + 1}` });
+ } else {
+ navRow.push({ text: '• End •', callback_data: 'match_noop' });
  }
  inlineKeyboardRows.push(navRow);
  }
 
- // Actions & Navigation
+ // Row 3 (2-Column Action Grid): Refine & Main Menu
  inlineKeyboardRows.push([
- { text: 'Refine Filters / መስፈርቶችን አስተካክል', callback_data: 'matchmaker_start' },
- { text: 'Post My Profile / የኔን መረጃ ልለጥፍ', callback_data: 'seeker_flow' },
- ]);
- inlineKeyboardRows.push([
- { text: 'My Unlocked Contacts / የከፈትኳቸው ስልኮች', callback_data: 'my_unlocked_contacts' },
+ { text: 'Refine Filters / አጣራ', callback_data: 'matchmaker_start' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ]);
 
@@ -7134,24 +7235,44 @@ Post <b>#${displayCode}</b> has been updated on channel with red banner and all 
 
  await clearSession(chatId);
 
- const confirmationText = `<b>Listing Draft Ready &amp; Published / ማስታወቂያው ተዘጋጅቶ ተለጥፏል</b>
-<b>የማስታወቂያ ረቂቅ በተሳካ ሁኔታ ተለጥፏል</b>
-<blockquote><b>Draft Overview • Addis Ababa</b>
-• <b>Listing Code / መለያ:</b> <code>#${displayCode}</code>
-• <b>Status / ሁኔታ:</b> <b>Verified &amp; Live / ተረጋግጦ የቀረበ</b>
+ const confirmationText = `<b>Congratulations! / እንኳን ደስ አለዎት!</b>
+<b>Profile Published & Active / መረጃዎ በተሳካ ሁኔታ ተለጥፏል</b>
+
+<blockquote>• <b>Listing Code / መለያ:</b> <code>#${displayCode}</code>
+• <b>Status / ሁኔታ:</b> <b>Active & Verified / የሚሰራ እና የተረጋገጠ</b>
 • <b>Channel / ቻናል:</b> @spacematch_aa</blockquote>
+
 <blockquote><b>Privacy Shield / ሚስጥራዊነት የተጠበቀ:</b>
-Your name, phone number, and Telegram handle remain strictly confidential until mutual match.
+Your phone number and Telegram handle remain strictly confidential until mutual match.
 ትክክለኛ ስምዎ፣ ስልክ ቁጥርዎ እና የቴሌግራም አድራሻዎ ሙሉ በሙሉ ሚስጥራዊነቱ የተጠበቀ ነው።</blockquote>
 
- You will receive instant notifications here whenever someone requests to connect with you! / አባላት ከእርስዎ ጋር ለመገናኘት ሲጠይቁ ወዲያውኑ ማሳወቂያ ይደርሶዎታል!
+<i>You will receive instant notifications here whenever someone requests to connect!
+አባላት ከእርስዎ ጋር ለመገናኘት ሲጠይቁ ወዲያውኑ ማሳወቂያ ይደርሶዎታል!</i>
  `.trim();
 
  const successKeyboard = [
- [{ text: 'View on Channel / በቻናል ላይ እይ >', url: 'https://t.me/spacematch_aa' }],
- [{ text: 'Find Roommates / የቤት አጋር ፈልግ >', callback_data: 'matchmaker_start' }],
- [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+ [{ text: 'Find Matching Roommates Now / አጋሮችን አሁኑኑ ፈልግ >', callback_data: 'matchmaker_start' }],
+ [
+ { text: 'View My Listings / ማስታወቂያዎቼ', callback_data: 'nav_my_listings' },
+ { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+ ],
  ];
+
+ if (ENABLE_DYNAMIC_START_IMAGE) {
+ try {
+ const pngBuffer = await generateCongratulationsCardPng({
+ userName: seekerName || 'Resident',
+ isMember: true,
+ });
+ if (msgId) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: msgId }).catch(() => {});
+ }
+ await sendTelegramPhotoBuffer(chatId, pngBuffer, confirmationText, successKeyboard);
+ return NextResponse.json({ ok: true });
+ } catch (err) {
+ console.error('[seeker_final_submit] Dynamic congrats image error, falling back:', err);
+ }
+ }
 
  await sendOrEditCard(chatId, confirmationText, successKeyboard, msgId);
  return NextResponse.json({ ok: true });

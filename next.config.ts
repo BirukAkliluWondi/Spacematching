@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     '/api/**/*': [
       './node_modules/zxing-wasm/dist/reader/zxing_reader.wasm',
       './node_modules/zxing-wasm/dist/writer/zxing_writer.wasm',
+      './src/assets/fonts/**/*',
     ],
   },
   async headers() {

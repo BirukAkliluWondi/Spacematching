@@ -12,7 +12,7 @@ import path from 'path';
 import React from 'react';
 import { ImageResponse } from 'next/og';
 
-export type CardScreenType = 'start' | 'post_branch' | 'membership' | 'fayda' | 'search' | 'my_listings';
+export type CardScreenType = 'start' | 'post_branch' | 'membership' | 'fayda' | 'search' | 'my_listings' | 'congratulations';
 
 export interface DynamicCardParams {
   screenType?: CardScreenType;
@@ -34,10 +34,25 @@ interface FontCache {
 
 let _fontCache: FontCache | null = null;
 
+function getFontsDir(): string {
+  const candidates = [
+    path.join(process.cwd(), 'src', 'assets', 'fonts'),
+    path.join(process.cwd(), '.next', 'server', 'src', 'assets', 'fonts'),
+    path.join(__dirname, '..', '..', 'assets', 'fonts'),
+    path.join(__dirname, 'assets', 'fonts'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'Geist-Regular.ttf'))) {
+      return candidate;
+    }
+  }
+  return path.join(process.cwd(), 'src', 'assets', 'fonts');
+}
+
 function loadFonts(): FontCache {
   if (_fontCache) return _fontCache;
 
-  const fontsDir = path.join(process.cwd(), 'src', 'assets', 'fonts');
+  const fontsDir = getFontsDir();
   const geist = fs.readFileSync(path.join(fontsDir, 'Geist-Regular.ttf'));
   const ethiopicBold = fs.readFileSync(path.join(fontsDir, 'NotoSansEthiopic-Bold.ttf'));
   const ethiopicRegular = fs.readFileSync(path.join(fontsDir, 'NotoSansEthiopic-Regular.ttf'));
@@ -347,6 +362,35 @@ function getCardConfig(type: CardScreenType, params: DynamicCardParams): CardCon
           title: 'Verified Resident',
           amharic: 'የተረጋገጠ አባል',
           desc: 'Keep your 30-day pass and Fayda verified status active.',
+        },
+      };
+
+    case 'congratulations':
+      return {
+        badgeText: 'PROFILE ACTIVE · መረጃው ተጠናቋል',
+        badgeColor: '#10b981',
+        badgeBg: 'rgba(16, 185, 129, 0.15)',
+        badgeBorder: '#059669',
+        greeting: `Congratulations, ${cleanName}! · እንኳን ደስ አለዎት!`,
+        headline: 'Profile Active & Live',
+        subheadline: 'የእርስዎ መረጃ በተሳካ ሁኔታ ተመዝግቧል',
+        pillar1: {
+          icon: 'home',
+          title: 'Broadcast Ready',
+          amharic: 'ለስርጭት ዝግጁ',
+          desc: 'Channel listing scheduled with double-blind privacy shield.',
+        },
+        pillar2: {
+          icon: 'search',
+          title: 'Smart Matchmaker',
+          amharic: 'ማችሜከር ነቃ',
+          desc: 'Your profile is now discoverable by compatible roommates.',
+        },
+        pillar3: {
+          icon: 'shield',
+          title: 'Double-Blind Safe',
+          amharic: 'ሙሉ ሚስጥራዊነት',
+          desc: 'Direct contacts revealed strictly upon mutual connection accept.',
         },
       };
 
@@ -701,4 +745,8 @@ export async function generateSearchCardPng(params: DynamicCardParams = {}): Pro
 
 export async function generateMyListingsCardPng(params: DynamicCardParams = {}): Promise<Buffer> {
   return generateCardPng('my_listings', params);
+}
+
+export async function generateCongratulationsCardPng(params: DynamicCardParams = {}): Promise<Buffer> {
+  return generateCardPng('congratulations', params);
 }
