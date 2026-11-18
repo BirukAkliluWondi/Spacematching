@@ -3431,8 +3431,8 @@ ${postPreview}
  const isAm = lang === 'am';
  const targetChannel = await getPrimaryChannel();
 
- const userConfirmText = `<b>Congratulations! / እንኳን ደስ አለዎት!</b>
-<b>Profile Submitted for Activation / መረጃዎ ለግምገማ ደርሷል</b>
+ const userConfirmText = `<b>Congratulations, you have successfully registered! / እንኳን ደስ አለዎት፣ በተሳካ ሁኔታ ተመዝግበዋል!</b>
+<b>Profile Submitted for Activation / መረጃዎ ለግምገማ በተሳካ ሁኔታ ደርሷል</b>
 
 <blockquote>• <b>Listing Code / መለያ ኮድ:</b> <code>#${displayCode}</code>
 • <b>Target Areas / አካባቢዎች:</b> <code>${subcitiesStr}</code>
@@ -3585,8 +3585,8 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  const isAm = lang === 'am';
  const targetChannel = await getPrimaryChannel();
 
- const userConfirmText = `<b>Congratulations! / እንኳን ደስ አለዎት!</b>
-<b>Space Listing Submitted for Activation / የክፍል መረጃዎ ለግምገማ ደርሷል</b>
+ const userConfirmText = `<b>Congratulations, you have successfully registered! / እንኳን ደስ አለዎት፣ በተሳካ ሁኔታ ተመዝግበዋል!</b>
+<b>Space Listing Submitted for Activation / የክፍል መረጃዎ ለግምገማ በተሳካ ሁኔታ ደርሷል</b>
 
 <blockquote>• <b>Listing Code / መለያ ኮድ:</b> <code>#${cleanCode}</code>
 • <b>Space Type / አይነት:</b> ${spaceType}
@@ -7235,8 +7235,8 @@ Post <b>#${displayCode}</b> has been updated on channel with red banner and all 
 
  await clearSession(chatId);
 
- const confirmationText = `<b>Congratulations! / እንኳን ደስ አለዎት!</b>
-<b>Profile Published & Active / መረጃዎ በተሳካ ሁኔታ ተለጥፏል</b>
+ const confirmationText = `<b>Congratulations, you have successfully registered! / እንኳን ደስ አለዎት፣ በተሳካ ሁኔታ ተመዝግበዋል!</b>
+<b>Your profile is now active on SpaceMatch / መረጃዎ በተሳካ ሁኔታ ተመዝግቦ የሚሰራ ሆኗል</b>
 
 <blockquote>• <b>Listing Code / መለያ:</b> <code>#${displayCode}</code>
 • <b>Status / ሁኔታ:</b> <b>Active & Verified / የሚሰራ እና የተረጋገጠ</b>
@@ -7246,8 +7246,8 @@ Post <b>#${displayCode}</b> has been updated on channel with red banner and all 
 Your phone number and Telegram handle remain strictly confidential until mutual match.
 ትክክለኛ ስምዎ፣ ስልክ ቁጥርዎ እና የቴሌግራም አድራሻዎ ሙሉ በሙሉ ሚስጥራዊነቱ የተጠበቀ ነው።</blockquote>
 
-<i>You will receive instant notifications here whenever someone requests to connect!
-አባላት ከእርስዎ ጋር ለመገናኘት ሲጠይቁ ወዲያውኑ ማሳወቂያ ይደርሶዎታል!</i>
+<i>You are all set! You will receive instant notifications here whenever someone requests to connect with you.
+ምዝገባዎ ተጠናቋል! አባላት ከእርስዎ ጋር ለመገናኘት ሲጠይቁ ወዲያውኑ ማሳወቂያ ይደርሶዎታል።</i>
  `.trim();
 
  const successKeyboard = [

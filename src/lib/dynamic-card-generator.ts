@@ -371,9 +371,9 @@ function getCardConfig(type: CardScreenType, params: DynamicCardParams): CardCon
         badgeColor: '#10b981',
         badgeBg: 'rgba(16, 185, 129, 0.15)',
         badgeBorder: '#059669',
-        greeting: `Congratulations, ${cleanName}! · እንኳን ደስ አለዎት!`,
-        headline: 'Profile Active & Live',
-        subheadline: 'የእርስዎ መረጃ በተሳካ ሁኔታ ተመዝግቧል',
+        greeting: `Welcome, ${cleanName}! · እንኳን ደህና መጡ!`,
+        headline: 'Successfully Registered',
+        subheadline: 'እንኳን ደስ አለዎት፣ በተሳካ ሁኔታ ተመዝግበዋል!',
         pillar1: {
           icon: 'home',
           title: 'Broadcast Ready',
