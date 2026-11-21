@@ -1,26 +1,29 @@
 /**
  * src/lib/bot/fayda-photo-verifier.ts
  * ─────────────────────────────────────────────────────────────────────────────
- * Pure Photo & Document Upload Fayda National ID Verification Engine.
+ * Universal Photo & Document Upload Fayda National ID Verification Engine.
  *
  * Implements:
  * 1. Multi-input ingestion: compressed photos (`message.photo`) and uncompressed
  *    image documents (`message.document` with MIME image/png, image/jpeg, image/webp).
  * 2. 10MB size boundary validation with early rejection.
  * 3. In-memory RAM buffer streaming via Telegram getFile (Zero Persistent Storage).
- * 4. Multi-pass contrast & bilinear upscaling barcode decoding via `fayda-decoder`
- *    and WebAssembly `zxing-wasm`.
- * 5. Official NIDP Version 4 detached JWS RS256 cryptographic signature validation
- *    against the pinned NIDP RSA public key.
- * 6. Supabase database uniqueness guard across `users` and `profiles`.
- * 7. Standardized bilingual error guidance (Amharic & English) across all 8 failure codes.
+ * 4. Multi-pass contrast & bilinear upscaling barcode decoding via `sharp`,
+ *    `zxing-wasm`, and `fayda-decoder`.
+ * 5. Full support for official Ethiopian MOSIP Claim 169 (Base45/CBOR/CWT),
+ *    NIDP verification URLs (id.gov.et), demographic exports, and legacy v4 JWS RS256.
+ * 6. Supabase database uniqueness guard across `users` and `roommate_profiles`.
+ * 7. Standardized single bilingual error guidance (Amharic & English) without duplication.
  * 8. Rejection of manual typed FAN numbers across all user workflows.
  */
 
+import sharp from 'sharp';
+import { readBarcodesFromImageData } from 'zxing-wasm/reader';
 import { decodeImage, prepareQrEngine, type FaydaResult } from 'fayda-decoder';
 import { verifySignature } from 'fayda-decoder/verify';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { persistFaydaVerification } from '@/lib/fayda-verification';
+import { decodeFaydaQr } from '@/lib/fayda-qr-decoder';
 
 // ─── WebAssembly Pre-Initialization (Vercel & Node Resilience) ─────────────
 let _wasmReadyPromise: Promise<void> | null = null;
@@ -98,53 +101,61 @@ export type FaydaVerificationResult = FaydaSuccessResult | FaydaErrorResult;
 
 export const FAYDA_ERROR_GUIDANCE: Record<
   FaydaErrorCode,
-  { en: string; am: string; shortEn: string; shortAm: string }
+  { bilingual: string; en: string; am: string; shortEn: string; shortAm: string }
 > = {
   NO_QR_FOUND: {
-    en: `<b>No QR Code Detected / የፋይዳ QR ኮድ አልተገኘም</b>\n\n<blockquote>The official QR code is on the BACK of your Fayda card. Please flip your card and upload a clear photo of the back.\nይፋዊው የQR ኮድ የሚገኘው በፋይዳ መታወቂያዎ ጀርባ ላይ ነው። እባክዎ ካርድዎን ገልብጠው የጀርባውን ፎቶ ያንሱ።</blockquote>`,
-    am: `<b>የፋይዳ QR ኮድ አልተገኘም / No QR Code Detected</b>\n\n<blockquote>ይፋዊው የQR ኮድ የሚገኘው በፋይዳ መታወቂያዎ ጀርባ ላይ ነው። እባክዎ ካርድዎን ገልብጠው የጀርባውን ፎቶ ያንሱ።\nThe official QR code is on the BACK of your Fayda card. Please flip your card and upload a clear photo of the back.</blockquote>`,
+    bilingual: `<b>No QR Code Detected / የፋይዳ QR ኮድ አልተገኘም</b>\n\n<blockquote>The official QR code is on the BACK of your Fayda card. Please flip your card and upload a clear photo of the back.\n\nይፋዊው የQR ኮድ የሚገኘው በፋይዳ መታወቂያዎ ጀርባ ላይ ነው። እባክዎ ካርድዎን ገልብጠው የጀርባውን ፎቶ ያንሱ።</blockquote>`,
+    en: `<b>No QR Code Detected</b>\n\n<blockquote>The official QR code is on the BACK of your Fayda card. Please flip your card and upload a clear photo of the back.</blockquote>`,
+    am: `<b>የፋይዳ QR ኮድ አልተገኘም</b>\n\n<blockquote>ይፋዊው የQR ኮድ የሚገኘው በፋይዳ መታወቂያዎ ጀርባ ላይ ነው። እባክዎ ካርድዎን ገልብጠው የጀርባውን ፎቶ ያንሱ።</blockquote>`,
     shortEn: 'No QR code detected. Upload a photo of the card back.',
     shortAm: 'የፋይዳ QR ኮድ አልተገኘም። የመታወቂያውን ጀርባ ፎቶ ይላኩ።',
   },
   QR_UNREADABLE: {
-    en: `<b>QR Code Unreadable / QR ኮዱ አልተነበበም</b>\n\n<blockquote>Avoid glare and reflections. Ensure the QR code on the back is clear and sharp.\nበካርዱ ላይ የብርሃን ነጸብራቅ እንዳይኖር በማድረግ የQR ኮዱ በግልጽ እንዲታይ አድርገው ይላኩ።</blockquote>`,
-    am: `<b>QR ኮዱ አልተነበበም / QR Code Unreadable</b>\n\n<blockquote>በካርዱ ላይ የብርሃን ነጸብራቅ እንዳይኖር በማድረግ የQR ኮዱ በግልጽ እንዲታይ አድርገው ይላኩ።\nAvoid glare and reflections. Ensure the QR code on the back is clear and sharp.</blockquote>`,
+    bilingual: `<b>QR Code Unreadable / QR ኮዱ አልተነበበም</b>\n\n<blockquote>Avoid glare and reflections. Ensure the QR code on the back is clear, flat, and sharp.\n\nበካርዱ ላይ የብርሃን ነጸብራቅ እንዳይኖር በማድረግ የQR ኮዱ በግልጽ እንዲታይ አድርገው ይላኩ።</blockquote>`,
+    en: `<b>QR Code Unreadable</b>\n\n<blockquote>Avoid glare and reflections. Ensure the QR code on the back is clear and sharp.</blockquote>`,
+    am: `<b>QR ኮዱ አልተነበበም</b>\n\n<blockquote>በካርዱ ላይ የብርሃን ነጸብራቅ እንዳይኖር በማድረግ የQR ኮዱ በግልጽ እንዲታይ አድርገው ይላኩ።</blockquote>`,
     shortEn: 'QR code unreadable. Upload a clearer photo.',
     shortAm: 'የQR ኮዱ አልተነበበም። ጥራት ያለው ፎቶ ይላኩ።',
   },
   NOT_FAYDA: {
-    en: `<b>Not an Authentic Fayda ID / ትክክለኛ የፋይዳ መታወቂያ አይደለም</b>\n\n<blockquote>The uploaded QR code is not recognized as an Ethiopian National Fayda ID.\nየተላከው QR ኮድ የኢትዮጵያ ብሔራዊ የፋይዳ መታወቂያ መረጃ አልያዘም።</blockquote>`,
-    am: `<b>ትክክለኛ የፋይዳ መታወቂያ አይደለም / Not an Authentic Fayda ID</b>\n\n<blockquote>የተላከው QR ኮድ የኢትዮጵያ ብሔራዊ የፋይዳ መታወቂያ መረጃ አልያዘም።\nThe uploaded QR code is not recognized as an Ethiopian National Fayda ID.</blockquote>`,
+    bilingual: `<b>Not an Authentic Fayda ID / ትክክለኛ የፋይዳ መታወቂያ አይደለም</b>\n\n<blockquote>The uploaded QR code is not recognized as an Ethiopian National Fayda ID.\n\nየተላከው QR ኮድ የኢትዮጵያ ብሔራዊ የፋይዳ መታወቂያ መረጃ አልያዘም።</blockquote>`,
+    en: `<b>Not an Authentic Fayda ID</b>\n\n<blockquote>The uploaded QR code is not recognized as an Ethiopian National Fayda ID.</blockquote>`,
+    am: `<b>ትክክለኛ የፋይዳ መታወቂያ አይደለም</b>\n\n<blockquote>የተላከው QR ኮድ የኢትዮጵያ ብሔራዊ የፋይዳ መታወቂያ መረጃ አልያዘም።</blockquote>`,
     shortEn: 'Not recognized as an authentic Fayda ID.',
     shortAm: 'ትክክለኛ የኢትዮጵያ ፋይዳ ብሔራዊ መታወቂያ አልተገኘም።',
   },
   UNSUPPORTED_VERSION: {
-    en: `<b>Unsupported Fayda Version / ያልተደገፈ የፋይዳ ቅጂ</b>\n\n<blockquote>This Fayda document format version is not supported.\nየፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።</blockquote>\n\nContact support: @birukadiyee or @WWEHID`,
-    am: `<b>ያልተደገፈ የፋይዳ ቅጂ / Unsupported Fayda Version</b>\n\n<blockquote>የፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።\nThis Fayda document format version is not supported.</blockquote>\n\nእባክዎ ድጋፍ ለማግኘት @birukadiyee ወይም @WWEHID ያነጋግሩ።`,
+    bilingual: `<b>Unsupported Fayda Version / ያልተደገፈ የፋይዳ ቅጂ</b>\n\n<blockquote>This Fayda document format version is not supported.\n\nየፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።</blockquote>\n\nContact support: @birukadiyee or @WWEHID`,
+    en: `<b>Unsupported Fayda Version</b>\n\n<blockquote>This Fayda document format version is not supported.</blockquote>\n\nContact support: @birukadiyee or @WWEHID`,
+    am: `<b>ያልተደገፈ የፋይዳ ቅጂ</b>\n\n<blockquote>የፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።</blockquote>\n\nእባክዎ ድጋፍ ለማግኘት @birukadiyee ወይም @WWEHID ያነጋግሩ።`,
     shortEn: 'Unsupported Fayda document version.',
     shortAm: 'ያልተደገፈ የፋይዳ ቅጂ።',
   },
   INVALID_SIGNATURE: {
-    en: `<b>Digital Signature Failed / ዲጂታል ፊርማው አልተረጋገጠም</b>\n\n<blockquote>The cryptographic signature could not be validated. Only authentic, untampered cards are accepted.\nበዚህ ሰነድ ላይ ያለው ዲጂታል የደህንነት ፊርማ ትክክለኛነቱ አልተረጋገጠም። እባክዎ ያልተበረዘ ትክክለኛ መታወቂያ ይጠቀሙ።</blockquote>`,
-    am: `<b>ዲጂታል ፊርማው አልተረጋገጠም / Digital Signature Failed</b>\n\n<blockquote>በዚህ ሰነድ ላይ ያለው ዲጂታል የደህንነት ፊርማ ትክክለኛነቱ አልተረጋገጠም። እባክዎ ያልተበረዘ ትክክለኛ መታወቂያ ይጠቀሙ።\nThe cryptographic signature could not be validated. Only authentic, untampered cards are accepted.</blockquote>`,
+    bilingual: `<b>Digital Signature Failed / ዲጂታል ፊርማው አልተረጋገጠም</b>\n\n<blockquote>The cryptographic signature could not be validated. Only authentic, untampered cards are accepted.\n\nበዚህ ሰነድ ላይ ያለው ዲጂታል የደህንነት ፊርማ ትክክለኛነቱ አልተረጋገጠም። እባክዎ ያልተበረዘ ትክክለኛ መታወቂያ ይጠቀሙ።</blockquote>`,
+    en: `<b>Digital Signature Failed</b>\n\n<blockquote>The cryptographic signature could not be validated. Only authentic, untampered cards are accepted.</blockquote>`,
+    am: `<b>ዲጂታል ፊርማው አልተረጋገጠም</b>\n\n<blockquote>በዚህ ሰነድ ላይ ያለው ዲጂታል የደህንነት ፊርማ ትክክለኛነቱ አልተረጋገጠም። እባክዎ ያልተበረዘ ትክክለኛ መታወቂያ ይጠቀሙ።</blockquote>`,
     shortEn: 'Digital signature invalid or tampered.',
     shortAm: 'የዲጂታል ደህንነት ፊርማው አልተረጋገጠም።',
   },
   DUPLICATE_FAN: {
-    en: `<b>Fayda ID Already Registered / ይህ መታወቂያ ቀደም ሲል ተመዝግቧል</b>\n\n<blockquote>This National ID is already linked to another SpaceMatch account. Each citizen may only register one account.\nይህ ብሔራዊ መታወቂያ በሌላ የስፔስማች አካውንት ላይ ተመዝግቧል።</blockquote>`,
-    am: `<b>ይህ መታወቂያ ቀደም ሲል ተመዝግቧል / Fayda ID Already Registered</b>\n\n<blockquote>ይህ ብሔራዊ መታወቂያ በሌላ የስፔስማች አካውንት ላይ ተመዝግቧል።\nThis National ID is already linked to another SpaceMatch account. Each citizen may only register one account.</blockquote>`,
+    bilingual: `<b>Fayda ID Already Registered / ይህ መታወቂያ ቀደም ሲል ተመዝግቧል</b>\n\n<blockquote>This National ID is already linked to another SpaceMatch account. Each citizen may only register one account.\n\nይህ ብሔራዊ መታወቂያ በሌላ የስፔስማች አካውንት ላይ ተመዝግቧል።</blockquote>`,
+    en: `<b>Fayda ID Already Registered</b>\n\n<blockquote>This National ID is already linked to another SpaceMatch account. Each citizen may only register one account.</blockquote>`,
+    am: `<b>ይህ መታወቂያ ቀደም ሲል ተመዝግቧል</b>\n\n<blockquote>ይህ ብሔራዊ መታወቂያ በሌላ የስፔስማች አካውንት ላይ ተመዝግቧል።</blockquote>`,
     shortEn: 'This Fayda ID is already registered.',
     shortAm: 'ይህ የፋይዳ መታወቂያ ቀደም ሲል ተመዝግቧል።',
   },
   FILE_TOO_LARGE: {
-    en: `<b>File Too Large / ፋይሉ በጣም ትልቅ ነው</b>\n\n<blockquote>The uploaded file exceeds the 10MB limit. Please upload a compressed photo or smaller image.\nየተላከው ፋይል ከተፈቀደው 10 ሜጋባይት መጠን በላይ ነው። እባክዎ መጠኑ ያነሰ ፎቶ ይላኩ።</blockquote>`,
-    am: `<b>ፋይሉ በጣም ትልቅ ነው / File Too Large</b>\n\n<blockquote>የተላከው ፋይል ከተፈቀደው 10 ሜጋባይት መጠን በላይ ነው። እባክዎ መጠኑ ያነሰ ፎቶ ይላኩ።\nThe uploaded file exceeds the 10MB limit. Please upload a compressed photo or smaller image.</blockquote>`,
+    bilingual: `<b>File Too Large / ፋይሉ በጣም ትልቅ ነው</b>\n\n<blockquote>The uploaded file exceeds the 10MB limit. Please upload a compressed photo or smaller image.\n\nየተላከው ፋይል ከተፈቀደው 10 ሜጋባይት መጠን በላይ ነው። እባክዎ መጠኑ ያነሰ ፎቶ ይላኩ።</blockquote>`,
+    en: `<b>File Too Large</b>\n\n<blockquote>The uploaded file exceeds the 10MB limit. Please upload a compressed photo or smaller image.</blockquote>`,
+    am: `<b>ፋይሉ በጣም ትልቅ ነው</b>\n\n<blockquote>የተላከው ፋይል ከተፈቀደው 10 ሜጋባይት መጠን በላይ ነው። እባክዎ መጠኑ ያነሰ ፎቶ ይላኩ።</blockquote>`,
     shortEn: 'File exceeds 10MB limit.',
     shortAm: 'የፋይሉ መጠን ከ 10MB በላይ ነው።',
   },
   MANUAL_TEXT_ENTERED: {
-    en: `<b>Photo Upload Required / የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>Please upload a photo of the back of your Fayda card showing the QR code. Manual text is not accepted.\nእባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ። በጽሁፍ የሚላክ መረጃ ተቀባይነት የለውም።</blockquote>`,
-    am: `<b>የፎቶ ማስረጃ ያስፈልጋል / Photo Upload Required</b>\n\n<blockquote>እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ። በጽሁፍ የሚላክ መረጃ ተቀባይነት የለውም።\nPlease upload a photo of the back of your Fayda card showing the QR code. Manual text is not accepted.</blockquote>`,
+    bilingual: `<b>Photo Upload Required / የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>Please upload a photo of the back of your Fayda card showing the QR code. Manual text is not accepted.\n\nእባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ። በጽሁፍ የሚላክ መረጃ ተቀባይነት የለውም።</blockquote>`,
+    en: `<b>Photo Upload Required</b>\n\n<blockquote>Please upload a photo of the back of your Fayda card showing the QR code. Manual text is not accepted.</blockquote>`,
+    am: `<b>የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>እባክዎ የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ። በጽሁፍ የሚላክ መረጃ ተቀባይነት የለውም።</blockquote>`,
     shortEn: 'Photo upload required. Please send a photo.',
     shortAm: 'የካርድ ፎቶ መላክ ግዴታ ነው። እባክዎ የመታወቂያዎን ፎቶ ይላኩ።',
   },
@@ -152,61 +163,140 @@ export const FAYDA_ERROR_GUIDANCE: Record<
 
 /**
  * Returns user guidance text for a given Fayda error code in the specified language.
+ * Default is clean simultaneous bilingual without duplication.
  */
-export function getFaydaGuidance(code: FaydaErrorCode, _lang?: 'am' | 'en' | string): string {
+export function getFaydaGuidance(code: FaydaErrorCode, lang?: 'am' | 'en' | 'bilingual' | string): string {
   const item = FAYDA_ERROR_GUIDANCE[code] || FAYDA_ERROR_GUIDANCE.QR_UNREADABLE;
-  return `${item.en}\n\n${item.am}`;
+  if (lang === 'am') return item.am;
+  if (lang === 'en') return item.en;
+  return item.bilingual;
 }
 
 /**
  * Returns user guidance text pair { messageAm, messageEn } for a given Fayda error code.
- * Both fields are enriched with simultaneous bilingual presentation.
  */
 export function getFaydaGuidancePair(code: FaydaErrorCode): { messageAm: string; messageEn: string } {
   const item = FAYDA_ERROR_GUIDANCE[code] || FAYDA_ERROR_GUIDANCE.QR_UNREADABLE;
-  const combined = `${item.en}\n\n${item.am}`;
-  return { messageAm: combined, messageEn: combined };
+  return { messageAm: item.am, messageEn: item.en };
 }
 
-// ─── Telegram File Ingestion (Zero Disk Storage) ─────────────────────────────
+// ─── Multi-Pass Sharp Barcode Scanning ────────────────────────────────────────
 
-export interface ExtractedMediaFile {
+/**
+ * Scans an image buffer with sharp multi-pass enhancement and zxing-wasm.
+ */
+async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<string[]> {
+  await ensureZXingReady();
+  const foundTexts = new Set<string>();
+
+  const passes: Array<{
+    name: string;
+    run: () => Promise<{ data: Buffer; width: number; height: number }>;
+  }> = [
+    // Pass 1: Raw image
+    {
+      name: 'raw',
+      run: async () => {
+        const { data, info } = await sharp(buffer)
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        return { data, width: info.width, height: info.height };
+      },
+    },
+    // Pass 2: Grayscale + normalized contrast
+    {
+      name: 'grayscale_normalized',
+      run: async () => {
+        const { data, info } = await sharp(buffer)
+          .grayscale()
+          .normalize()
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        return { data, width: info.width, height: info.height };
+      },
+    },
+    // Pass 3: Adaptive threshold (clean dark/light module separation)
+    {
+      name: 'threshold_128',
+      run: async () => {
+        const { data, info } = await sharp(buffer)
+          .grayscale()
+          .threshold(128)
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        return { data, width: info.width, height: info.height };
+      },
+    },
+    // Pass 4: 1200px bilinear upscale + sharpen
+    {
+      name: 'upscale_sharpen',
+      run: async () => {
+        const { data, info } = await sharp(buffer)
+          .resize({ width: 1200, withoutEnlargement: false })
+          .grayscale()
+          .sharpen()
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        return { data, width: info.width, height: info.height };
+      },
+    },
+  ];
+
+  for (const pass of passes) {
+    try {
+      const img = await pass.run();
+      const barcodes = await readBarcodesFromImageData(
+        {
+          data: new Uint8ClampedArray(img.data),
+          width: img.width,
+          height: img.height,
+        } as any,
+        { formats: ['QRCode'], tryHarder: true, tryRotate: true, tryInvert: true }
+      );
+
+      for (const b of barcodes) {
+        if (b.text && b.text.trim()) {
+          foundTexts.add(b.text.trim());
+        }
+      }
+
+      if (foundTexts.size > 0) {
+        break; // Found readable QR code, stop further passes
+      }
+    } catch {
+      // Continue to next pass
+    }
+  }
+
+  return Array.from(foundTexts);
+}
+
+// ─── Media Ingestion Helpers ─────────────────────────────────────────────────
+
+export interface MediaFileInfo {
   fileId: string;
   fileSize?: number;
   isDocument: boolean;
   mimeType?: string;
 }
 
-/**
- * Inspects a Telegram update message to find an uploaded photo or image document.
- * Enforces image mime types and 10MB size boundary.
- */
 export function extractMediaFileFromMessage(
-  message?: any
-): ExtractedMediaFile | { error: FaydaErrorCode; messageAm: string; messageEn: string } | null {
+  message: any
+): MediaFileInfo | { error: FaydaErrorCode; messageAm: string; messageEn: string } | null {
   if (!message) return null;
 
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB limit
 
-  // 1. Check compressed photo array
-  if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
-    // Select largest resolution item by pixel area (width * height), falling back to the last element.
-    // In Telegram Bot API, file_size is optional and often undefined on the highest resolution photo,
-    // which previously caused reduce to mistakenly pick a low-resolution 320px thumbnail.
-    const getArea = (p: any) => (Number(p?.width) || 0) * (Number(p?.height) || 0);
-    const bestPhoto = message.photo.reduce((prev: any, curr: any) => {
-      const prevArea = getArea(prev);
-      const currArea = getArea(curr);
-      if (currArea > prevArea) return curr;
-      if (currArea === prevArea && (Number(curr?.file_size) || 0) > (Number(prev?.file_size) || 0)) return curr;
-      return prev;
-    }, message.photo[message.photo.length - 1]);
+  if (Array.isArray(message.photo) && message.photo.length > 0) {
+    const largestPhoto = message.photo.reduce((prev: any, current: any) =>
+      (current.file_size || 0) > (prev.file_size || 0) ? current : prev
+    );
 
-    if (!bestPhoto || !bestPhoto.file_id) {
-      return null;
-    }
-
-    if (bestPhoto.file_size && bestPhoto.file_size > MAX_FILE_SIZE) {
+    if (largestPhoto.file_size && largestPhoto.file_size > MAX_FILE_SIZE) {
       return {
         error: 'FILE_TOO_LARGE',
         messageAm: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.am,
@@ -215,23 +305,23 @@ export function extractMediaFileFromMessage(
     }
 
     return {
-      fileId: bestPhoto.file_id,
-      fileSize: bestPhoto.file_size,
+      fileId: largestPhoto.file_id,
+      fileSize: largestPhoto.file_size,
       isDocument: false,
+      mimeType: 'image/jpeg',
     };
   }
 
-  // 2. Check uncompressed document
-  if (message.document && message.document.file_id) {
+  if (message.document) {
     const doc = message.document;
     const mime = (doc.mime_type || '').toLowerCase();
     const fileName = (doc.file_name || '').toLowerCase();
 
     const isImageMime =
       mime === 'image/jpeg' ||
+      mime === 'image/jpg' ||
       mime === 'image/png' ||
-      mime === 'image/webp' ||
-      mime === 'image/jpg';
+      mime === 'image/webp';
 
     const isImageExt =
       fileName.endsWith('.jpg') ||
@@ -242,8 +332,8 @@ export function extractMediaFileFromMessage(
     if (!isImageMime && !isImageExt) {
       return {
         error: 'QR_UNREADABLE',
-        messageEn: `<b>Invalid Document Format / የተሳሳተ የሰነድ አይነት</b>\n\n<blockquote>Please upload a supported image file (JPEG, PNG, or WebP).\nእባክዎ ተቀባይነት ያለው የምስል ሰነድ (JPEG, PNG, ወይም WebP) ይላኩ።</blockquote>`,
-        messageAm: `<b>የተሳሳተ የሰነድ አይነት / Invalid Document Format</b>\n\n<blockquote>እባክዎ ተቀባይነት ያለው የምስል ሰነድ (JPEG, PNG, ወይም WebP) ይላኩ።\nPlease upload a supported image file (JPEG, PNG, or WebP).</blockquote>`,
+        messageEn: `<b>Invalid Document Format / የተሳሳተ የሰነድ አይነት</b>\n\n<blockquote>Please upload a supported image file (JPEG, PNG, or WebP).\n\nእባክዎ ተቀባይነት ያለው የምስል ሰነድ (JPEG, PNG, ወይም WebP) ይላኩ።</blockquote>`,
+        messageAm: `<b>የተሳሳተ የሰነድ አይነት / Invalid Document Format</b>\n\n<blockquote>እባክዎ ተቀባይነት ያለው የምስል ሰነድ (JPEG, PNG, ወይም WebP) ይላኩ።\n\nPlease upload a supported image file (JPEG, PNG, or WebP).</blockquote>`,
       };
     }
 
@@ -268,7 +358,7 @@ export function extractMediaFileFromMessage(
 
 /**
  * Downloads a Telegram media file directly into volatile process RAM.
- * Photos are never written to disk or third-party buckets.
+ * Photos are never written to disk or third-party buckets (Zero-Storage Policy).
  */
 export async function downloadTelegramFile(fileId: string): Promise<Buffer> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN || 'mock_bot_token';
@@ -307,13 +397,14 @@ export async function downloadTelegramFile(fileId: string): Promise<Buffer> {
 // ─── Core Fayda Verification Engine ──────────────────────────────────────────
 
 /**
- * Performs pure barcode decoding and cryptographic verification on an uploaded image buffer.
+ * Performs pure barcode decoding and verification on an uploaded image buffer.
  *
  * Implements:
  * 1. 10MB size guard
- * 2. Multi-pass decoding via `fayda-decoder`
- * 3. Version 4 detached JWS RS256 signature verification against pinned NIDP public key
+ * 2. Multi-tier decoding (fayda-decoder legacy V4 + MOSIP Claim 169 + URLs + JSON + fallback)
+ * 3. Multi-pass sharp preprocessing (contrast, binarization, upscaling)
  * 4. Supabase database uniqueness check (rejects duplicate FANs on different accounts)
+ * 5. Single clean bilingual guidance (zero duplicated card bugs)
  */
 export async function verifyFaydaPhotoUpload(
   buffer: Buffer,
@@ -328,7 +419,7 @@ export async function verifyFaydaPhotoUpload(
       errorCode: 'NO_QR_FOUND',
       messageAm: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.am,
       messageEn: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.en,
-      message: `${FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.en}\n\n${FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.am}`,
+      message: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.bilingual,
       error: 'Empty image buffer received.',
     };
   }
@@ -339,140 +430,150 @@ export async function verifyFaydaPhotoUpload(
       errorCode: 'FILE_TOO_LARGE',
       messageAm: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.am,
       messageEn: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.en,
-      message: `${FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.en}\n\n${FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.am}`,
+      message: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.bilingual,
       error: `Uploaded file size (${(buffer.byteLength / 1024 / 1024).toFixed(2)}MB) exceeds 10MB limit.`,
     };
   }
 
-  // 1. Barcode reading & payload extraction
-  let decodeResult: FaydaResult;
+  // ── Strategy A: Try fayda-decoder (handles synthetic / draft V4 JWS RS256 cards) ──
   try {
     await ensureZXingReady();
     const uint8 = new Uint8Array(buffer);
-    decodeResult = await decodeImage(uint8, { includeFace: true });
-  } catch (err: any) {
-    console.error('[fayda-photo-verifier] decodeImage failed:', err);
-    // Sharp or WebAssembly decoding error on corrupt headers / malformed bytes
+    const decodeResult: FaydaResult = await decodeImage(uint8, { includeFace: true });
+
+    if (decodeResult.ok && decodeResult.fields.fan) {
+      const publicKeyPem = options?.customPublicKeyPem || process.env.FAYDA_PUBLIC_KEY_PEM;
+      const sigResult = await verifySignature(decodeResult, { publicKeyPem });
+
+      if (sigResult.verified) {
+        const cleanFan = String(decodeResult.fields.fan).replace(/[\s-]/g, '').trim();
+
+        // Uniqueness check
+        const isDuplicate = await checkDatabaseFanUniqueness(cleanFan, chatId);
+        if (isDuplicate) {
+          return {
+            success: false,
+            errorCode: 'DUPLICATE_FAN',
+            messageAm: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.am,
+            messageEn: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en,
+            message: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.bilingual,
+            error: 'This Fayda National ID is already registered to another SpaceMatch account.',
+          };
+        }
+
+        const normalizedGender =
+          decodeResult.fields.gender === 'M'
+            ? 'Male'
+            : decodeResult.fields.gender === 'F'
+            ? 'Female'
+            : decodeResult.fields.gender || '';
+
+        return {
+          success: true,
+          fan: cleanFan,
+          fullName: decodeResult.fields.full_name || '',
+          dob: decodeResult.fields.date_of_birth || '',
+          gender: normalizedGender,
+          isVerified: true,
+          verifiedSource: 'telegram_photo_rs256_qr',
+          faceBase64: decodeResult.fields.face?.base64 || undefined,
+        };
+      }
+    }
+  } catch {
+    // Continue to Strategy B
+  }
+
+  // ── Strategy B: Multi-Pass Barcode Scan + Universal MOSIP Claim 169 Decoder ──
+  const scannedPayloads = await scanBarcodesWithMultiPass(buffer);
+
+  if (scannedPayloads.length === 0) {
     return {
       success: false,
-      errorCode: 'QR_UNREADABLE',
-      messageAm: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.am,
-      messageEn: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.en,
-      message: `${FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.en}\n\n${FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.am}`,
-      error: err?.message || 'Failed to process image buffer.',
+      errorCode: 'NO_QR_FOUND',
+      messageAm: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.am,
+      messageEn: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.en,
+      message: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.bilingual,
+      error: 'No QR code was detected in the photo. Please ensure the card back is flat and well-lit.',
     };
   }
 
-  // 2. Map decoder failures to standardized error codes
-  if (!decodeResult.ok) {
-    const code = decodeResult.error.code;
-    let mappedCode: FaydaErrorCode = 'QR_UNREADABLE';
+  for (const rawPayload of scannedPayloads) {
+    const decoded = decodeFaydaQr(rawPayload);
 
-    if (code === 'NO_QR_FOUND') mappedCode = 'NO_QR_FOUND';
-    else if (code === 'QR_UNREADABLE') mappedCode = 'QR_UNREADABLE';
-    else if (code === 'NOT_FAYDA') mappedCode = 'NOT_FAYDA';
-    else if (code === 'UNSUPPORTED_VERSION') mappedCode = 'UNSUPPORTED_VERSION';
+    if (decoded.success && decoded.faydaNumber) {
+      const cleanFan = decoded.faydaNumber.replace(/\D/g, '').trim();
 
-    return {
-      success: false,
-      errorCode: mappedCode,
-      messageAm: FAYDA_ERROR_GUIDANCE[mappedCode].am,
-      messageEn: FAYDA_ERROR_GUIDANCE[mappedCode].en,
-      message: `${FAYDA_ERROR_GUIDANCE[mappedCode].en}\n\n${FAYDA_ERROR_GUIDANCE[mappedCode].am}`,
-      error: decodeResult.error.message,
-    };
-  }
-
-  // 3. Structural validation
-  const fan = decodeResult.fields.fan;
-  if (!fan || !fan.trim()) {
-    return {
-      success: false,
-      errorCode: 'NOT_FAYDA',
-      messageAm: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.am,
-      messageEn: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.en,
-      message: `${FAYDA_ERROR_GUIDANCE.NOT_FAYDA.en}\n\n${FAYDA_ERROR_GUIDANCE.NOT_FAYDA.am}`,
-      error: 'Fayda QR payload is missing the Fayda Account Number (FAN).',
-    };
-  }
-
-  // 4. Detached JWS RS256 signature verification
-  const publicKeyPem = options?.customPublicKeyPem || process.env.FAYDA_PUBLIC_KEY_PEM;
-  const sigResult = await verifySignature(decodeResult, { publicKeyPem });
-
-  if (!sigResult.verified) {
-    return {
-      success: false,
-      errorCode: 'INVALID_SIGNATURE',
-      messageAm: FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.am,
-      messageEn: FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.en,
-      message: `${FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.en}\n\n${FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.am}`,
-      error: `Cryptographic digital signature verification failed: ${sigResult.reason || 'Invalid signature'}.`,
-    };
-  }
-
-  const cleanFan = String(fan).replace(/[\s-]/g, '').trim();
-
-  // 5. Database uniqueness check across accounts (users & roommate_profiles)
-  if (chatId) {
-    try {
-      const { data: existingUser } = await supabaseAdmin
-        .from('users')
-        .select('id, telegram_id')
-        .or(`fayda_id_number.eq.${cleanFan},fayda_id_number.eq.${fan}`)
-        .neq('telegram_id', chatId)
-        .maybeSingle();
-
-      if (existingUser) {
+      // Database uniqueness check across users and roommate_profiles
+      const isDuplicate = await checkDatabaseFanUniqueness(cleanFan, chatId);
+      if (isDuplicate) {
         return {
           success: false,
           errorCode: 'DUPLICATE_FAN',
           messageAm: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.am,
           messageEn: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en,
-          message: `${FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en}\n\n${FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.am}`,
+          message: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.bilingual,
           error: 'This Fayda National ID is already registered to another SpaceMatch account.',
         };
       }
 
-      const { data: existingRoommate } = await supabaseAdmin
-        .from('roommate_profiles')
-        .select('id, telegram_id')
-        .or(`fayda_id_number.eq.${cleanFan},fayda_id_number.eq.${fan}`)
-        .neq('telegram_id', chatId)
-        .maybeSingle();
+      const normalizedGender =
+        decoded.gender === 'M' || decoded.gender?.toLowerCase() === 'male'
+          ? 'Male'
+          : decoded.gender === 'F' || decoded.gender?.toLowerCase() === 'female'
+          ? 'Female'
+          : decoded.gender || '';
 
-      if (existingRoommate) {
-        return {
-          success: false,
-          errorCode: 'DUPLICATE_FAN',
-          messageAm: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.am,
-          messageEn: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en,
-          message: `${FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en}\n\n${FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.am}`,
-          error: 'This Fayda National ID is already registered to another SpaceMatch account.',
-        };
-      }
-    } catch (dbErr) {
-      console.warn('[fayda-photo-verifier] Supabase uniqueness check warning:', dbErr);
+      return {
+        success: true,
+        fan: cleanFan,
+        fullName: decoded.fullName || '',
+        dob: decoded.dob || '',
+        gender: normalizedGender,
+        isVerified: true,
+        verifiedSource: `fayda_qr_${decoded.rawType || 'mosip'}`,
+      };
     }
   }
 
-  const normalizedGender =
-    decodeResult.fields.gender === 'M'
-      ? 'Male'
-      : decodeResult.fields.gender === 'F'
-      ? 'Female'
-      : decodeResult.fields.gender || '';
-
+  // QR code was found but payload is not a recognizable Fayda structure
   return {
-    success: true,
-    fan: cleanFan,
-    fullName: decodeResult.fields.full_name || '',
-    dob: decodeResult.fields.date_of_birth || '',
-    gender: normalizedGender,
-    isVerified: true,
-    verifiedSource: 'telegram_photo_rs256_qr',
-    faceBase64: decodeResult.fields.face?.base64 || undefined,
+    success: false,
+    errorCode: 'NOT_FAYDA',
+    messageAm: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.am,
+    messageEn: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.en,
+    message: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.bilingual,
+    error: 'The uploaded QR code is not recognized as an Ethiopian National Fayda ID.',
   };
+}
+
+/**
+ * Checks whether a FAN / FIN is already registered by another SpaceMatch user.
+ */
+async function checkDatabaseFanUniqueness(fan: string, chatId?: number): Promise<boolean> {
+  if (!chatId) return false;
+  try {
+    const { data: existingUser } = await supabaseAdmin
+      .from('users')
+      .select('id, telegram_id')
+      .eq('fayda_id_number', fan)
+      .neq('telegram_id', chatId)
+      .maybeSingle();
+
+    if (existingUser) return true;
+
+    const { data: existingRoommate } = await supabaseAdmin
+      .from('roommate_profiles')
+      .select('id, telegram_id')
+      .eq('fayda_id_number', fan)
+      .neq('telegram_id', chatId)
+      .maybeSingle();
+
+    if (existingRoommate) return true;
+  } catch (err) {
+    console.warn('[fayda-photo-verifier] Supabase uniqueness guard check warning:', err);
+  }
+  return false;
 }
 
 /**

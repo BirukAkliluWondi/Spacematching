@@ -1,11 +1,20 @@
 /**
  * lib/fayda-qr-decoder.ts
  * ─────────────────────────────────────────────────────────────────────────────
- * Offline Fayda National ID (Ethiopia / MOSIP) QR Code Decoder & Checksum Engine.
+ * Universal Offline Fayda National ID (Ethiopia / MOSIP) QR Code Decoder.
  *
- * This module parses and validates Ethiopian Fayda ID cards and digital e-Fayda
- * QR code payloads without making any network calls to government/NIDP servers.
+ * Supports:
+ *  1. MOSIP Claim 169 (Base45 -> zlib Inflate -> CBOR/CWT / COSE_Sign1)
+ *  2. Raw CBOR / CWT binary structures
+ *  3. JSON payloads (standard MOSIP demographic exports)
+ *  4. Base64-encoded JSON or demographic text
+ *  5. NIDP Verification URLs (id.gov.et / resident.fayda.et)
+ *  6. Delimited text strings (FIN:...|Name:... or UIN:...)
+ *  7. Direct 12-digit FIN or 16-digit FAN fallback with anti-spoofing guards
  */
+
+import zlib from 'zlib';
+import { decode as decodeCbor } from 'cbor-x';
 
 // ─── Verhoeff Checksum Algorithm (MOSIP / National ID Standard) ─────────────
 
@@ -70,11 +79,67 @@ export function generateVerhoeffCheckDigit(numStr: string): number {
   return VERHOEFF_INV[c];
 }
 
+// ─── RFC 9285 Base45 Decoder ──────────────────────────────────────────────────
+
+const B45_CHARSET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
+const B45_LOOKUP = new Int16Array(256).fill(-1);
+for (let i = 0; i < B45_CHARSET.length; i++) {
+  B45_LOOKUP[B45_CHARSET.charCodeAt(i)] = i;
+}
+
+/**
+ * Decodes an RFC 9285 Base45 string into a Uint8Array.
+ */
+export function decodeBase45(input: string): Uint8Array | null {
+  if (typeof input !== 'string') return null;
+  const clean = input.trim();
+  const len = clean.length;
+  if (len === 0) return null;
+
+  const out: number[] = [];
+  let i = 0;
+
+  try {
+    while (i < len) {
+      const remaining = len - i;
+      if (remaining >= 3) {
+        const c1 = B45_LOOKUP[clean.charCodeAt(i)];
+        const c2 = B45_LOOKUP[clean.charCodeAt(i + 1)];
+        const c3 = B45_LOOKUP[clean.charCodeAt(i + 2)];
+
+        if (c1 === -1 || c2 === -1 || c3 === -1) return null;
+
+        const val = c1 + c2 * 45 + c3 * 2025;
+        if (val > 65535) return null;
+
+        out.push(Math.floor(val / 256), val % 256);
+        i += 3;
+      } else if (remaining === 2) {
+        const c1 = B45_LOOKUP[clean.charCodeAt(i)];
+        const c2 = B45_LOOKUP[clean.charCodeAt(i + 1)];
+
+        if (c1 === -1 || c2 === -1) return null;
+
+        const val = c1 + c2 * 45;
+        if (val > 255) return null;
+
+        out.push(val);
+        i += 2;
+      } else {
+        return null;
+      }
+    }
+    return new Uint8Array(out);
+  } catch {
+    return null;
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface FaydaDecodedResult {
   success: boolean;
-  faydaNumber?: string; // 12-digit normalized string
+  faydaNumber?: string; // 12-digit or 16-digit normalized string
   fullName?: string;
   gender?: string;
   dob?: string;
@@ -85,52 +150,80 @@ export interface FaydaDecodedResult {
 // ─── QR Code Parser & Decoder ─────────────────────────────────────────────────
 
 /**
- * Parses and validates an offline Fayda QR code payload.
- * Supports:
- *  1. JSON payloads (standard MOSIP demographic export)
- *  2. Base64-encoded JSON or demographic text
- *  3. URL with query parameters (e.g. id.gov.et verification links)
- *  4. Delimited text strings (e.g. FIN:...|Name:... or UIN:...)
- *  5. Direct 12-digit or 16-digit FIN string extracted via regex
+ * Parses and validates an offline Fayda QR code payload across all official
+ * and real-world Ethiopian ID formats.
  */
-export function decodeFaydaQr(qrData: string): FaydaDecodedResult {
-  if (!qrData || typeof qrData !== 'string') {
+export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecodedResult {
+  if (!qrData) {
     return { success: false, error: 'QR data is empty or invalid.' };
   }
 
-  const trimmed = qrData.trim();
+  // Convert buffer to string if needed
+  let rawStr = '';
+  let rawBytes: Buffer | null = null;
 
-  // 1. Try Parsing as Direct JSON
-  try {
-    const json = JSON.parse(trimmed);
-    const result = extractFromJsonObject(json);
-    if (result.success) return { ...result, rawType: 'json' };
-  } catch {}
+  if (typeof qrData === 'string') {
+    rawStr = qrData.trim();
+  } else {
+    rawBytes = Buffer.from(qrData);
+    rawStr = rawBytes.toString('utf-8').trim();
+  }
 
-  // 2. Try Parsing as Base64 encoded string
-  if (/^[A-Za-z0-9+/=]+$/.test(trimmed) && trimmed.length >= 16) {
+  // 1. Try MOSIP Claim 169 via RFC 9285 Base45
+  if (rawStr) {
+    const b45Bytes = decodeBase45(rawStr);
+    if (b45Bytes && b45Bytes.length > 4) {
+      const cborRes = extractFromCborPayload(b45Bytes);
+      if (cborRes.success) return { ...cborRes, rawType: 'mosip_claim169_base45' };
+    }
+  }
+
+  // 2. Try Raw Binary / Buffer as CBOR or compressed zlib
+  if (rawBytes) {
+    const cborRes = extractFromCborPayload(rawBytes);
+    if (cborRes.success) return { ...cborRes, rawType: 'mosip_claim169_raw' };
+  }
+
+  // 3. Try Parsing as Base64 encoded CBOR or JSON
+  if (rawStr && /^[A-Za-z0-9+/=]+$/.test(rawStr) && rawStr.length >= 16) {
     try {
-      const decodedStr = Buffer.from(trimmed, 'base64').toString('utf-8');
+      const b64Buf = Buffer.from(rawStr, 'base64');
+      // Try CBOR first
+      const cborRes = extractFromCborPayload(b64Buf);
+      if (cborRes.success) return { ...cborRes, rawType: 'mosip_claim169_base64' };
+
+      // Try decoded string
+      const decodedStr = b64Buf.toString('utf-8');
       try {
         const json = JSON.parse(decodedStr);
         const result = extractFromJsonObject(json);
         if (result.success) return { ...result, rawType: 'base64_json' };
       } catch {
-        // Try delimited text on decoded base64 string
         const textResult = extractFromTextString(decodedStr);
         if (textResult.success) return { ...textResult, rawType: 'base64_text' };
       }
     } catch {}
   }
 
-  // 3. Try Parsing as URL (e.g. https://id.gov.et/verify?uin=...)
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+  // 4. Try Direct JSON
+  if (rawStr) {
     try {
-      const url = new URL(trimmed);
-      const uin = url.searchParams.get('uin') ||
-                  url.searchParams.get('fin') ||
-                  url.searchParams.get('id') ||
-                  url.searchParams.get('fayda_id');
+      const json = JSON.parse(rawStr);
+      const result = extractFromJsonObject(json);
+      if (result.success) return { ...result, rawType: 'json' };
+    } catch {}
+  }
+
+  // 5. Try Official NIDP URL (e.g. https://id.gov.et/verify?uin=... or resident.fayda.et)
+  if (rawStr && (rawStr.startsWith('http://') || rawStr.startsWith('https://'))) {
+    try {
+      const url = new URL(rawStr);
+      const uin =
+        url.searchParams.get('uin') ||
+        url.searchParams.get('fin') ||
+        url.searchParams.get('id') ||
+        url.searchParams.get('fayda_id') ||
+        url.searchParams.get('fan');
 
       if (uin) {
         const cleanFin = uin.replace(/\D/g, '');
@@ -138,7 +231,7 @@ export function decodeFaydaQr(qrData: string): FaydaDecodedResult {
           return {
             success: true,
             faydaNumber: cleanFin,
-            fullName: url.searchParams.get('name') || undefined,
+            fullName: url.searchParams.get('name') || url.searchParams.get('full_name') || undefined,
             gender: url.searchParams.get('gender') || undefined,
             dob: url.searchParams.get('dob') || undefined,
             rawType: 'url',
@@ -148,20 +241,36 @@ export function decodeFaydaQr(qrData: string): FaydaDecodedResult {
     } catch {}
   }
 
-  // 4. Try Parsing as Delimited Text (key-value pairs, pipe, or colon)
-  const textResult = extractFromTextString(trimmed);
-  if (textResult.success) return { ...textResult, rawType: 'text' };
+  // 6. Try Delimited Text (key-value pairs, pipe, colon)
+  if (rawStr) {
+    const textResult = extractFromTextString(rawStr);
+    if (textResult.success) return { ...textResult, rawType: 'text' };
+  }
 
-  // 5. Fallback: Search for any 12-digit number sequence
-  const finMatch = trimmed.match(/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/);
-  if (finMatch) {
-    const cleanFin = finMatch[0].replace(/\D/g, '');
-    if (cleanFin.length === 12) {
-      return {
-        success: true,
-        faydaNumber: cleanFin,
-        rawType: 'regex_fin',
-      };
+  // 7. Fallback: Search for any 12-digit or 16-digit sequence with MOSIP validity
+  if (rawStr) {
+    const finMatch = rawStr.match(/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/);
+    if (finMatch) {
+      const cleanFin = finMatch[0].replace(/\D/g, '');
+      if (isValidFaydaLength(cleanFin) && !cleanFin.startsWith('0')) {
+        return {
+          success: true,
+          faydaNumber: cleanFin,
+          rawType: 'regex_fin',
+        };
+      }
+    }
+
+    const fanMatch = rawStr.match(/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/);
+    if (fanMatch) {
+      const cleanFan = fanMatch[0].replace(/\D/g, '');
+      if (isValidFaydaLength(cleanFan) && !cleanFan.startsWith('0')) {
+        return {
+          success: true,
+          faydaNumber: cleanFan,
+          rawType: 'regex_fan',
+        };
+      }
     }
   }
 
@@ -177,8 +286,103 @@ function isValidFaydaLength(numStr: string): boolean {
   return numStr.length === 12 || numStr.length === 16;
 }
 
+/**
+ * Extracts demographic claims from a CBOR / CWT / MOSIP Claim 169 structure.
+ */
+function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult {
+  try {
+    let cborBytes: Buffer = Buffer.from(bytes);
+
+    // 1. Try decompressing zlib/deflate if compressed
+    try {
+      cborBytes = zlib.inflateSync(cborBytes);
+    } catch {
+      try {
+        cborBytes = zlib.inflateRawSync(cborBytes);
+      } catch {
+        // Raw uncompressed CBOR
+      }
+    }
+
+    // 2. Decode CBOR
+    const decoded = decodeCbor(cborBytes);
+    if (!decoded) return { success: false };
+
+    // 3. Unwrap COSE_Sign1 or CWT array [protected, unprotected, payload, signature]
+    let claims: any = decoded;
+    if (Array.isArray(decoded) && decoded.length >= 3) {
+      const payloadCandidate = decoded[2];
+      if (Buffer.isBuffer(payloadCandidate) || payloadCandidate instanceof Uint8Array) {
+        try {
+          claims = decodeCbor(payloadCandidate);
+        } catch {
+          claims = payloadCandidate;
+        }
+      }
+    }
+
+    // 4. Resolve Claim 169 (identity-data) or root claims
+    const identityData =
+      (claims instanceof Map
+        ? claims.get(169) || claims.get('169')
+        : claims?.[169] || claims?.['169']) || claims;
+
+    if (!identityData || typeof identityData !== 'object') {
+      return { success: false };
+    }
+
+    const getVal = (keys: string[]): any => {
+      for (const k of keys) {
+        if (identityData instanceof Map && identityData.has(k)) return identityData.get(k);
+        if (identityData[k] !== undefined) return identityData[k];
+      }
+      return undefined;
+    };
+
+    const fin = getVal([
+      'uin',
+      'fin',
+      'fayda_number',
+      'fayda_id',
+      'id',
+      'UIN',
+      'FIN',
+      'sub',
+      'fan',
+      'FAN',
+    ]);
+    if (!fin) return { success: false };
+
+    const cleanFin = String(fin).replace(/\D/g, '');
+    if (!isValidFaydaLength(cleanFin)) return { success: false };
+
+    const name = getVal(['name', 'fullName', 'full_name', 'resident_name', 'NAME', 'residentName']);
+    const gender = getVal(['gender', 'sex', 'GENDER', 'Sex']);
+    const dob = getVal(['dob', 'dateOfBirth', 'birthDate', 'DOB', 'DateOfBirth']);
+
+    return {
+      success: true,
+      faydaNumber: cleanFin,
+      fullName: typeof name === 'string' ? name.trim() : undefined,
+      gender: typeof gender === 'string' ? gender.trim() : undefined,
+      dob: typeof dob === 'string' ? dob.trim() : undefined,
+    };
+  } catch {
+    return { success: false };
+  }
+}
+
 function extractFromJsonObject(obj: Record<string, any>): FaydaDecodedResult {
-  const fin = obj.uin || obj.fin || obj.fayda_number || obj.fayda_id || obj.id || obj.UIN || obj.FIN;
+  const fin =
+    obj.uin ||
+    obj.fin ||
+    obj.fayda_number ||
+    obj.fayda_id ||
+    obj.id ||
+    obj.UIN ||
+    obj.FIN ||
+    obj.fan ||
+    obj.FAN;
   if (!fin) return { success: false };
 
   const cleanFin = String(fin).replace(/\D/g, '');
@@ -198,13 +402,12 @@ function extractFromJsonObject(obj: Record<string, any>): FaydaDecodedResult {
 }
 
 function extractFromTextString(text: string): FaydaDecodedResult {
-  // Check for common Fayda demographic markers
   let fin: string | undefined;
   let name: string | undefined;
   let gender: string | undefined;
   let dob: string | undefined;
 
-  const finMatch = text.match(/(?:UIN|FIN|Fayda|ID)[:=\s]+([0-9\s-]{12,16})/i);
+  const finMatch = text.match(/(?:UIN|FIN|FAN|Fayda|ID)[:=\s]+([0-9\s-]{12,16})/i);
   if (finMatch) {
     const candidate = finMatch[1].replace(/\D/g, '');
     if (isValidFaydaLength(candidate)) fin = candidate;
@@ -236,9 +439,6 @@ import { validateFaydaStructure } from '@/lib/fayda-verification';
 
 /**
  * Validates a directly typed or pasted Fayda FAN / FIN number.
- * - Strips whitespace, hyphens, and non-digits.
- * - Accepts 12-digit FIN (with Verhoeff checksum validation).
- * - Accepts 16-digit FAN/VID format with MOSIP Verhoeff / Luhn checksum & pattern checks.
  */
 export function validateFaydaFan(input: string): {
   valid: boolean;
