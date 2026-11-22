@@ -39,3 +39,16 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   - Preferences: `<b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>`
   - Details: `<b>DETAILS / ዝርዝር</b>` wrapped in `<blockquote>`
   - About: `<b>ABOUT ME / ስለ እኔ</b>` with user bio wrapped in `<blockquote>`
+
+## 6. Channel Post Action Buttons & Admin Concierge Invariant
+- Channel posts must strictly maintain only 2 inline action buttons:
+  1. `Connect with this roommate / ከዚህ አጋር ጋር ተገናኝ >`
+  2. `Search Roommate for Me / የቤት አጋር ፈልግልኝ >`
+- The "Post My Profile" button is deprecated and removed from channel posts to prevent self-service spam and route users directly to the verified coordinator.
+- All channel posts must feature the bilingual footer note directing users to the SpaceMatch Coordinator:
+  `📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ`
+
+## 7. Subscription Duration & Pricing Invariant
+- The SpaceMatch All-Access Membership Pass is strictly **100 ETB for 3 Months (90 days)**.
+- System threshold for active pass verification in the `orders` table is $\ge 100\text{ ETB}$, granting full unmasked contact reveals and search access for 90 days from transaction date.
+

@@ -814,6 +814,8 @@ Posted by: ${sexDisplay}${ageDisplay}
 
 SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
 
+📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ
+
 ${hashtags}
 `.trim();
 }
@@ -934,6 +936,8 @@ Posted by: ${hostSexDisplay} (Space Host / አከራይ)
 
 SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
 
+📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ
+
 ${hashtags}
 `.trim();
 }
@@ -960,15 +964,10 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
           url: `https://t.me/${botUsername}?start=req_${cleanCode}`,
         },
       ],
+      // [{ text: 'Post Profile / መረጃዬን ልለጥፍ >', url: `https://t.me/${botUsername}?start=post_profile` }],
       [
         {
-          text: 'Post Profile / መረጃዬን ልለጥፍ >',
-          url: `https://t.me/${botUsername}?start=post_profile`,
-        },
-      ],
-      [
-        {
-          text: 'Search Roommate / የቤት አጋር ፈልግ >',
+          text: 'Search Roommate for Me / የቤት አጋር ፈልግ >',
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
@@ -1066,12 +1065,7 @@ export async function updateChannelPostAsMatched(
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
-      [
-        {
-          text: 'Post Profile / መረጃዬን ልለጥፍ >',
-          url: `https://t.me/${botUsername}?start=post_profile`,
-        },
-      ],
+      // [{ text: 'Post Profile / መረጃዬን ልለጥፍ >', url: `https://t.me/${botUsername}?start=post_profile` }],
     ],
   };
 

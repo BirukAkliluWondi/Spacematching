@@ -143,6 +143,7 @@ export interface FaydaDecodedResult {
   fullName?: string;
   gender?: string;
   dob?: string;
+  phone?: string;
   rawType?: string;
   error?: string;
 }
@@ -171,14 +172,15 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
 
   // 1. Try MOSIP Claim 169 via RFC 9285 Base45
   if (rawStr) {
-    const b45Bytes = decodeBase45(rawStr);
+    const cleanB45 = rawStr.replace(/^(?:C169|MOSIP|ETH|FAYDA)[:=\s]+/i, '').trim();
+    const b45Bytes = decodeBase45(cleanB45) || decodeBase45(rawStr);
     if (b45Bytes && b45Bytes.length > 4) {
       const cborRes = extractFromCborPayload(b45Bytes);
       if (cborRes.success) return { ...cborRes, rawType: 'mosip_claim169_base45' };
     }
   }
 
-  // 2. Try Raw Binary / Buffer as CBOR or compressed zlib
+  // 2. Try Raw Binary / Buffer as CBOR or compressed zlib/brotli
   if (rawBytes) {
     const cborRes = extractFromCborPayload(rawBytes);
     if (cborRes.success) return { ...cborRes, rawType: 'mosip_claim169_raw' };
@@ -288,19 +290,27 @@ function isValidFaydaLength(numStr: string): boolean {
 
 /**
  * Extracts demographic claims from a CBOR / CWT / MOSIP Claim 169 structure.
+ * Supports:
+ *  - zlib (inflate, inflateRaw) and Brotli compression
+ *  - Standard MOSIP Claim 169 integer keys (1=UIN, 4=Name, 8=DOB, 9=Gender, 12=Phone)
+ *  - String and named attribute keys
  */
 function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult {
   try {
     let cborBytes: Buffer = Buffer.from(bytes);
 
-    // 1. Try decompressing zlib/deflate if compressed
+    // 1. Try decompressing zlib/deflate or brotli if compressed
     try {
       cborBytes = zlib.inflateSync(cborBytes);
     } catch {
       try {
         cborBytes = zlib.inflateRawSync(cborBytes);
       } catch {
-        // Raw uncompressed CBOR
+        try {
+          cborBytes = zlib.brotliDecompressSync(cborBytes);
+        } catch {
+          // Raw uncompressed CBOR
+        }
       }
     }
 
@@ -331,7 +341,7 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
       return { success: false };
     }
 
-    const getVal = (keys: string[]): any => {
+    const getVal = (keys: (string | number)[]): any => {
       for (const k of keys) {
         if (identityData instanceof Map && identityData.has(k)) return identityData.get(k);
         if (identityData[k] !== undefined) return identityData[k];
@@ -339,33 +349,61 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
       return undefined;
     };
 
+    // Key 1 in MOSIP Claim 169 is UIN / ID
     const fin = getVal([
-      'uin',
-      'fin',
-      'fayda_number',
-      'fayda_id',
-      'id',
-      'UIN',
-      'FIN',
-      'sub',
-      'fan',
-      'FAN',
+      1, '1',
+      'uin', 'fin', 'fayda_number', 'fayda_id', 'id',
+      'UIN', 'FIN', 'sub', 'fan', 'FAN'
     ]);
     if (!fin) return { success: false };
 
     const cleanFin = String(fin).replace(/\D/g, '');
     if (!isValidFaydaLength(cleanFin)) return { success: false };
 
-    const name = getVal(['name', 'fullName', 'full_name', 'resident_name', 'NAME', 'residentName']);
-    const gender = getVal(['gender', 'sex', 'GENDER', 'Sex']);
-    const dob = getVal(['dob', 'dateOfBirth', 'birthDate', 'DOB', 'DateOfBirth']);
+    // Key 4: Full Name, Key 5: First Name, 6: Middle Name, 7: Last Name
+    let name = getVal([4, '4', 'name', 'fullName', 'full_name', 'resident_name', 'NAME', 'residentName']);
+    if (!name) {
+      const first = getVal([5, '5', 'firstName', 'first_name']);
+      const middle = getVal([6, '6', 'middleName', 'middle_name']);
+      const last = getVal([7, '7', 'lastName', 'last_name', 'surname']);
+      if (first || last) {
+        name = [first, middle, last].filter(Boolean).join(' ');
+      }
+    }
+
+    // Key 9: Gender (1 = Male, 2 = Female, or 'M'/'F'/'Male'/'Female')
+    let rawGender = getVal([9, '9', 'gender', 'sex', 'GENDER', 'Sex']);
+    let gender: string | undefined;
+    if (rawGender === 1 || rawGender === '1' || rawGender === 'M' || String(rawGender).toLowerCase() === 'male') {
+      gender = 'Male';
+    } else if (rawGender === 2 || rawGender === '2' || rawGender === 'F' || String(rawGender).toLowerCase() === 'female') {
+      gender = 'Female';
+    } else if (rawGender) {
+      gender = String(rawGender);
+    }
+
+    // Key 8: Date of Birth (YYYYMMDD or YYYY-MM-DD or YYYY/MM/DD)
+    let rawDob = getVal([8, '8', 'dob', 'dateOfBirth', 'birthDate', 'DOB', 'DateOfBirth']);
+    let dob: string | undefined;
+    if (rawDob) {
+      const dobStr = String(rawDob).replace(/\D/g, '');
+      if (dobStr.length === 8) {
+        dob = `${dobStr.slice(0, 4)}-${dobStr.slice(4, 6)}-${dobStr.slice(6, 8)}`;
+      } else {
+        dob = String(rawDob);
+      }
+    }
+
+    // Key 12: Phone number
+    const phone = getVal([12, '12', 'phone', 'phoneNumber', 'mobile']);
 
     return {
       success: true,
       faydaNumber: cleanFin,
       fullName: typeof name === 'string' ? name.trim() : undefined,
-      gender: typeof gender === 'string' ? gender.trim() : undefined,
-      dob: typeof dob === 'string' ? dob.trim() : undefined,
+      gender,
+      dob,
+      phone: typeof phone === 'string' ? phone.trim() : undefined,
     };
   } catch {
     return { success: false };

@@ -488,19 +488,19 @@ export async function broadcastRoommateProfileToChannel(
               : `https://t.me/${botUsername}?start=req_${cleanDisplayCode}`,
           },
         ],
+        // [
+        //   {
+        //     text: hasSpace
+        //       ? 'Post My Space / ክፍሌን ልለጥፍ >'
+        //       : 'Post Profile / መረጃዬን ልለጥፍ >',
+        //     url: hasSpace
+        //       ? `https://t.me/${botUsername}?start=post_branch_space`
+        //       : `https://t.me/${botUsername}?start=post_profile`,
+        //   },
+        // ],
         [
           {
-            text: hasSpace
-              ? 'Post My Space / ክፍሌን ልለጥፍ >'
-              : 'Post Profile / መረጃዬን ልለጥፍ >',
-            url: hasSpace
-              ? `https://t.me/${botUsername}?start=post_branch_space`
-              : `https://t.me/${botUsername}?start=post_profile`,
-          },
-        ],
-        [
-          {
-            text: 'Search Roommate / የቤት አጋር ፈልግ >',
+            text: 'Search Roommate for Me / የቤት አጋር ፈልግ >',
             url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
@@ -961,12 +961,12 @@ export async function closeChannelPost(
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
-      [
-        {
-          text: 'Post Profile / መረጃዬን ልለጥፍ >',
-          url: `https://t.me/${botUsername}?start=post_profile`,
-        },
-      ],
+      // [
+      //   {
+      //     text: 'Post Profile / መረጃዬን ልለጥፍ >',
+      //     url: `https://t.me/${botUsername}?start=post_profile`,
+      //   },
+      // ],
     ],
   };
 

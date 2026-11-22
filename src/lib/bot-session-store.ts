@@ -813,8 +813,8 @@ export function invalidateMembershipCache(telegramId?: number): void {
 }
 
 /**
- * Checks whether a user has an active 30-day all-access membership pass.
- * Valid if they have a completed order of >= 300 ETB verified within the last 30 days.
+ * Checks whether a user has an active 3-month (90-day) all-access membership pass.
+ * Valid if they have a completed order of >= 100 ETB verified within the last 90 days.
  */
 export async function getUserMembershipStatus(telegramId: number): Promise<MembershipStatus> {
   const cached = membershipCache.get(telegramId);
@@ -822,7 +822,7 @@ export async function getUserMembershipStatus(telegramId: number): Promise<Membe
     return cached.status;
   }
 
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
   try {
     const { data: order } = await supabase
@@ -830,8 +830,8 @@ export async function getUserMembershipStatus(telegramId: number): Promise<Membe
       .select('id, verified_at, created_at, transaction_reference, amount')
       .eq('buyer_telegram_id', telegramId)
       .eq('payment_status', 'completed')
-      .gte('created_at', thirtyDaysAgo)
-      .gte('amount', 300)
+      .gte('created_at', ninetyDaysAgo)
+      .gte('amount', 100)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -843,7 +843,7 @@ export async function getUserMembershipStatus(telegramId: number): Promise<Membe
     }
 
     const baseDate = new Date(order.verified_at || order.created_at);
-    const expiresAt = new Date(baseDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(baseDate.getTime() + 90 * 24 * 60 * 60 * 1000);
     const diffMs = expiresAt.getTime() - Date.now();
     const daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
     const isActive = diffMs > 0;

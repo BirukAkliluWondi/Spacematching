@@ -214,7 +214,7 @@ function getCardConfig(type: CardScreenType, params: DynamicCardParams): CardCon
   const days = Math.max(0, params.daysRemaining || 0);
   const cleanName = (params.userName?.trim() || 'Resident').slice(0, 24);
 
-  const memBadgeText = isMember ? `ACTIVE PASS · ${days} DAYS` : '30-DAY PASS · 300 ETB';
+  const memBadgeText = isMember ? `ACTIVE PASS · ${days} DAYS` : '3-MONTH PASS · 100 ETB';
   const memBadgeColor = isMember ? '#10b981' : '#94a3b8';
   const memBadgeBg = isMember ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)';
   const memBadgeBorder = isMember ? '#059669' : '#475569';
@@ -251,12 +251,12 @@ function getCardConfig(type: CardScreenType, params: DynamicCardParams): CardCon
 
     case 'membership':
       return {
-        badgeText: '30-DAY PASS · 300 ETB',
+        badgeText: '3-MONTH PASS · 100 ETB',
         badgeColor: '#10b981',
         badgeBg: 'rgba(16, 185, 129, 0.15)',
         badgeBorder: '#059669',
         greeting: 'Unlimited Access · ሙሉ አገልግሎት',
-        headline: 'SpaceMatch 30-Day Pass',
+        headline: 'SpaceMatch 3-Month Pass',
         subheadline: 'ያልተገደበ የቤት አጋር ጥያቄዎች እና ቀጥተኛ ግንኙነት',
         pillar1: {
           icon: 'payment',
@@ -273,7 +273,7 @@ function getCardConfig(type: CardScreenType, params: DynamicCardParams): CardCon
         pillar3: {
           icon: 'shield',
           title: 'All-Inclusive',
-          amharic: 'የ30 ቀን ያልተገደበ',
+          amharic: 'የ3 ወር ያልተገደበ',
           desc: 'Send connection requests to all verified listings across Addis.',
         },
       };
@@ -443,7 +443,7 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
         backgroundColor: '#070f18',
         backgroundImage: 'linear-gradient(135deg, #070f18 0%, #0c1829 50%, #14243b 100%)',
         padding: '40px',
-        fontFamily: '"Geist", "Noto Sans Ethiopic", sans-serif',
+        fontFamily: '"Noto Sans Ethiopic", "Geist", sans-serif',
         position: 'relative',
         boxSizing: 'border-box',
       },
@@ -698,12 +698,6 @@ export async function generateCardPng(type: CardScreenType, params: DynamicCardP
     height: 630,
     fonts: [
       {
-        name: 'Geist',
-        data: fonts.geist,
-        style: 'normal',
-        weight: 400,
-      },
-      {
         name: 'Noto Sans Ethiopic',
         data: fonts.ethiopicBold,
         style: 'normal',
@@ -712,6 +706,12 @@ export async function generateCardPng(type: CardScreenType, params: DynamicCardP
       {
         name: 'Noto Sans Ethiopic',
         data: fonts.ethiopicRegular,
+        style: 'normal',
+        weight: 400,
+      },
+      {
+        name: 'Geist',
+        data: fonts.geist,
         style: 'normal',
         weight: 400,
       },

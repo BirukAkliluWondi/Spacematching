@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const unlockFeeAmount = Number(space.unlock_fee || '300.00');
+    const unlockFeeAmount = Number(space.unlock_fee || '100.00');
     const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
     const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
     const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';

@@ -1985,7 +1985,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  budget_min: userBudgetMin,
  budget_max: userBudgetMax,
  lifestyle_bio: formattedTraits,
- unlock_fee: 300,
+ unlock_fee: 100,
  status: 'approved',
  age: userAge,
  job: userJob,
@@ -2022,7 +2022,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  budget_min: userBudgetMin,
  budget_max: userBudgetMax,
  lifestyle_bio: formattedTraits,
- unlock_fee: 300,
+ unlock_fee: 100,
  fayda_status: 'verified',
  status: 'pending_approval',
  created_at: new Date().toISOString(),
@@ -3107,7 +3107,7 @@ ${postPreview}
  return await sendOrEditCard(chatId, text, keyboard, messageIdToEdit);
  };
 
- // Helper: 300 ETB 30-Day Unified Membership Pass Paywall Card
+ // Helper: 100 ETB 3-Month Unified Membership Pass Paywall Card
  const sendMembershipPaywallCard = async (
     chatId: number,
     purpose: 'post_channel' | 'connect_request',
@@ -3125,7 +3125,7 @@ ${postPreview}
       ? `Connect with roommate${metadata?.targetDisplayCode ? ` #${metadata.targetDisplayCode}` : ''} / ከቤት አጋር ጋር ይገናኙ`
       : 'Post your listing to the channel / ማስታወቂያዎን ቻናል ላይ ይለጥፉ';
 
-    const paywallText = `<b>30-Day Pass / የ30 ቀን አባልነት (300 ETB)</b>\n\n<blockquote>${purposeNotice}</blockquote>\n\n<b>Payment Accounts (Wahid):</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code>\n• <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>\n• <b>Dashen:</b> <code>${dashenAccount}</code>\n\n<blockquote>Send transaction reference code:\nየደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REF</code></blockquote>`.trim();
+    const paywallText = `<b>3-Month Pass / የ3 ወር አባልነት (100 ETB)</b>\n\n<blockquote>${purposeNotice}</blockquote>\n\n<b>Payment Accounts (Wahid):</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code>\n• <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>\n• <b>Dashen:</b> <code>${dashenAccount}</code>\n\n<blockquote>Send transaction reference code:\nየደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REF</code></blockquote>`.trim();
 
     // Strict Grid Symmetry: Hero CTA on Top + 2-Column Action Grid
     const paywallKeyboard = [
@@ -3420,7 +3420,7 @@ ${postPreview}
  budget_min: 0,
  budget_max: budgetNum,
  lifestyle_bio: bioStr,
- unlock_fee: 300,
+ unlock_fee: 100,
  fayda_status: 'verified',
  status: 'pending_approval',
  created_at: new Date().toISOString(),
@@ -3487,7 +3487,7 @@ A user has requested to post their profile to the channel <code>${targetChannel}
 • <b>Budget Cap:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
 • <b>Target Areas:</b> <code>${subcitiesStr}</code>
 • <b>Description:</b> ${bioStr}
-• <b>Pass Status:</b> 30-Day Pass Active 
+• <b>Pass Status:</b> 3-Month Pass Active 
 • <b>Fayda Status:</b> Verified Resident 
 <blockquote>"${bioStr}"</blockquote>
 
@@ -3575,7 +3575,7 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  space_amenities: amenities,
  space_photos: photos,
  status: 'pending_approval',
- unlock_fee: 300,
+ unlock_fee: 100,
  fayda_status: 'verified',
  created_at: new Date().toISOString(),
  updated_at: new Date().toISOString(),
@@ -3644,7 +3644,7 @@ A user has submitted a space offering for channel <code>${targetChannel}</code>:
 • <b>Sex:</b> ${ownerGender}
 • <b>Preferred Sex:</b> ${prefGender}
 • <b>Description:</b> ${desc}
-• <b>Pass Status:</b> 30-Day Pass Active 
+• <b>Pass Status:</b> 3-Month Pass Active 
 • <b>Resident:</b> Age ${userAge} ( Fayda Verified)
 
 Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
@@ -3787,7 +3787,7 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
 
  await sendOrEditCard(
  chatId,
- `<b>Match Request Delivered! / የግንኙነት ጥያቄ ተልኳል!</b>\n\nYour request has been sent to Roommate <b>#${targetProfile.display_code}</b> (30-Day Pass active)\nጥያቄዎ ወደ የቤት አጋር <b>#${targetProfile.display_code}</b> ደርሷል (የ30 ቀን አባልነት ተፈጻሚ ሆኗል)\n\n<blockquote>You will receive contact details once accepted! / እንደተቀበሉ ወዲያውኑ የስልክና ቴሌግራም አድራሻ ይደርስዎታል!</blockquote>`,
+    `<b>Match Request Delivered! / የግንኙነት ጥያቄ ተልኳል!</b>\n\nYour request has been sent to Roommate <b>#${targetProfile.display_code}</b> (3-Month Pass active)\nጥያቄዎ ወደ የቤት አጋር <b>#${targetProfile.display_code}</b> ደርሷል (የ3 ወር አባልነት ተፈጻሚ ሆኗል)\n\n<blockquote>You will receive contact details once accepted! / እንደተቀበሉ ወዲያውኑ የስልክና ቴሌግራም አድራሻ ይደርስዎታል!</blockquote>`,
  [
  [{ text: 'Find Other Roommates / ሌሎች ፈላጊዎችን ፈልግ >', callback_data: 'matchmaker_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
@@ -3867,7 +3867,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
     const mem = await getUserMembershipStatus(chatId);
     const memBadge = mem.isActive
       ? `Active (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining} ቀናት)`
-      : `Inactive / የለም (300 ETB / 30 Days)`;
+      : `Inactive / የለም (100 ETB / 3 Months)`;
 
     const welcomeText = `<b>SpaceMatch Addis / ስፔስማች አዲስ</b>\n\n<blockquote>Verified Roommate Network · Addis Ababa\nየተረጋገጡ የቤት አጋሮች መፈለጊያ</blockquote>\n\n<b>Pass / አባልነት:</b> ${memBadge}`;
 
@@ -3888,7 +3888,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
         {
           text: mem.isActive
             ? `Pass: Active (${mem.daysRemaining}d)`
-            : '30-Day Pass / አባልነት',
+            : '3-Month Pass / አባልነት',
           callback_data: 'view_membership_pass',
         },
       ],
@@ -3951,8 +3951,8 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
     const mem = await getUserMembershipStatus(chatId);
     const memBadge = mem.isActive
-      ? `<b>30-Day Pass / አባልነት:</b> Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል)\n\n`
-      : '<b>30-Day Pass / አባልነት:</b> Inactive (300 ETB) / የለም (300 ብር)\n\n';
+      ? `<b>3-Month Pass / አባልነት:</b> Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል)\n\n`
+      : '<b>3-Month Pass / አባልነት:</b> Inactive (100 ETB) / የለም (100 ብር)\n\n';
 
     let text = '<b>My Listings / ማስታወቂያዎቼ</b>\n\n' + memBadge;
  const buttons: any[] = [];
@@ -4039,7 +4039,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  // Helper: Platform Help & User Guide
  const sendHelpGuide = async (chatId: number, messageIdToEdit?: number) => {
-    const guideText = `<b>User Guide / የተጠቃሚ መመሪያ</b>\n\n<blockquote>SpaceMatch connects verified roommates in Addis Ababa.\nስፔስማች በአዲስ አበባ የተረጋገጡ የቤት አጋሮችን ያገናኛል።</blockquote>\n\n<b>How it works / እንዴት ይሰራል:</b>\n1. <b>Search / ፈልግ:</b> Browse verified roommates by area and budget.\n2. <b>Post / ለጥፍ:</b> Share your profile to get matches.\n3. <b>Fayda / ፋይዳ:</b> Fast QR verification keeps the community safe.\n4. <b>Pass / አባልነት:</b> 30-day pass (300 ETB) unlocks unlimited requests.\n\n<b>Commands / ትዕዛዞች:</b>\n• /start — Welcome Menu / ዋና ማውጫ\n• /my_listings — Manage Listings / ማስታወቂያዎቼ\n• /status — Account Status / ሁኔታ\n• /cancel — Reset / ሰርዝ`.trim();
+    const guideText = `<b>User Guide / የተጠቃሚ መመሪያ</b>\n\n<blockquote>SpaceMatch connects verified roommates in Addis Ababa.\nስፔስማች በአዲስ አበባ የተረጋገጡ የቤት አጋሮችን ያገናኛል።</blockquote>\n\n<b>How it works / እንዴት ይሰራል:</b>\n1. <b>Search / ፈልግ:</b> Browse verified roommates by area and budget.\n2. <b>Post / ለጥፍ:</b> Share your profile to get matches.\n3. <b>Fayda / ፋይዳ:</b> Fast QR verification keeps the community safe.\n4. <b>Pass / አባልነት:</b> 3-month pass (100 ETB) unlocks unlimited requests.\n\n<b>Commands / ትዕዛዞች:</b>\n• /start — Welcome Menu / ዋና ማውጫ\n• /my_listings — Manage Listings / ማስታወቂያዎቼ\n• /status — Account Status / ሁኔታ\n• /cancel — Reset / ሰርዝ`.trim();
 
  const keyboard = [
  [
@@ -4668,7 +4668,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  budget_max: p.budget_max || 10000,
  lifestyle_bio: p.roommate_traits || 'Looking for compatible roommate in Addis Ababa.',
  fayda_status: p.kyc_status === 'verified' ? 'verified' : 'unverified',
- unlock_fee: 300,
+ unlock_fee: 100,
  source: 'Profiles',
  });
  }
@@ -4890,7 +4890,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  return;
  }
 
- const unlockFee = 300.00;
+ const unlockFee = 100.00;
 
  let title = 'Roommate Contact Unlock';
  let subcity = 'Addis Ababa';
@@ -5005,7 +5005,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  const mem = await getUserMembershipStatus(chatId);
  if (mem.isActive) {
- // User has an active 30-Day All-Access Pass!
+ // User has an active 3-Month All-Access Pass!
  // Immediately reveal the contact details with zero per-contact fees
  let candName = 'Verified Member / የተረጋገጠ አባል';
  let candPhone = '0911234567';
@@ -5084,7 +5084,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  ? [[{ text: `Open Chat on Telegram / በቴሌግራም አውራ (@${sanitizedContact.telegramUsername})`, url: sanitizedContact.telegramUrl }]]
  : [];
 
- const unmaskedText = `<b>Contact Details / የስልክ አድራሻ</b>\n\n• <b>Name / ስም:</b> <b>${escapeHtml(sanitizedContact.fullName)}</b>\n• <b>Phone / ስልክ:</b> <code>${escapeHtml(sanitizedContact.phoneNumber)}</code>\n${sanitizedContact.telegramUsername ? `• <b>Telegram / ቴሌግራም:</b> @${sanitizedContact.telegramUsername}\n` : ''}\n<blockquote>Unlocked with your 30-Day Pass.\nየ30 ቀን አባልነት ስላለዎት አድራሻው ተከፍቷል።</blockquote>`.trim();
+ const unmaskedText = `<b>Contact Details / የስልክ አድራሻ</b>\n\n• <b>Name / ስም:</b> <b>${escapeHtml(sanitizedContact.fullName)}</b>\n• <b>Phone / ስልክ:</b> <code>${escapeHtml(sanitizedContact.phoneNumber)}</code>\n${sanitizedContact.telegramUsername ? `• <b>Telegram / ቴሌግራም:</b> @${sanitizedContact.telegramUsername}\n` : ''}\n<blockquote>Unlocked with your 3-Month Pass.\nየ3 ወር አባልነት ስላለዎት አድራሻው ተከፍቷል።</blockquote>`.trim();
 
  await sendOrEditCard(chatId, unmaskedText, [
  ...tgBtn,
@@ -5093,7 +5093,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  return;
  }
 
- // If user does not have active 30-day pass, show the 30-Day Unified Membership Pass Paywall
+ // If user does not have active 3-month pass, show the 3-Month Unified Membership Pass Paywall
  await sendMembershipPaywallCard(
  chatId,
  'connect_request',
@@ -5316,7 +5316,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  const newButtons = [
  [{ text: buttonTitle, url: `https://t.me/${botUsername}?start=${connectPayload}` }],
- [{ text: 'Post My Profile >', url: `https://t.me/${botUsername}?start=post_profile` }],
+      // [{ text: 'Post My Profile >', url: `https://t.me/${botUsername}?start=post_profile` }],
  [{ text: 'Search Roommate for Me >', url: `https://t.me/${botUsername}?start=search_roommate` }],
  ];
 
@@ -5645,7 +5645,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  preferred_roommate: 'Clean, respectful, and compatible housemate.',
  listing_category: isSpace ? 'space_available' : 'seeker',
  status: 'approved',
- unlock_fee: 300,
+ unlock_fee: 100,
  fayda_status: 'verified',
  created_at: new Date().toISOString(),
  updated_at: new Date().toISOString(),
@@ -6695,7 +6695,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  return NextResponse.json({ ok: true });
  }
 
- // Check 30-Day Unified Membership Pass
+ // Check 3-Month Unified Membership Pass
  const userLang = getUserLanguage(chatId);
  const isAm = userLang === 'am';
 
@@ -6718,7 +6718,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  return NextResponse.json({ ok: true });
  }
 
- // ── NEW: Match Accept (Instant Mutual Contact Reveal with 30-Day Pass) ──
+ // ── NEW: Match Accept (Instant Mutual Contact Reveal with 3-Month Pass) ──
  if (callbackData.startsWith('match_accept:')) {
  const matchId = callbackData.split(':')[1];
  const acceptLang = getUserLanguage(chatId);
@@ -6769,7 +6769,7 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
  return NextResponse.json({ ok: true });
  }
 
- // ── View / Activate 30-Day Unified Membership Pass ───────────────────────
+ // ── View / Activate 3-Month Unified Membership Pass ───────────────────────
  if (callbackData === 'view_membership_pass') {
     const mem = await getUserMembershipStatus(chatId);
     const lang = getUserLanguage(chatId);
@@ -6777,7 +6777,7 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
     if (mem.isActive) {
       const expiryStr = mem.expiresAt ? mem.expiresAt.toLocaleDateString() : 'N/A';
 
-      const activeText = `<b>30-Day Pass / የ30 ቀን አባልነት</b>\n\n<blockquote>Status / ሁኔታ: Active (${mem.daysRemaining} days remaining / ቀናት ቀርተዋል)\nExpires / ማብቂያ: ${expiryStr}</blockquote>\n\n<b>Active Benefits / የአባልነት ጥቅሞች:</b>\n• Broadcast listings to channel / ማስታወቂያ ቻናል ላይ መለጠፍ\n• Unlimited connection requests / ያልተገደበ ግንኙነት\n• Instant contact reveals / ስልክ እና ቴሌግራም መክፈት`.trim();
+      const activeText = `<b>3-Month Pass / የ3 ወር አባልነት</b>\n\n<blockquote>Status / ሁኔታ: Active (${mem.daysRemaining} days remaining / ቀናት ቀርተዋል)\nExpires / ማብቂያ: ${expiryStr}</blockquote>\n\n<b>Active Benefits / የአባልነት ጥቅሞች:</b>\n• Broadcast listings to channel / ማስታወቂያ ቻናል ላይ መለጠፍ\n• Unlimited connection requests / ያልተገደበ ግንኙነት\n• Instant contact reveals / ስልክ እና ቴሌግራም መክፈት`.trim();
 
       await sendOrEditCard(
  chatId,
@@ -7158,7 +7158,7 @@ Post <b>#${displayCode}</b> has been updated on channel with red banner and all 
  budget_max: draftData.budget_max || 10000,
  lifestyle_bio: draftData.description || draftData.details || draftData.lifestyle_bio || draftData.roommate_traits || 'Looking for compatible roommate in Addis Ababa.',
  fayda_status: 'verified',
- unlock_fee: 300,
+ unlock_fee: 100,
  status: 'approved',
  created_at: new Date().toISOString(),
  updated_at: new Date().toISOString(),
@@ -7177,7 +7177,7 @@ Post <b>#${displayCode}</b> has been updated on channel with red banner and all 
  budget_min: 0,
  budget_max: roommateDraft.budget_max,
  lifestyle_bio: roommateDraft.lifestyle_bio,
- unlock_fee: 300,
+ unlock_fee: 100,
  status: 'approved',
  });
  } catch {}
@@ -8460,11 +8460,11 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  const mem = await getUserMembershipStatus(chatId);
  const reqBtnText = mem.isActive
  ? ' Send Free Request (Pass Active ) / ጥያቄ ላክ (የሚሰራ )'
- : ' Send Request (30-Day Pass · 300 ETB) / ጥያቄ ላክ (300 ብር)';
+ : ' Send Request (3-Month Pass · 100 ETB) / ጥያቄ ላክ (100 ብር)';
 
  const passBadge = mem.isActive
- ? `\n\n• <b>30-Day Pass / አባልነት:</b> Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል) `
- : `\n\n• <b>30-Day Pass / አባልነት:</b> Inactive (300 ETB needed) / የለም (300 ብር ያስፈልጋል)`;
+ ? `\n\n• <b>3-Month Pass / አባልነት:</b> Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል) `
+ : `\n\n• <b>3-Month Pass / አባልነት:</b> Inactive (100 ETB needed) / የለም (100 ብር ያስፈልጋል)`;
 
  await sendOrEditCard(
  chatId,
@@ -8635,7 +8635,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  return NextResponse.json({ ok: true });
  }
 
- // ── NEW: /verify <bank> <reference> — 30-Day Unified Membership Pass ──
+ // ── NEW: /verify <bank> <reference> — 3-Month Unified Membership Pass ──
  // Pattern: /verify telebirr FT260920042 OR /verify cbe FT... OR /verify FT...
  if (text.startsWith('/verify ') && text.trim().length > 8) {
  const parts = text.trim().split(/\s+/);
@@ -8693,8 +8693,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  : `<b>Verifying payment with Verify.ET...</b>`
  );
 
- // 3. Call Verify.ET with 300 ETB, prioritizing selected bank
- const verifyResult = await verifyTelebirrPayment(reference, 300, bank);
+ // 3. Call Verify.ET with 100 ETB, prioritizing selected bank
+ const verifyResult = await verifyTelebirrPayment(reference, 100, bank);
 
  if (!verifyResult.success) {
  const failMsg = payerIsAm ? (verifyResult.messageAm || verifyResult.message) : verifyResult.message;
@@ -8717,7 +8717,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  order_type: 'membership_pass',
  target_type: 'membership_30d',
  target_id: 'pass_30d',
- amount: verifyResult.paidAmount ?? 300.0,
+ amount: verifyResult.paidAmount ?? 100.0,
  transaction_reference: reference,
  payment_status: 'completed',
  verified_at: new Date().toISOString(),
@@ -8734,11 +8734,11 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  user_id: chatId,
  bank: verifyResult.bank || bank || 'telebirr',
  reference,
- amount: verifyResult.paidAmount ?? 300,
+ amount: verifyResult.paidAmount ?? 100,
  });
  } catch {}
 
- // 5. Activate 30-Day Unified Membership Pass
+ // 5. Activate 3-Month Unified Membership Pass
  await activateUserMembership(chatId, orderId, reference);
 
  // 6. Check if there's an active match to unlock
@@ -8786,9 +8786,9 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  }
 
  if (!activeMatch) {
- const celebText = `<b>30-Day Pass Activated! / የ30 ቀን ሙሉ አባልነት ፓስዎ ተከፍቷል!</b>
+ const celebText = `<b>3-Month Pass Activated! / የ3 ወር ሙሉ አባልነት ፓስዎ ተከፍቷል!</b>
 
-• <b>Status / ሁኔታ:</b> <b>Active (30 Days Remaining) / የሚሰራ (30 ቀናት ቀርተዋል)</b>
+• <b>Status / ሁኔታ:</b> <b>Active (90 Days Remaining) / የሚሰራ (90 ቀናት ቀርተዋል)</b>
 • <b>Transaction Ref / የግብይት ቁጥር:</b> <code>${reference}</code>
 <blockquote>Unlimited channel posting and connect requests with zero per-contact fees!
 አሁን ማስታወቂያዎችን ወደ ቻናሉ መለጠፍ እና ያለተጨማሪ ክፍያ የግንኙነት ጥያቄ መላክ ይችላሉ! </blockquote>
@@ -10429,7 +10429,7 @@ All administrators of this channel can now use bot admin features, and approved 
  if (handled) return NextResponse.json({ ok: true });
  }
 
- // Handle 30-Day Unified Membership Pass Payment Reference Submission
+ // Handle 3-Month Unified Membership Pass Payment Reference Submission
  if (session.step && session.step.startsWith('awaiting_payment_for_membership:')) {
  const txRef = extractTransactionReference(text);
  const lang = getLanguage(session.draft_data, chatId);
@@ -10468,7 +10468,7 @@ All administrators of this channel can now use bot admin features, and approved 
 
  const isCbe = txRef.toUpperCase().startsWith('FT') || txRef.toLowerCase().includes('cbe.com.et');
  const bankHint = isCbe ? 'cbe' : undefined;
- const verifyRes = await verifyTelebirrPayment(txRef, 300, bankHint);
+ const verifyRes = await verifyTelebirrPayment(txRef, 100, bankHint);
 
  if (!verifyRes.success) {
  const failMsg = (verifyRes.messageAm && verifyRes.message) ? `${verifyRes.message}\n\n${verifyRes.messageAm}` : (verifyRes.message || 'Verification failed');
@@ -10489,7 +10489,7 @@ All administrators of this channel can now use bot admin features, and approved 
  order_type: 'membership_pass',
  target_type: 'membership_30d',
  target_id: 'pass_30d',
- amount: verifyRes.paidAmount ?? 300.0,
+ amount: verifyRes.paidAmount ?? 100.0,
  transaction_reference: txRef,
  payment_status: 'completed',
  verified_at: new Date().toISOString(),
@@ -10506,7 +10506,7 @@ All administrators of this channel can now use bot admin features, and approved 
  user_id: chatId,
  bank: verifyRes.bank || 'telebirr',
  reference: txRef,
- amount: verifyRes.paidAmount ?? 300,
+ amount: verifyRes.paidAmount ?? 100,
  });
  } catch {}
 
@@ -10517,9 +10517,9 @@ All administrators of this channel can now use bot admin features, and approved 
 
  await clearSession(chatId);
 
- const celebText = `<b>Congratulations! 30-Day All-Access Pass Activated! / እንኳን ደስ አላችሁ! የ30 ቀን ሙሉ አባልነት ፓስዎ ተከፍቷል!</b>
+ const celebText = `<b>Congratulations! 3-Month All-Access Pass Activated! / እንኳን ደስ አላችሁ! የ3 ወር ሙሉ አባልነት ፓስዎ ተከፍቷል!</b>
 
-• <b>Status / ሁኔታ:</b> <b>Active (30 Days Remaining) / የሚሰራ (30 ቀናት ቀርተዋል)</b>
+• <b>Status / ሁኔታ:</b> <b>Active (90 Days Remaining) / የሚሰራ (90 ቀናት ቀርተዋል)</b>
 • <b>Transaction Ref / የግብይት ቁጥር:</b> <code>${txRef}</code>
 <blockquote>You now have unlimited channel posting and unlimited connect requests across SpaceMatch Addis with zero per-contact fees!
 አሁን ማስታወቂያዎችን ወደ ቻናሉ መለጠፍ እና ያለምንም ተጨማሪ ክፍያ ለፈለጉት ክፍል ጓደኛ የግንኙነት ጥያቄ መላክ ይችላሉ! </blockquote>
@@ -10573,7 +10573,7 @@ All administrators of this channel can now use bot admin features, and approved 
 
  const isCbe = txRef.toUpperCase().startsWith('FT') || txRef.toLowerCase().includes('cbe.com.et');
  const bankHint = isCbe ? 'cbe' : undefined;
- const verifyRes = await verifyTelebirrPayment(txRef, 300, bankHint);
+ const verifyRes = await verifyTelebirrPayment(txRef, 100, bankHint);
 
  if (!verifyRes.success) {
  const failMsg = (verifyRes.messageAm && verifyRes.message) ? `${verifyRes.message}\n\n${verifyRes.messageAm}` : (verifyRes.message || 'Verification failed');
@@ -10661,7 +10661,7 @@ All administrators of this channel can now use bot admin features, and approved 
  order_type: 'unlock_contact',
  target_type: targetType,
  target_id: targetId,
- amount: 300.00,
+ amount: 100.00,
  transaction_reference: txRef,
  payment_status: 'completed',
  verified_at: new Date().toISOString(),
@@ -10670,7 +10670,7 @@ All administrators of this channel can now use bot admin features, and approved 
  console.error('Error saving completed order:', err);
  }
 
- // Activate 30-Day Unified Membership Pass as well
+ // Activate 3-Month Unified Membership Pass as well
  await activateUserMembership(chatId, undefined, txRef);
 
  await clearSession(chatId);

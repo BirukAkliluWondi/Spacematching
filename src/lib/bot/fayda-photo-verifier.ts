@@ -185,9 +185,10 @@ export function getFaydaGuidancePair(code: FaydaErrorCode): { messageAm: string;
 /**
  * Scans an image buffer with sharp multi-pass enhancement and zxing-wasm.
  */
-async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<string[]> {
+async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<Array<string | Uint8Array>> {
   await ensureZXingReady();
-  const foundTexts = new Set<string>();
+  const foundPayloads: Array<string | Uint8Array> = [];
+  const seenTexts = new Set<string>();
 
   const passes: Array<{
     name: string;
@@ -259,12 +260,16 @@ async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<string[]> {
       );
 
       for (const b of barcodes) {
-        if (b.text && b.text.trim()) {
-          foundTexts.add(b.text.trim());
+        if (b.bytes && b.bytes.length > 0) {
+          foundPayloads.push(b.bytes);
+        }
+        if (b.text && b.text.trim() && !seenTexts.has(b.text.trim())) {
+          seenTexts.add(b.text.trim());
+          foundPayloads.push(b.text.trim());
         }
       }
 
-      if (foundTexts.size > 0) {
+      if (foundPayloads.length > 0) {
         break; // Found readable QR code, stop further passes
       }
     } catch {
@@ -272,7 +277,7 @@ async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<string[]> {
     }
   }
 
-  return Array.from(foundTexts);
+  return foundPayloads;
 }
 
 // ─── Media Ingestion Helpers ─────────────────────────────────────────────────

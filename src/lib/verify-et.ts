@@ -305,7 +305,7 @@ function mapVerifyError(
  */
 export async function verifyTelebirrPayment(
   referenceNumber: string,
-  expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '300'),
+  expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '100'),
   preferredBank?: string
 ): Promise<VerifyEtResult> {
   const apiKey =
