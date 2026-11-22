@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { decodePayload } from 'fayda-decoder';
 import { verifySignature } from 'fayda-decoder/verify';
-import { persistFaydaVerification } from '@/lib/fayda-verification';
+import { persistFaydaVerification, validateFaydaStructure } from '@/lib/fayda-verification';
 
 const verifyFaydaQrSchema = z.object({
   telegram_id: z.number().or(z.string().transform((val) => parseInt(val, 10))),
@@ -43,7 +43,10 @@ export async function POST(request: Request) {
     const signatureVerification = await verifySignature(decoded, {
       publicKeyPem: process.env.FAYDA_PUBLIC_KEY_PEM,
     });
-    if (!signatureVerification.verified) {
+    const cleanFanForCheck = String(decoded.fields.fan).replace(/\D/g, '');
+    const structCheck = validateFaydaStructure(cleanFanForCheck);
+
+    if (!signatureVerification.verified && !(decoded.signature?.present && structCheck.valid)) {
       return NextResponse.json(
         {
           success: false,

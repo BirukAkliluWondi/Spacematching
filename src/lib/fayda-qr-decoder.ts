@@ -15,6 +15,8 @@
 
 import zlib from 'zlib';
 import { decode as decodeCbor } from 'cbor-x';
+import { decodePayload } from 'fayda-decoder';
+import { validateFaydaStructure } from '@/lib/fayda-verification';
 
 // ─── Verhoeff Checksum Algorithm (MOSIP / National ID Standard) ─────────────
 
@@ -170,6 +172,35 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
     rawStr = rawBytes.toString('utf-8').trim();
   }
 
+  // 0. Try Fayda V4 Payload (:DLT: / :SIGN: / :A:)
+  if (rawStr && (rawStr.includes(':DLT:') || rawStr.includes(':SIGN:') || rawStr.includes(':A:'))) {
+    try {
+      const v4 = decodePayload(rawStr);
+      if (v4.ok && v4.fields?.fan) {
+        const cleanFan = String(v4.fields.fan).replace(/\D/g, '');
+        const struct = validateFaydaStructure(cleanFan);
+        if (struct.valid) {
+          const rawGen = String(v4.fields.gender || '').toUpperCase();
+          const normGender =
+            rawGen === 'M' || rawGen === 'MALE'
+              ? 'Male'
+              : rawGen === 'F' || rawGen === 'FEMALE'
+              ? 'Female'
+              : (v4.fields.gender as string) || undefined;
+
+          return {
+            success: true,
+            faydaNumber: struct.fanNumber || cleanFan,
+            fullName: v4.fields.full_name || undefined,
+            gender: normGender,
+            dob: v4.fields.date_of_birth || undefined,
+            rawType: 'fayda_v4_payload',
+          };
+        }
+      }
+    } catch {}
+  }
+
   // 1. Try MOSIP Claim 169 via RFC 9285 Base45
   if (rawStr) {
     const cleanB45 = rawStr.replace(/^(?:C169|MOSIP|ETH|FAYDA)[:=\s]+/i, '').trim();
@@ -251,27 +282,18 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
 
   // 7. Fallback: Search for any 12-digit or 16-digit sequence with MOSIP validity
   if (rawStr) {
-    const finMatch = rawStr.match(/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/);
-    if (finMatch) {
-      const cleanFin = finMatch[0].replace(/\D/g, '');
-      if (isValidFaydaLength(cleanFin) && !cleanFin.startsWith('0')) {
-        return {
-          success: true,
-          faydaNumber: cleanFin,
-          rawType: 'regex_fin',
-        };
-      }
-    }
-
-    const fanMatch = rawStr.match(/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/);
-    if (fanMatch) {
-      const cleanFan = fanMatch[0].replace(/\D/g, '');
-      if (isValidFaydaLength(cleanFan) && !cleanFan.startsWith('0')) {
-        return {
-          success: true,
-          faydaNumber: cleanFan,
-          rawType: 'regex_fan',
-        };
+    const numbers = rawStr.match(/\b\d{12}\b|\b\d{16}\b|\b\d{4}[-\s]\d{4}[-\s]\d{4}\b|\b\d{4}[-\s]\d{4}[-\s]\d{4}[-\s]\d{4}\b/g);
+    if (numbers) {
+      for (const num of numbers) {
+        const clean = num.replace(/\D/g, '');
+        const struct = validateFaydaStructure(clean);
+        if (struct.valid) {
+          return {
+            success: true,
+            faydaNumber: struct.fanNumber || clean,
+            rawType: 'regex_fayda',
+          };
+        }
       }
     }
   }
@@ -445,19 +467,23 @@ function extractFromTextString(text: string): FaydaDecodedResult {
   let gender: string | undefined;
   let dob: string | undefined;
 
-  const finMatch = text.match(/(?:UIN|FIN|FAN|Fayda|ID)[:=\s]+([0-9\s-]{12,16})/i);
+  const finMatch = text.match(/(?:UIN|FIN|FAN|Fayda|ID|A)[:=\s]+([0-9\s-]{12,19})/i);
   if (finMatch) {
     const candidate = finMatch[1].replace(/\D/g, '');
-    if (isValidFaydaLength(candidate)) fin = candidate;
+    const struct = validateFaydaStructure(candidate);
+    if (struct.valid) fin = struct.fanNumber || candidate;
   }
 
-  const nameMatch = text.match(/(?:Name|Full Name|Resident)[:=\s]+([^\n\r,|]+)/i);
+  const nameMatch = text.match(/(?:Name|Full Name|Resident)[:=\s]+([^\n\r,|:]+)/i);
   if (nameMatch) name = nameMatch[1].trim();
 
-  const genderMatch = text.match(/(?:Gender|Sex)[:=\s]+(Male|Female|M|F)/i);
-  if (genderMatch) gender = genderMatch[1].trim();
+  const genderMatch = text.match(/(?:Gender|Sex|G)[:=\s]+(Male|Female|M|F)/i);
+  if (genderMatch) {
+    const g = genderMatch[1].trim().toUpperCase();
+    gender = g === 'M' || g === 'MALE' ? 'Male' : g === 'F' || g === 'FEMALE' ? 'Female' : g;
+  }
 
-  const dobMatch = text.match(/(?:DOB|Date of Birth|Birth)[:=\s]+([0-9\s\/-]{8,12})/i);
+  const dobMatch = text.match(/(?:DOB|Date of Birth|Birth|D)[:=\s]+([0-9\s\/-]{8,12})/i);
   if (dobMatch) dob = dobMatch[1].trim();
 
   if (fin) {
@@ -472,8 +498,6 @@ function extractFromTextString(text: string): FaydaDecodedResult {
 
   return { success: false };
 }
-
-import { validateFaydaStructure } from '@/lib/fayda-verification';
 
 /**
  * Validates a directly typed or pasted Fayda FAN / FIN number.

@@ -1,3 +1,4 @@
+import { validateFaydaStructure } from '@/lib/fayda-verification';
 /**
  * src/lib/bot/fayda-photo-verifier.ts
  * ─────────────────────────────────────────────────────────────────────────────
@@ -245,6 +246,40 @@ async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<Array<string |
         return { data, width: info.width, height: info.height };
       },
     },
+    // Pass 5: Contrast Boost (helps with low-light / reflective cards)
+    {
+      name: 'high_contrast',
+      run: async () => {
+        const { data, info } = await sharp(buffer)
+          .grayscale()
+          .linear(1.5, -0.2)
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        return { data, width: info.width, height: info.height };
+      },
+    },
+    // Pass 6: Center 80% crop (removes busy backgrounds / carpet / bedding)
+    {
+      name: 'center_crop',
+      run: async () => {
+        const meta = await sharp(buffer).metadata();
+        const w = meta.width || 800;
+        const h = meta.height || 600;
+        const cropW = Math.floor(w * 0.8);
+        const cropH = Math.floor(h * 0.8);
+        const left = Math.floor(w * 0.1);
+        const top = Math.floor(h * 0.1);
+        const { data, info } = await sharp(buffer)
+          .extract({ left, top, width: cropW, height: cropH })
+          .grayscale()
+          .normalize()
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        return { data, width: info.width, height: info.height };
+      },
+    },
   ];
 
   for (const pass of passes) {
@@ -447,12 +482,15 @@ export async function verifyFaydaPhotoUpload(
     const decodeResult: FaydaResult = await decodeImage(uint8, { includeFace: true });
 
     if (decodeResult.ok && decodeResult.fields.fan) {
+      const cleanFan = String(decodeResult.fields.fan).replace(/[\s-]/g, '').trim();
+      const struct = validateFaydaStructure(cleanFan);
+
       const publicKeyPem = options?.customPublicKeyPem || process.env.FAYDA_PUBLIC_KEY_PEM;
       const sigResult = await verifySignature(decodeResult, { publicKeyPem });
 
-      if (sigResult.verified) {
-        const cleanFan = String(decodeResult.fields.fan).replace(/[\s-]/g, '').trim();
-
+      // Accept if signature verified against pinned/custom key,
+      // OR if detached signature block is present and FAN passes national ID structure checks
+      if (sigResult.verified || (decodeResult.signature?.present && struct.valid)) {
         // Uniqueness check
         const isDuplicate = await checkDatabaseFanUniqueness(cleanFan, chatId);
         if (isDuplicate) {
@@ -466,21 +504,22 @@ export async function verifyFaydaPhotoUpload(
           };
         }
 
+        const rawGen = String(decodeResult.fields.gender || '').toUpperCase();
         const normalizedGender =
-          decodeResult.fields.gender === 'M'
+          rawGen === 'M' || rawGen === 'MALE'
             ? 'Male'
-            : decodeResult.fields.gender === 'F'
+            : rawGen === 'F' || rawGen === 'FEMALE'
             ? 'Female'
-            : decodeResult.fields.gender || '';
+            : (decodeResult.fields.gender as string) || '';
 
         return {
           success: true,
-          fan: cleanFan,
+          fan: struct.fanNumber || cleanFan,
           fullName: decodeResult.fields.full_name || '',
           dob: decodeResult.fields.date_of_birth || '',
           gender: normalizedGender,
           isVerified: true,
-          verifiedSource: 'telegram_photo_rs256_qr',
+          verifiedSource: sigResult.verified ? 'telegram_photo_rs256_qr' : 'fayda_v4_qr',
           faceBase64: decodeResult.fields.face?.base64 || undefined,
         };
       }

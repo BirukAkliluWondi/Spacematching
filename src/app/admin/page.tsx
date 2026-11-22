@@ -54,7 +54,7 @@ export default function AdminPage() {
  const [stats, setStats] = useState<Stats | null>(null);
  const [spaces, setSpaces] = useState<Space[]>([]);
  const [loading, setLoading] = useState(true);
- const [activeTab, setActiveTab] = useState<'channel' | 'custom' | 'orders' | 'users'>('channel');
+ const [activeTab, setActiveTab] = useState<'channel' | 'custom' | 'orders' | 'users' | 'register_roommate'>('channel');
  const [actionStatus, setActionStatus] = useState<string | null>(null);
 
  // Fayda & Users search state
@@ -68,6 +68,114 @@ export default function AdminPage() {
  const [customPhoto, setCustomPhoto] = useState('');
  const [selectedListingId, setSelectedListingId] = useState('');
  const [postingCustom, setPostingCustom] = useState(false);
+
+  // ── Roommate Before Room (DB Only) State ──
+  const [rmFullName, setRmFullName] = useState('');
+  const [rmGender, setRmGender] = useState<'Male' | 'Female'>('Female');
+  const [rmPreferredGender, setRmPreferredGender] = useState<'Any' | 'Female' | 'Male'>('Any');
+  const [rmLocations, setRmLocations] = useState<string[]>([]);
+  const [rmBudgetMin, setRmBudgetMin] = useState('');
+  const [rmBudgetMax, setRmBudgetMax] = useState('');
+  const [rmBio, setRmBio] = useState('');
+  const [rmAge, setRmAge] = useState('');
+  const [rmOccupation, setRmOccupation] = useState('');
+  const [rmReligion, setRmReligion] = useState('');
+  const [rmPhone, setRmPhone] = useState('');
+  const [rmTelegram, setRmTelegram] = useState('');
+  const [rmDisplayCode, setRmDisplayCode] = useState('');
+  const [submittingRm, setSubmittingRm] = useState(false);
+  const [registeredRoommates, setRegisteredRoommates] = useState<any[]>([]);
+  const [loadingRoommates, setLoadingRoommates] = useState(false);
+  const [roommateSearch, setRoommateSearch] = useState('');
+
+  const ADDIS_SUBCITIES = [
+    'Bole', 'Mexico', 'Kazanchis', 'CMC', 'Sarbet', 'Piassa',
+    '4 Kilo', 'Megenagna', 'Ayat', 'Summit', 'Lebu', 'Gerji',
+    'Gotera', 'Tor Hailoch', 'Gurd Shola', 'Hayahulet', 'Jemo'
+  ];
+
+  const fetchRoommates = async (q = '') => {
+    setLoadingRoommates(true);
+    try {
+      const res = await fetch(`/api/admin/roommates${q ? `?query=${encodeURIComponent(q)}` : ''}`);
+      const data = await res.json();
+      if (data.success) {
+        setRegisteredRoommates(data.roommates || []);
+      }
+    } catch (err: any) {
+      console.error('[fetchRoommates] error:', err);
+    } finally {
+      setLoadingRoommates(false);
+    }
+  };
+
+  const handleRegisterRoommate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rmFullName.trim()) {
+      alert('Please enter full name.');
+      return;
+    }
+    if (!rmBudgetMax || Number(rmBudgetMax) <= 0) {
+      alert('Please enter a valid maximum budget.');
+      return;
+    }
+    if (!rmBio.trim()) {
+      alert('Please enter a bio / lifestyle description.');
+      return;
+    }
+
+    setSubmittingRm(true);
+    try {
+      const res = await fetch('/api/admin/roommates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: rmFullName,
+          gender: rmGender,
+          preferredGender: rmPreferredGender,
+          locations: rmLocations,
+          budgetMin: Number(rmBudgetMin) || 0,
+          budgetMax: Number(rmBudgetMax),
+          bio: rmBio,
+          age: rmAge ? Number(rmAge) : undefined,
+          occupation: rmOccupation || undefined,
+          religion: rmReligion || undefined,
+          phone: rmPhone || undefined,
+          telegramHandle: rmTelegram || undefined,
+          displayCode: rmDisplayCode || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActionStatus(`✅ Roommate ${data.displayCode} successfully registered to database! Ready for matchmaker search.`);
+        // Reset form fields
+        setRmFullName('');
+        setRmBudgetMin('');
+        setRmBudgetMax('');
+        setRmBio('');
+        setRmAge('');
+        setRmOccupation('');
+        setRmReligion('');
+        setRmPhone('');
+        setRmTelegram('');
+        setRmDisplayCode('');
+        setRmLocations([]);
+        fetchRoommates();
+      } else {
+        setActionStatus(`❌ Error: ${data.error}`);
+      }
+    } catch (err: any) {
+      setActionStatus(`❌ Error: ${err.message}`);
+    } finally {
+      setSubmittingRm(false);
+    }
+  };
+
+  const toggleSubCity = (subcity: string) => {
+    setRmLocations((prev) =>
+      prev.includes(subcity) ? prev.filter((s) => s !== subcity) : [...prev, subcity]
+    );
+  };
 
  const fetchUsers = async (search = '') => {
  setLoadingUsers(true);
