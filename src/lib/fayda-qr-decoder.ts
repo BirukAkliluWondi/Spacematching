@@ -175,6 +175,35 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
   // 0. Try Fayda V4 Payload (:DLT: / :SIGN: / :A:)
   if (rawStr && (rawStr.includes(':DLT:') || rawStr.includes(':SIGN:') || rawStr.includes(':A:'))) {
     try {
+      // Direct string-split parsing for maximum resilience (independent of library version restrictions)
+      const dltIdx = rawStr.indexOf(':DLT:');
+      const rest = dltIdx !== -1 ? rawStr.slice(dltIdx + 5) : rawStr;
+      const signIdx = rest.indexOf(':SIGN:');
+      const fieldsStr = signIdx !== -1 ? rest.slice(0, signIdx) : rest;
+      const parts = fieldsStr.split(':');
+      const directName = parts[0]?.trim() || '';
+      const map: Record<string, string> = {};
+      for (let i = 1; i + 1 < parts.length; i += 2) {
+        map[parts[i]] = parts[i + 1];
+      }
+      const rawFan = map['A'] || map['FIN'] || map['UIN'] || map['FAN'];
+      if (rawFan) {
+        const cleanFan = rawFan.replace(/\D/g, '');
+        if (cleanFan.length === 12 || cleanFan.length === 16) {
+          const rawGen = (map['G'] || '').toUpperCase();
+          const normGender = rawGen === 'M' ? 'Male' : rawGen === 'F' ? 'Female' : rawGen || undefined;
+          return {
+            success: true,
+            faydaNumber: cleanFan,
+            fullName: directName || undefined,
+            gender: normGender,
+            dob: map['D'] || undefined,
+            rawType: 'fayda_v4_direct',
+          };
+        }
+      }
+
+      // Also try official fayda-decoder
       const v4 = decodePayload(rawStr);
       if (v4.ok && v4.fields?.fan) {
         const cleanFan = String(v4.fields.fan).replace(/\D/g, '');
@@ -196,6 +225,21 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
             dob: v4.fields.date_of_birth || undefined,
             rawType: 'fayda_v4_payload',
           };
+        }
+      } else if (v4.raw?.map) {
+        const rawFanFromMap = v4.raw.map['A'] || v4.raw.map['UIN'] || v4.raw.map['FIN'];
+        if (rawFanFromMap) {
+          const cleanFan = String(rawFanFromMap).replace(/\D/g, '');
+          if (cleanFan.length === 12 || cleanFan.length === 16) {
+            return {
+              success: true,
+              faydaNumber: cleanFan,
+              fullName: directName || undefined,
+              gender: v4.raw.map['G'] === 'M' ? 'Male' : v4.raw.map['G'] === 'F' ? 'Female' : undefined,
+              dob: v4.raw.map['D'] || undefined,
+              rawType: 'fayda_v4_raw_map',
+            };
+          }
         }
       }
     } catch {}
@@ -354,29 +398,90 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
     }
 
     // 4. Resolve Claim 169 (identity-data) or root claims
-    const identityData =
+    let identityData: any =
       (claims instanceof Map
         ? claims.get(169) || claims.get('169')
         : claims?.[169] || claims?.['169']) || claims;
+
+    // If Claim 169 is serialized as a nested CBOR byte string (bstr .cbor IdentityData per MOSIP spec), decode it
+    if (Buffer.isBuffer(identityData) || identityData instanceof Uint8Array) {
+      try {
+        let innerBuf: Buffer = Buffer.from(identityData);
+        try { innerBuf = zlib.inflateSync(innerBuf); } catch {}
+        const innerDecoded = decodeCbor(innerBuf);
+        if (innerDecoded && typeof innerDecoded === 'object') {
+          identityData = innerDecoded;
+        }
+      } catch {}
+    }
 
     if (!identityData || typeof identityData !== 'object') {
       return { success: false };
     }
 
     const getVal = (keys: (string | number)[]): any => {
+      if (!identityData) return undefined;
       for (const k of keys) {
-        if (identityData instanceof Map && identityData.has(k)) return identityData.get(k);
-        if (identityData[k] !== undefined) return identityData[k];
+        if (identityData instanceof Map) {
+          if (identityData.has(k)) return identityData.get(k);
+          const num = Number(k);
+          if (!isNaN(num) && identityData.has(num)) return identityData.get(num);
+          const str = String(k);
+          if (identityData.has(str)) return identityData.get(str);
+        } else if (typeof identityData === 'object') {
+          if (identityData[k] !== undefined) return identityData[k];
+          const str = String(k);
+          if (identityData[str] !== undefined) return identityData[str];
+        }
       }
       return undefined;
     };
 
     // Key 1 in MOSIP Claim 169 is UIN / ID
-    const fin = getVal([
+    let fin = getVal([
       1, '1',
       'uin', 'fin', 'fayda_number', 'fayda_id', 'id',
       'UIN', 'FIN', 'sub', 'fan', 'FAN'
     ]);
+
+    // Handle binary-encoded UIN buffer or byte array
+    if (Buffer.isBuffer(fin) || fin instanceof Uint8Array) {
+      fin = Buffer.from(fin).toString('utf-8');
+    }
+
+    // Fallback: Recursively search CBOR structure if direct key was absent
+    if (!fin) {
+      const findFaydaNumberRecursive = (node: any): string | null => {
+        if (!node) return null;
+        if (typeof node === 'string') {
+          const clean = node.replace(/\D/g, '');
+          if (clean.length === 12 || clean.length === 16) return clean;
+        }
+        if (typeof node === 'number') {
+          const s = String(node);
+          if (s.length === 12 || s.length === 16) return s;
+        }
+        if (Buffer.isBuffer(node) || node instanceof Uint8Array) {
+          const s = Buffer.from(node).toString('utf-8');
+          const clean = s.replace(/\D/g, '');
+          if (clean.length === 12 || clean.length === 16) return clean;
+        }
+        if (node instanceof Map) {
+          for (const [k, v] of node.entries()) {
+            const found = findFaydaNumberRecursive(v);
+            if (found) return found;
+          }
+        } else if (typeof node === 'object') {
+          for (const key of Object.keys(node)) {
+            const found = findFaydaNumberRecursive(node[key]);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      fin = findFaydaNumberRecursive(identityData) || findFaydaNumberRecursive(claims);
+    }
+
     if (!fin) return { success: false };
 
     const cleanFin = String(fin).replace(/\D/g, '');
@@ -384,12 +489,15 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
 
     // Key 4: Full Name, Key 5: First Name, 6: Middle Name, 7: Last Name
     let name = getVal([4, '4', 'name', 'fullName', 'full_name', 'resident_name', 'NAME', 'residentName']);
+    if (Buffer.isBuffer(name) || name instanceof Uint8Array) {
+      name = Buffer.from(name).toString('utf-8');
+    }
     if (!name) {
       const first = getVal([5, '5', 'firstName', 'first_name']);
       const middle = getVal([6, '6', 'middleName', 'middle_name']);
       const last = getVal([7, '7', 'lastName', 'last_name', 'surname']);
       if (first || last) {
-        name = [first, middle, last].filter(Boolean).join(' ');
+        name = [first, middle, last].filter(Boolean).map(v => Buffer.isBuffer(v) ? Buffer.from(v).toString('utf-8') : String(v)).join(' ');
       }
     }
 

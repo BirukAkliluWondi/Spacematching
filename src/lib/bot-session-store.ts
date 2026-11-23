@@ -828,7 +828,7 @@ export async function getUserMembershipStatus(telegramId: number): Promise<Membe
     const { data: order } = await supabase
       .from('orders')
       .select('id, verified_at, created_at, transaction_reference, amount')
-      .eq('buyer_telegram_id', telegramId)
+      .or(`buyer_telegram_id.eq.${telegramId},renter_telegram_id.eq.${telegramId}`)
       .eq('payment_status', 'completed')
       .gte('created_at', ninetyDaysAgo)
       .gte('amount', 100)

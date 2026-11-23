@@ -686,10 +686,25 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
   );
 }
 
+interface CachedCardPng {
+  buffer: Buffer;
+  expiresAt: number;
+}
+const _cardPngCache = new Map<string, CachedCardPng>();
+const CARD_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour in-memory RAM cache
+
 /**
  * Universal PNG generator supporting all bot screen cards.
+ * Implements high-speed in-memory buffer caching to eliminate bot lag.
  */
 export async function generateCardPng(type: CardScreenType, params: DynamicCardParams = {}): Promise<Buffer> {
+  const cacheKey = `${type}:${JSON.stringify(params)}`;
+  const now = Date.now();
+  const cached = _cardPngCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.buffer;
+  }
+
   const fonts = loadFonts();
   const element = buildUniversalCardElement(type, params);
 
@@ -719,7 +734,9 @@ export async function generateCardPng(type: CardScreenType, params: DynamicCardP
   });
 
   const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  const buffer = Buffer.from(arrayBuffer);
+  _cardPngCache.set(cacheKey, { buffer, expiresAt: now + CARD_CACHE_TTL_MS });
+  return buffer;
 }
 
 // Backwards-compatible aliases

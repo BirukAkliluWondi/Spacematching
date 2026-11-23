@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import {
@@ -163,21 +165,60 @@ export async function POST(request: Request) {
  }
  };
 
-  // Helper to send photo buffer via multipart/form-data with keep-alive and network timeout guard
+  // In-memory Telegram CDN file_id cache: eliminates bot lag by sending via file_id (~40ms) instead of multipart re-upload (~2000ms)
+  const _telegramFileIdCache = new Map<string, string>();
+
+  // Helper to load official Fayda backside sample photo
+  const getFaydaBacksideSampleBuffer = (): Buffer => {
+    const candidates = [
+      path.join(process.cwd(), 'public', 'images', 'fayda_sample_back.png'),
+      path.join(process.cwd(), 'public', 'fayda_sample_back.png'),
+      path.join(process.cwd(), 'public', 'fayda-sample-back.jpg'),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(/*turbopackIgnore: true*/ p)) {
+        return fs.readFileSync(/*turbopackIgnore: true*/ p);
+      }
+    }
+    return Buffer.alloc(0);
+  };
+
+  // Helper to send photo buffer with file_id caching, keep-alive and network timeout guard
   const sendTelegramPhotoBuffer = async (
     chatId: number,
     photoBuffer: Buffer,
     caption?: string,
-    keyboard?: any[][]
+    keyboard?: any[][],
+    cacheKey?: string
   ): Promise<{ ok: boolean; result?: { message_id: number } } | null> => {
     if (!botToken) return null;
     if (process.env.MOCK_TELEGRAM_API === 'true') {
       return { ok: true, result: { message_id: 9999 } };
     }
+
+    // 1. Ultra-fast path: If cached Telegram file_id exists, send via lightweight JSON (~40-60ms)
+    if (cacheKey && _telegramFileIdCache.has(cacheKey)) {
+      const cachedFileId = _telegramFileIdCache.get(cacheKey)!;
+      try {
+        const payload: Record<string, any> = {
+          chat_id: chatId,
+          photo: cachedFileId,
+          parse_mode: 'HTML',
+        };
+        if (caption) payload.caption = caption;
+        if (keyboard) payload.reply_markup = { inline_keyboard: keyboard };
+        const res = await sendTelegram('sendPhoto', payload);
+        if (res?.ok) return res;
+      } catch (e) {
+        console.warn('[sendTelegramPhotoBuffer] Fast-path file_id send failed, retrying upload:', e);
+      }
+    }
+
+    // 2. Upload photo buffer via multipart/form-data
     try {
       const formData = new FormData();
       formData.append('chat_id', String(chatId));
-      formData.append('photo', new Blob([new Uint8Array(photoBuffer)], { type: 'image/png' }), 'start_card.png');
+      formData.append('photo', new Blob([new Uint8Array(photoBuffer)], { type: 'image/png' }), 'card.png');
       if (caption) {
         formData.append('caption', caption);
         formData.append('parse_mode', 'HTML');
@@ -191,7 +232,14 @@ export async function POST(request: Request) {
         body: formData,
         signal: AbortSignal.timeout(10000),
       });
-      return await res.json();
+      const data = await res.json();
+      if (data?.ok && data.result?.photo && cacheKey) {
+        const largestPhoto = data.result.photo.at(-1);
+        if (largestPhoto?.file_id) {
+          _telegramFileIdCache.set(cacheKey, largestPhoto.file_id);
+        }
+      }
+      return data;
     } catch (err) {
       console.error('sendTelegramPhotoBuffer error:', err);
       return null;
@@ -1094,7 +1142,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       updated_at: new Date().toISOString(),
     });
 
-    const gateText = `<b>Fayda ID Verification / የፋይዳ ማረጋገጫ</b>\n\n<blockquote>Upload a clear photo of the back of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>\n\nVerified instantly via QR. Photos are never stored. / በQR ወዲያው ይረጋገጣል፤ ፎቶዎች አይቀመጡም።`;
+    const gateText = `<b>Upload Back of Fayda ID / የፋይዳ ካርድዎን ጀርባ ይላኩ</b>\n\n<blockquote>Like shown in the sample photo above, please upload a clear photo of the BACK of your Fayda card showing the official QR code.\n\nከላይ በምስሉ ላይ እንደሚታየው፣ ይፋዊው የQR ኮድ የሚገኝበትን የፋይዳ ካርድዎን ጀርባ ፎቶ አንስተው ይላኩ።</blockquote>\n\n⚡ <b>Verified instantly via QR · Zero documents stored</b>\n⚡ <b>በQR ወዲያው ይረጋገጣል · ምንም አይነት ፎቶ በሲስተሙ አይቀመጥም</b>`;
 
     // Strict Grid Symmetry: 2-Column Action Grid
     const inlineKeyboard = [
@@ -1108,16 +1156,17 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
     if (ENABLE_DYNAMIC_START_IMAGE) {
       try {
-        const pngBuffer = await generateFaydaCardPng();
+        const sampleBuffer = getFaydaBacksideSampleBuffer();
+        const sendBuffer = sampleBuffer && sampleBuffer.length > 0 ? sampleBuffer : await generateFaydaCardPng();
         if (messageIdToEdit) {
           sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
         }
-        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, gateText, inlineKeyboard);
+        const photoRes = await sendTelegramPhotoBuffer(chatId, sendBuffer, gateText, inlineKeyboard, 'fayda_sample_back');
         if (photoRes?.ok && photoRes.result?.message_id) {
           activeId = photoRes.result.message_id;
         }
       } catch (err) {
-        console.warn('Dynamic card generation failed for Fayda gate:', err);
+        console.warn('Sample image send failed for Fayda gate:', err);
       }
     }
 
@@ -1789,7 +1838,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       updated_at: new Date().toISOString(),
     });
 
-    const promptText = '<b>Fayda ID Verification / የፋይዳ ማረጋገጫ</b>\n\n<blockquote>Upload a clear photo of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>\n\nVerified instantly via QR. Photos are never stored. / በQR ወዲያው ይረጋገጣል፤ ፎቶዎች አይቀመጡም።';
+    const promptText = '<b>Upload Back of Fayda ID / የፋይዳ ካርድዎን ጀርባ ይላኩ</b>\n\n<blockquote>Like shown in the sample photo above, please upload a clear photo of the BACK of your Fayda card showing the official QR code.\n\nከላይ በምስሉ ላይ እንደሚታየው፣ ይፋዊው የQR ኮድ የሚገኝበትን የፋይዳ ካርድዎን ጀርባ ፎቶ አንስተው ይላኩ።</blockquote>\n\n⚡ <b>Verified instantly via QR · Zero documents stored</b>\n⚡ <b>በQR ወዲያው ይረጋገጣል · ምንም አይነት ፎቶ በሲስተሙ አይቀመጥም</b>';
     const text = `${errorMsg ? `<b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
 
     // Strict Grid Symmetry: 2-Column Action Grid
@@ -1804,16 +1853,17 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
     if (ENABLE_DYNAMIC_START_IMAGE) {
       try {
-        const pngBuffer = await generateFaydaCardPng();
+        const sampleBuffer = getFaydaBacksideSampleBuffer();
+        const sendBuffer = sampleBuffer && sampleBuffer.length > 0 ? sampleBuffer : await generateFaydaCardPng();
         if (activeMsgId) {
           sendTelegram('deleteMessage', { chat_id: chatId, message_id: activeMsgId }).catch(() => {});
         }
-        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, text, inlineKeyboard);
+        const photoRes = await sendTelegramPhotoBuffer(chatId, sendBuffer, text, inlineKeyboard, 'fayda_sample_back');
         if (photoRes?.ok && photoRes.result?.message_id) {
           activeId = photoRes.result.message_id;
         }
       } catch (err) {
-        console.warn('Dynamic card generation failed for Fayda fan step:', err);
+        console.warn('Sample image send failed for Fayda fan step:', err);
       }
     }
 
@@ -2415,7 +2465,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
           sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
         }
 
-        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, text, inlineKeyboard);
+        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, text, inlineKeyboard, 'post_branch');
         if (photoRes?.ok && photoRes.result?.message_id) {
           activeId = photoRes.result.message_id;
         }
@@ -3146,7 +3196,7 @@ ${postPreview}
           sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
         }
         const pngBuffer = await generateMembershipCardPng({ isMember: false });
-        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, paywallText.slice(0, 1024), paywallKeyboard);
+        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, paywallText.slice(0, 1024), paywallKeyboard, 'membership_info');
         if (photoRes?.ok && photoRes.result?.message_id) {
           cardMessageId = photoRes.result.message_id;
         }
@@ -3923,7 +3973,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
           sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
         }
 
-        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, welcomeText, inlineKeyboard);
+        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, welcomeText, inlineKeyboard, mem.isActive ? 'start_card_active' : 'start_card_inactive');
         if (photoRes?.ok && photoRes.result?.message_id) {
           activeId = photoRes.result.message_id;
         }
@@ -7267,7 +7317,7 @@ Your phone number and Telegram handle remain strictly confidential until mutual 
  if (msgId) {
  sendTelegram('deleteMessage', { chat_id: chatId, message_id: msgId }).catch(() => {});
  }
- await sendTelegramPhotoBuffer(chatId, pngBuffer, confirmationText, successKeyboard);
+ await sendTelegramPhotoBuffer(chatId, pngBuffer, confirmationText, successKeyboard, 'congrats_card');
  return NextResponse.json({ ok: true });
  } catch (err) {
  console.error('[seeker_final_submit] Dynamic congrats image error, falling back:', err);
@@ -8714,9 +8764,10 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  .from('orders')
  .insert({
  buyer_telegram_id: chatId,
+ renter_telegram_id: chatId,
  order_type: 'membership_pass',
- target_type: 'membership_30d',
- target_id: 'pass_30d',
+ target_type: 'membership_90d',
+ target_id: 'pass_90d',
  amount: verifyResult.paidAmount ?? 100.0,
  transaction_reference: reference,
  payment_status: 'completed',
@@ -10486,9 +10537,10 @@ All administrators of this channel can now use bot admin features, and approved 
  .from('orders')
  .insert({
  buyer_telegram_id: chatId,
+ renter_telegram_id: chatId,
  order_type: 'membership_pass',
- target_type: 'membership_30d',
- target_id: 'pass_30d',
+ target_type: 'membership_90d',
+ target_id: 'pass_90d',
  amount: verifyRes.paidAmount ?? 100.0,
  transaction_reference: txRef,
  payment_status: 'completed',
@@ -10658,6 +10710,7 @@ All administrators of this channel can now use bot admin features, and approved 
  .from('orders')
  .insert({
  buyer_telegram_id: chatId,
+ renter_telegram_id: chatId,
  order_type: 'unlock_contact',
  target_type: targetType,
  target_id: targetId,
