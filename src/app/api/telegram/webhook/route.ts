@@ -1161,7 +1161,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
         if (messageIdToEdit) {
           sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
         }
-        const photoRes = await sendTelegramPhotoBuffer(chatId, sendBuffer, gateText, inlineKeyboard, 'fayda_sample_back');
+        const photoRes = await sendTelegramPhotoBuffer(chatId, sendBuffer, gateText, inlineKeyboard, 'fayda_sample_card_back_v2');
         if (photoRes?.ok && photoRes.result?.message_id) {
           activeId = photoRes.result.message_id;
         }
@@ -1858,7 +1858,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
         if (activeMsgId) {
           sendTelegram('deleteMessage', { chat_id: chatId, message_id: activeMsgId }).catch(() => {});
         }
-        const photoRes = await sendTelegramPhotoBuffer(chatId, sendBuffer, text, inlineKeyboard, 'fayda_sample_back');
+        const photoRes = await sendTelegramPhotoBuffer(chatId, sendBuffer, text, inlineKeyboard, 'fayda_sample_card_back_v2');
         if (photoRes?.ok && photoRes.result?.message_id) {
           activeId = photoRes.result.message_id;
         }
@@ -2246,85 +2246,23 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  return;
  }
 
- const { data: newMatch, error: matchError } = await supabaseAdmin
- .from('matches')
- .insert({
- requester_id: myProfileId,
- target_id: targetProfile.id,
- status: 'pending_acceptance',
- payment_status: 'unpaid',
- })
- .select('id')
- .single();
-
- if (matchError || !newMatch) {
- console.error('[completeSeekerOnboarding] Match creation error:', matchError);
- await sendOrEditCard(
+ // Check 3-Month Unified Membership Pass
+ const mem = await getUserMembershipStatus(chatId);
+ if (!mem.isActive) {
+ await sendMembershipPaywallCard(
  chatId,
- ` Could not send match request. Please try again.`,
- [[{ text: 'Main Menu', callback_data: 'nav_start' }]],
+ 'connect_request',
+ {
+ targetProfileId: targetProfile.id,
+ targetDisplayCode: targetProfile.display_code || targetCode,
+ targetProfile,
+ },
  activeMsgId
  );
- await clearSession(chatId);
  return;
  }
 
- // Target user notification DM: Strictly anonymous (NO real name, NO phone, NO username)
- const reqSubcities = preferredSubs.join(', ');
- const budgetMinStr = Number(userBudgetMin || 0).toLocaleString();
- const budgetMaxStr = Number(userBudgetMax || 10000).toLocaleString();
- const budgetDisplay = userBudgetMin > 0
- ? `${budgetMinStr} – ${budgetMaxStr} ETB / month`
- : `Up to ${budgetMaxStr} ETB / month`;
-
- const genderDisplayStr = userGender === 'Female' ? 'Female / ሴት' : userGender === 'Male' ? 'Male / ወንድ' : userGender;
- const prefGenderDisplayStr = userPrefGender === 'Female' ? 'Female Only / ሴት ብቻ' : userPrefGender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
-
- const targetNotifyText = `<b>New Connection Request / አዲስ የግንኙነት ጥያቄ</b>
-<b>አዲስ የግንኙነት ጥያቄ ደርሶዎታል!</b>
-<blockquote>A verified roommate saw listing <b>#${targetProfile.display_code}</b> and wants to connect!
-አንድ የተረጋገጠ አባል ማስታወቂያዎን አይቶ ሊገናኝዎት ይፈልጋል!</blockquote>
-<b>Identity Verified Candidate</b> · <code>Fayda ID </code>
-
-• <b>Profile / መገለጫ:</b> ${genderDisplayStr}, Age ${userAge}
-• <b>Occupation / ስራ:</b> ${escapeHtml(userJob || 'Professional')}
-• <b>Budget / በጀት:</b> <code>${budgetDisplay}</code>
-<blockquote>"${escapeHtml(userTraits)}"</blockquote>
-<b>Personal contact details are protected until you accept.</b>
-ስልክና አድራሻዎ ጥያቄውን እስኪቀበሉ ድረስ በሚስጥር የተጠበቀ ነው።
- `.trim();
-
- const targetNotifyId = targetProfile.telegram_id > 0
- ? targetProfile.telegram_id
- : (Number(targetProfile.telegram_username?.replace(/^admin[_:]/, '')) || Number(targetProfile.phone_number?.replace(/^admin[_:]/, '')) || (await getAdminIds())[0] || 800701176);
-
- if (targetNotifyId) {
- const sendRes = await tgSend(targetNotifyId, targetNotifyText, {
- inline_keyboard: [
- [
- { text: 'Accept / ተቀበል', callback_data: `match_accept:${newMatch.id}` },
- { text: 'Decline / አልፈልግም', callback_data: `match_decline:${newMatch.id}` },
- ],
- ],
- });
- console.log('[completeSeekerOnboarding] Anonymous notification to target telegram_id', targetNotifyId, 'result:', sendRes?.ok ? 'DELIVERED' : sendRes?.description);
- }
-
- // Notify requester
- const reqLang = getLanguage(draft, chatId);
- const reqIsAm = reqLang === 'am';
- await sendOrEditCard(
- chatId,
- reqIsAm
- ? `<b>ፋይዳ ተረጋግጧል እና የግንኙነት ጥያቄ ተልኳል!</b>\n\nጥያቄዎ ወደ ክፍል ጓደኛ <b>#${targetProfile.display_code}</b> ደርሷል።\n\n<blockquote>እንደተቀበሉ ወዲያውኑ ማሳወቂያ ይደርስዎታል!</blockquote>`
- : `<b>Fayda Verified & Match Request Sent!</b>\n\nYour request has been delivered to Roommate <b>#${targetProfile.display_code}</b>.\n\n<blockquote>You will receive an instant notification the moment they accept!</blockquote>`,
- [
- [{ text: reqIsAm ? ' ሌሎች ፈላጊዎችን ፈልግ ' : ' Find Other Roommates >', callback_data: 'matchmaker_start' }],
- [{ text: reqIsAm ? ' ዋና ማውጫ' : ' Main Menu', callback_data: 'nav_start' }],
- ],
- activeMsgId
- );
-
+ await executeDirectMatchRequest(chatId, targetProfile.id, activeMsgId);
  await clearSession(chatId);
  return;
  }
@@ -3734,6 +3672,20 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  targetProfileId: string,
  messageIdToEdit?: number
  ) => {
+ // Defense-in-depth: Verify 3-Month Pass is active before sending any connection request
+ const mem = await getUserMembershipStatus(chatId);
+ if (!mem.isActive) {
+ await sendMembershipPaywallCard(
+ chatId,
+ 'connect_request',
+ {
+ targetProfileId,
+ },
+ messageIdToEdit
+ );
+ return;
+ }
+
  const { data: requesterProfile } = await supabaseAdmin
  .from('profiles')
  .select('*')
@@ -5723,22 +5675,14 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  inline_keyboard: [
  [{
  text: isSpace
- ? ` Contact Host #${displayCode} / ከአከራይ ጋር ተገናኝ ↗`
- : ` Connect with #${displayCode} / ተገናኝ >`,
+ ? `Contact Host #${displayCode} / ከአከራይ ጋር ተገናኝ >`
+ : `Connect with this roommate #${displayCode} / ከዚህ አጋር ጋር ተገናኝ >`,
  url: isSpace
  ? `https://t.me/${botUsername}?start=order_${displayCode}`
  : `https://t.me/${botUsername}?start=req_${displayCode}`,
  }],
  [{
- text: isSpace
- ? ' Post My Space / ክፍሌን ልለጥፍ ↗'
- : ' Post Profile / መረጃዬን ልለጥፍ >',
- url: isSpace
- ? `https://t.me/${botUsername}?start=post_branch_space`
- : `https://t.me/${botUsername}?start=post_profile`,
- }],
- [{
- text: 'Search Roommate / የቤት አጋር ፈልግ >',
+ text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >',
  url: `https://t.me/${botUsername}?start=search_roommate`,
  }],
  ],
@@ -6842,7 +6786,10 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
  );
  return NextResponse.json({ ok: true });
  } else {
- await sendMembershipPaywallCard(chatId, 'post_channel', { generalPass: true }, msgId);
+ const session = getSession(chatId);
+ const existingPurpose = session?.draft_data?.membership_purpose || 'connect_request';
+ const existingMeta = session?.draft_data?.membership_metadata || { generalPass: true };
+ await sendMembershipPaywallCard(chatId, existingPurpose, existingMeta, msgId);
  return NextResponse.json({ ok: true });
  }
  }

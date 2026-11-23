@@ -52,3 +52,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - The SpaceMatch All-Access Membership Pass is strictly **100 ETB for 3 Months (90 days)**.
 - System threshold for active pass verification in the `orders` table is $\ge 100\text{ ETB}$, granting full unmasked contact reveals and search access for 90 days from transaction date.
 
+## 8. Mandatory 100 ETB Membership Pass Gate for Connection Requests
+- Under no circumstances may a user send, queue, or deliver a roommate connection request or match notification without an active 100 ETB 3-Month Pass (`getUserMembershipStatus(chatId).isActive === true`).
+- Any attempt to initiate a match request (whether via channel deep link `/start req_...`, the matchmaker wizard, or returning user preview card) must immediately present `sendMembershipPaywallCard('connect_request', ...)` if the requesting user does not hold an active $\ge 100\text{ ETB}$ order within the 90-day window.
+- `executeDirectMatchRequest` and `finalizeFaydaVerification` must strictly enforce this check as a defense-in-depth gate, preventing any unauthorized match insertion or notification delivery.
+
+
