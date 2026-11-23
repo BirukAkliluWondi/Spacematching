@@ -366,8 +366,10 @@ export async function verifyTelebirrPayment(
     normalizedBank = 'boa';
   }
   const isCbeRef = cleanRef.toUpperCase().startsWith('FT') || cleanRef.toLowerCase().includes('cbe.com.et');
-  const isTelebirrRef = /^\d{8,16}$/.test(cleanRef);
   const isDashenRef = cleanRef.toUpperCase().startsWith('DTS');
+  const isTelebirrRef =
+    /^\d{8,16}$/.test(cleanRef) ||
+    (!isCbeRef && !isDashenRef && /^[A-Z0-9]{8,14}$/i.test(cleanRef));
 
   if (!normalizedBank) {
     if (isCbeRef) {
@@ -429,15 +431,64 @@ export async function verifyTelebirrPayment(
         continue;
       }
 
-      const data = await response.json();
+      let data = await response.json();
       lastRawResponse = data;
 
-      // Verify.ET may return record in data.data[0] or data.data or root
-      const record = Array.isArray(data.data)
-        ? data.data[0]
-        : data.data && typeof data.data === 'object'
-        ? data.data
-        : data;
+      // If Verify.ET queued or marked the request pending, poll the status URL
+      const pollUrlPath =
+        data.links?.statusUrl ||
+        data.statusUrl ||
+        (data.requestId ? `/api/verify/${data.requestId}` : null);
+
+      if (
+        (response.status === 202 ||
+          data.status === 'pending' ||
+          data.verification?.processingStatus === 'queued' ||
+          data.verification?.status === 'pending' ||
+          data.message === 'Verification queued.') &&
+        pollUrlPath
+      ) {
+        const pollFullUrl = pollUrlPath.startsWith('http')
+          ? pollUrlPath
+          : `https://verify.et${pollUrlPath}`;
+        const pollInterval = Math.max(1000, Number(data.links?.pollAfterMs || 1500));
+
+        for (let pollAttempt = 1; pollAttempt <= 4; pollAttempt++) {
+          await new Promise((resolve) => setTimeout(resolve, pollInterval));
+          try {
+            const pollRes = await fetch(pollFullUrl, {
+              headers: { 'x-api-key': apiKey },
+              signal: AbortSignal.timeout(5000),
+            });
+            if (!pollRes.ok) continue;
+            const pollData = await pollRes.json();
+            lastRawResponse = pollData;
+
+            const isPolledVerified =
+              pollData.data?.verified === true ||
+              pollData.verified === true ||
+              pollData.data?.result?.verified === true ||
+              pollData.data?.status === 'success' ||
+              pollData.data?.status === 'verified';
+
+            if (isPolledVerified) {
+              data = pollData;
+              break;
+            }
+          } catch (pollErr) {
+            console.warn(`[verify-et] Poll attempt ${pollAttempt} error for ${config.bank}:`, pollErr);
+          }
+        }
+      }
+
+      // Verify.ET may return record in data.data?.result, data.data[0], data.data, or root
+      const record =
+        data.data?.result ||
+        (Array.isArray(data.data)
+          ? data.data[0]
+          : data.data && typeof data.data === 'object'
+          ? data.data
+          : data);
       const verificationObj =
         data.verification && typeof data.verification === 'object' ? data.verification : {};
 
@@ -468,19 +519,31 @@ export async function verifyTelebirrPayment(
       }
 
       // 2. Confirm settlement account matching if present
-      const returnedSettlementAccount = record?.settlementAccount || data.settlementAccount;
-      if (returnedSettlementAccount && returnedSettlementAccount.trim() !== config.settlementAccount) {
-        console.warn(
-          `[verify-et] Settlement account mismatch for ${config.bank}: expected ${config.settlementAccount}, got ${returnedSettlementAccount}`
-        );
-        lastFailure = {
-          message:
-            'Payment was sent to a different account number. Please ensure payment was transferred to our designated account.',
-          messageAm:
-            'ክፍያው የተላከው ወደ ሌላ የባንክ/ቴሌብር ሂሳብ ነው። እባክዎ ክፍያው ወደ ተሰጠው ትክክለኛ የሂሳብ ቁጥር መላኩን ያረጋግጡ።',
-          errorCode: 'ACCOUNT_MISMATCH',
-        };
-        continue;
+      const returnedSettlementAccount =
+        record?.settlementAccount ||
+        record?.receiverAccount ||
+        data.settlementAccount;
+      if (returnedSettlementAccount) {
+        const cleanSettlement = config.settlementAccount.replace(/\D/g, '');
+        const cleanReturned = String(returnedSettlementAccount).replace(/\D/g, '');
+        // Allow matching if suffix matches or ends with last 4 digits (e.g. 2519****0978)
+        const isMatched =
+          cleanSettlement === cleanReturned ||
+          cleanReturned.endsWith(cleanSettlement.slice(-4)) ||
+          String(returnedSettlementAccount).includes(cleanSettlement.slice(-4));
+        if (!isMatched) {
+          console.warn(
+            `[verify-et] Settlement account mismatch for ${config.bank}: expected ${config.settlementAccount}, got ${returnedSettlementAccount}`
+          );
+          lastFailure = {
+            message:
+              'Payment was sent to a different account number. Please ensure payment was transferred to our designated account.',
+            messageAm:
+              'ክፍያው የተላከው ወደ ሌላ የባንክ/ቴሌብር ሂሳብ ነው። እባክዎ ክፍያው ወደ ተሰጠው ትክክለኛ የሂሳብ ቁጥር መላኩን ያረጋግጡ።',
+            errorCode: 'ACCOUNT_MISMATCH',
+          };
+          continue;
+        }
       }
 
       // 3. Ensure paid amount matches or exceeds expected fee

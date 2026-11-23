@@ -8030,7 +8030,7 @@ Please send the Telegram username of the user you want to appoint as an administ
  const message = update.message;
  if (message && message.chat) {
  const chatId: number = message.chat.id;
- const text: string = (message.text || message.caption || '').trim();
+ let text: string = (message.text || message.caption || '').trim();
 
  // Load session from Supabase before any getSession() call
  await preloadSession(chatId);
@@ -8760,6 +8760,14 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  // 4. Record order & payment
  let orderId = `ord_mem_${Date.now()}`;
  try {
+ await supabaseAdmin.from('users').upsert({
+ telegram_id: chatId,
+ first_name: update.message?.from?.first_name || 'Member',
+ last_name: update.message?.from?.last_name || null,
+ username: update.message?.from?.username || null,
+ updated_at: new Date().toISOString(),
+ }, { onConflict: 'telegram_id' });
+
  const { data: newOrder } = await supabaseAdmin
  .from('orders')
  .insert({
@@ -8815,11 +8823,38 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  await revealMutualMatchContacts(activeMatch.id);
  }
 
+ const verifiedBank = (verifyResult.bank || bank || 'telebirr').toUpperCase();
+ const bankFormatted = verifiedBank === 'TELEBIRR' ? 'Telebirr (ቴሌብር)' : verifiedBank === 'CBE' ? 'CBE (ንግድ ባንክ)' : verifiedBank === 'BOA' ? 'Bank of Abyssinia (አቢሲንያ)' : verifiedBank;
+ const paidAmt = Number(verifyResult.paidAmount ?? 100);
+ const payerName = verifyResult.senderName || 'Verified Payer';
+
+ const celebText = `✅ <b>Payment Successfully Verified! / ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል!</b>
+
+<blockquote>• <b>Bank / ባንክ:</b> <code>${bankFormatted}</code>
+• <b>Amount Paid / የተከፈለ መጠን:</b> <code>${paidAmt.toFixed(2)} ETB</code>
+• <b>Payer Name / የከፋይ ስም:</b> <code>${escapeHtml(payerName)}</code>
+• <b>Transaction Ref / የግብይት ቁጥር:</b> <code>${escapeHtml(reference)}</code>
+• <b>Pass Status / የአባልነት ሁኔታ:</b> <b>Active (90 Days) / የሚሰራ (90 ቀናት)</b></blockquote>
+
+🎉 <b>Congratulations! Your 3-Month All-Access Pass is Active! / እንኳን ደስ አላችሁ! የ3 ወር ሙሉ አባልነት ፓስዎ ተከፍቷል!</b>
+<blockquote>You now have unlimited channel posting and unlimited connect requests across SpaceMatch Addis with zero per-contact fees!
+አሁን ማስታወቂያዎችን ወደ ቻናሉ መለጠፍ እና ያለምንም ተጨማሪ ክፍያ ለፈለጉት ክፍል ጓደኛ የግንኙነት ጥያቄ መላክ ይችላሉ!</blockquote>`.trim();
+
+ await tgSend(chatId, celebText);
+
  // 7. Check if session has awaiting_payment_for_membership
  if (session.step && session.step.startsWith('awaiting_payment_for_membership:')) {
  const purpose = session.draft_data?.membership_purpose;
  const metadata = session.draft_data?.membership_metadata || {};
  await clearSession(chatId);
+
+ const isFaydaVerified = await isUserFaydaVerified(chatId);
+ if (!isFaydaVerified) {
+ const nextStepNotice = `🛡️ <b>Next Step: Quick Identity Verification / ቀጣይ ደረጃ፡ የፋይዳ ማንነት ማረጋገጫ</b>\n\n<blockquote>Your 3-Month Membership Pass is active! To protect our community and ensure all roommate profiles are genuine and broker-free, please complete a 10-second identity verification with your Ethiopian National Fayda ID card.\n\nክፍያዎ ተረጋግጧል! ማህበረሰባችንን ከአጭበርባሪዎች እና ካልተፈቀዱ ደላሎች ለመጠበቅ፣ በፋይዳ ብሔራዊ መታወቂያ ካርድዎ ፈጣን የማንነት ማረጋገጫ ያድርጉ።</blockquote>`;
+ await tgSend(chatId, nextStepNotice);
+ await sendFaydaGateCard(chatId, 'complete your profile and unlock all verified features');
+ return NextResponse.json({ ok: true });
+ }
 
  if (purpose === 'post_channel') {
  if (metadata.category === 'space_available' || metadata.isSpace) {
@@ -8837,18 +8872,9 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  }
 
  if (!activeMatch) {
- const celebText = `<b>3-Month Pass Activated! / የ3 ወር ሙሉ አባልነት ፓስዎ ተከፍቷል!</b>
-
-• <b>Status / ሁኔታ:</b> <b>Active (90 Days Remaining) / የሚሰራ (90 ቀናት ቀርተዋል)</b>
-• <b>Transaction Ref / የግብይት ቁጥር:</b> <code>${reference}</code>
-<blockquote>Unlimited channel posting and connect requests with zero per-contact fees!
-አሁን ማስታወቂያዎችን ወደ ቻናሉ መለጠፍ እና ያለተጨማሪ ክፍያ የግንኙነት ጥያቄ መላክ ይችላሉ! </blockquote>
- `.trim();
-
- await tgSend(chatId, celebText, {
+ await tgSend(chatId, `<b>What would you like to do next? / ምን ማድረግ ይፈልጋሉ?</b>`, {
  inline_keyboard: [
- [{ text: 'Search Roommate / የቤት አጋር ፈልግ', callback_data: 'search_roommate_start' }],
- [{ text: 'Post Profile / መረጃዬን ልለጥፍ', callback_data: 'post_profile_start' }],
+ [{ text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >', callback_data: 'search_roommate_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ],
  });
@@ -9513,9 +9539,34 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
 
- // ── Universal Photo / Image Handler (Fayda QR Code Verification) ───────
+ // ── Universal Photo / Image Handler (Fayda QR Code Verification & Payment Receipts) ───
  const uploadedMedia = extractMediaFileFromMessage(message);
  if (uploadedMedia && session.step !== 'space_input_photos') {
+ const isAwaitingPayment = Boolean(
+ session.step &&
+ (session.step.startsWith('awaiting_payment_') || session.step === 'payment_input_ref')
+ );
+
+ if (isAwaitingPayment) {
+ const captionText = (message.caption || '').trim();
+ const captionRef = extractTransactionReference(captionText);
+
+ if (captionRef) {
+ text = captionRef;
+ } else {
+ await sendTelegram('sendMessage', {
+ chat_id: chatId,
+ text: `<b>Payment Receipt Photo Received / የክፍያ ደረሰኝ ደርሶናል 📸</b>\n\n<blockquote>Thank you for sending your receipt photo! To instantly verify your payment with the bank, please type and send the transaction reference code written on your receipt (e.g. <code>DKM7J1EXAP</code> or <code>FT...</code>).\n\nየደረሰኝ ፎቶዎን ስለላኩ እናመሰግናለን! ክፍያዎን ከባንኩ ጋር በራስ-ሰር ወዲያውኑ ለማረጋገጥ፣ በደረሰኙ ላይ የሚገኘውን የግብይት ቁጥር (ለምሳሌ <code>DKM7J1EXAP</code> ወይም <code>FT...</code>) ጽፈው ይላኩልን።</blockquote>`,
+ parse_mode: 'HTML',
+ reply_markup: {
+ inline_keyboard: [
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+ ],
+ },
+ });
+ return NextResponse.json({ ok: true });
+ }
+ } else {
  const lang = getLanguage(session.draft_data, chatId);
  const isAm = lang === 'am';
  const activeMsgId = session.draft_data?.card_msg_id;
@@ -9576,6 +9627,7 @@ All administrators of this channel can now use bot admin features, and approved 
  },
  });
  return NextResponse.json({ ok: true });
+ }
  }
 
  // ── Space Owner Questionnaire: Message Handlers ───────────────────────
@@ -10533,6 +10585,14 @@ All administrators of this channel can now use bot admin features, and approved 
 
  let orderId = `ord_mem_${Date.now()}`;
  try {
+ await supabaseAdmin.from('users').upsert({
+ telegram_id: chatId,
+ first_name: message.from?.first_name || 'Member',
+ last_name: message.from?.last_name || null,
+ username: message.from?.username || null,
+ updated_at: new Date().toISOString(),
+ }, { onConflict: 'telegram_id' });
+
  const { data: order } = await supabaseAdmin
  .from('orders')
  .insert({
@@ -10569,19 +10629,40 @@ All administrators of this channel can now use bot admin features, and approved 
 
  await clearSession(chatId);
 
- const celebText = `<b>Congratulations! 3-Month All-Access Pass Activated! / እንኳን ደስ አላችሁ! የ3 ወር ሙሉ አባልነት ፓስዎ ተከፍቷል!</b>
+ const verifiedBank = (verifyRes.bank || 'telebirr').toUpperCase();
+ const bankFormatted = verifiedBank === 'TELEBIRR' ? 'Telebirr (ቴሌብር)' : verifiedBank === 'CBE' ? 'CBE (ንግድ ባንክ)' : verifiedBank === 'BOA' ? 'Bank of Abyssinia (አቢሲንያ)' : verifiedBank;
+ const paidAmt = Number(verifyRes.paidAmount ?? 100);
+ const payerName = verifyRes.senderName || 'Verified Payer';
 
-• <b>Status / ሁኔታ:</b> <b>Active (90 Days Remaining) / የሚሰራ (90 ቀናት ቀርተዋል)</b>
-• <b>Transaction Ref / የግብይት ቁጥር:</b> <code>${txRef}</code>
+ const celebText = `✅ <b>Payment Successfully Verified! / ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል!</b>
+
+<blockquote>• <b>Bank / ባንክ:</b> <code>${bankFormatted}</code>
+• <b>Amount Paid / የተከፈለ መጠን:</b> <code>${paidAmt.toFixed(2)} ETB</code>
+• <b>Payer Name / የከፋይ ስም:</b> <code>${escapeHtml(payerName)}</code>
+• <b>Transaction Ref / የግብይት ቁጥር:</b> <code>${escapeHtml(txRef)}</code>
+• <b>Pass Status / የአባልነት ሁኔታ:</b> <b>Active (90 Days) / የሚሰራ (90 ቀናት)</b></blockquote>
+
+🎉 <b>Congratulations! Your 3-Month All-Access Pass is Active! / እንኳን ደስ አላችሁ! የ3 ወር ሙሉ አባልነት ፓስዎ ተከፍቷል!</b>
 <blockquote>You now have unlimited channel posting and unlimited connect requests across SpaceMatch Addis with zero per-contact fees!
-አሁን ማስታወቂያዎችን ወደ ቻናሉ መለጠፍ እና ያለምንም ተጨማሪ ክፍያ ለፈለጉት ክፍል ጓደኛ የግንኙነት ጥያቄ መላክ ይችላሉ! </blockquote>
- `.trim();
+አሁን ማስታወቂያዎችን ወደ ቻናሉ መለጠፍ እና ያለምንም ተጨማሪ ክፍያ ለፈለጉት ክፍል ጓደኛ የግንኙነት ጥያቄ መላክ ይችላሉ!</blockquote>`.trim();
 
  await sendTelegram('sendMessage', {
  chat_id: chatId,
  text: celebText,
  parse_mode: 'HTML',
  });
+
+ const isFaydaVerified = await isUserFaydaVerified(chatId);
+ if (!isFaydaVerified) {
+ const nextStepNotice = `🛡️ <b>Next Step: Quick Identity Verification / ቀጣይ ደረጃ፡ የፋይዳ ማንነት ማረጋገጫ</b>\n\n<blockquote>Your 3-Month Membership Pass is active! To protect our community and ensure all roommate profiles are genuine and broker-free, please complete a 10-second identity verification with your Ethiopian National Fayda ID card.\n\nክፍያዎ ተረጋግጧል! ማህበረሰባችንን ከአጭበርባሪዎች እና ካልተፈቀዱ ደላሎች ለመጠበቅ፣ በፋይዳ ብሔራዊ መታወቂያ ካርድዎ ፈጣን የማንነት ማረጋገጫ ያድርጉ።</blockquote>`;
+ await sendTelegram('sendMessage', {
+ chat_id: chatId,
+ text: nextStepNotice,
+ parse_mode: 'HTML',
+ });
+ await sendFaydaGateCard(chatId, 'complete your profile and unlock all verified features');
+ return NextResponse.json({ ok: true });
+ }
 
  // Resume action
  if (purpose === 'post_channel') {
@@ -10706,6 +10787,14 @@ All administrators of this channel can now use bot admin features, and approved 
 
  // Save completed order to Supabase
  try {
+ await supabaseAdmin.from('users').upsert({
+ telegram_id: chatId,
+ first_name: message.from?.first_name || 'Member',
+ last_name: message.from?.last_name || null,
+ username: message.from?.username || null,
+ updated_at: new Date().toISOString(),
+ }, { onConflict: 'telegram_id' });
+
  await supabaseAdmin
  .from('orders')
  .insert({
