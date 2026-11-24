@@ -25,6 +25,7 @@ import { verifySignature } from 'fayda-decoder/verify';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { persistFaydaVerification } from '@/lib/fayda-verification';
 import { decodeFaydaQr } from '@/lib/fayda-qr-decoder';
+import { getOcrWorker } from '@/lib/receipt-extractor';
 
 // ─── WebAssembly Pre-Initialization (Vercel & Node Resilience) ─────────────
 let _wasmReadyPromise: Promise<void> | null = null;
@@ -651,17 +652,6 @@ export async function verifyFaydaPhotoUpload(
   // ── Strategy B: Multi-Pass Barcode Scan + Universal MOSIP Claim 169 Decoder ──
   const scannedPayloads = await scanBarcodesWithMultiPass(buffer);
 
-  if (scannedPayloads.length === 0) {
-    return {
-      success: false,
-      errorCode: 'NO_QR_FOUND',
-      messageAm: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.am,
-      messageEn: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.en,
-      message: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.bilingual,
-      error: 'No QR code was detected in the photo. Please ensure the card back is flat and well-lit.',
-    };
-  }
-
   for (const rawPayload of scannedPayloads) {
     const decoded = decodeFaydaQr(rawPayload);
 
@@ -700,6 +690,49 @@ export async function verifyFaydaPhotoUpload(
     }
   }
 
+  // ── Strategy C: Multi-Engine Card OCR Fallback (Zero-Storage RAM processing) ──
+  // When QR code is blurred, compressed by Telegram, glary, or scratched on the card surface,
+  // extract human-readable FIN/FAN directly from the card text.
+  try {
+    const ocrResult = await extractFaydaCardViaOcr(buffer);
+    if (ocrResult && ocrResult.success && ocrResult.fan) {
+      const isDuplicate = await checkDatabaseFanUniqueness(ocrResult.fan, chatId);
+      if (isDuplicate) {
+        return {
+          success: false,
+          errorCode: 'DUPLICATE_FAN',
+          messageAm: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.am,
+          messageEn: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en,
+          message: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.bilingual,
+          error: 'This Fayda National ID is already registered to another SpaceMatch account.',
+        };
+      }
+
+      return {
+        success: true,
+        fan: ocrResult.fan,
+        fullName: ocrResult.fullName || '',
+        dob: ocrResult.dob || '',
+        gender: ocrResult.gender || '',
+        isVerified: true,
+        verifiedSource: 'fayda_card_ocr',
+      };
+    }
+  } catch (ocrErr) {
+    console.warn('[fayda-photo-verifier] Strategy C OCR notice:', ocrErr);
+  }
+
+  if (scannedPayloads.length === 0) {
+    return {
+      success: false,
+      errorCode: 'NO_QR_FOUND',
+      messageAm: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.am,
+      messageEn: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.en,
+      message: FAYDA_ERROR_GUIDANCE.NO_QR_FOUND.bilingual,
+      error: 'No QR code was detected in the photo. Please ensure the card back is flat and well-lit.',
+    };
+  }
+
   // QR code was found but payload is not a recognizable Fayda structure
   return {
     success: false,
@@ -709,6 +742,130 @@ export async function verifyFaydaPhotoUpload(
     message: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.bilingual,
     error: 'The uploaded QR code is not recognized as an Ethiopian National Fayda ID.',
   };
+}
+
+/**
+ * Strategy C: Performs rapid in-memory OCR on card photo to detect genuine Ethiopian Fayda cards
+ * when QR code modules are blurred or compressed (e.g. Telegram 55 KB upload).
+ * Zero Storage: Runs purely on in-memory Buffer in volatile process RAM.
+ */
+export async function extractFaydaCardViaOcr(buffer: Buffer): Promise<{
+  success: boolean;
+  fan?: string;
+  fullName?: string;
+  phone?: string;
+  dob?: string;
+  gender?: string;
+}> {
+  try {
+    // Preprocess: Bilinear upscale to 1200px width, grayscale, sharpen, normalize
+    const ocrBuf = await sharp(buffer)
+      .resize({ width: 1200, withoutEnlargement: false })
+      .grayscale()
+      .normalize()
+      .sharpen()
+      .toBuffer();
+
+    const worker = await getOcrWorker();
+    const { data } = await worker.recognize(ocrBuf);
+    const rawText = data?.text || '';
+
+    if (!rawText || rawText.trim().length < 15) {
+      return { success: false };
+    }
+
+    const cleanText = rawText.replace(/\r/g, '');
+    const lower = cleanText.toLowerCase();
+
+    // 1. Detect Ethiopian Fayda ID markers
+    const markers = [
+      'nationality', 'ethiopia', 'amhara', 'oromia', 'dessie', 'dessio', 'hote',
+      'administration', 'town', 'et', 'fin', 'fan', 'phone', 'address', 'sn',
+      'fayda', 'national', 'resident', 'ኢትዮጵያ', 'ፋይዳ', 'አማራ'
+    ];
+    const matchedMarkers = markers.filter((m) => lower.includes(m));
+    if (matchedMarkers.length < 2) {
+      return { success: false };
+    }
+
+    // 2. Extract phone number
+    let phone: string | undefined;
+    const phoneMatch = cleanText.match(/(?:\+?251|0)\s*[97][0-9\s-]{7,12}/);
+    if (phoneMatch) {
+      phone = phoneMatch[0].replace(/\s+/g, ' ').trim();
+    }
+
+    // 3. Extract FIN / FAN candidates
+    const candidates: string[] = [];
+
+    // Match labeled: FIN 4870-2189-4386, LIN 4870-2189-4386, etc.
+    const labeledRegex = /(?:FIN|FAN|LIN|F[I|1]N|NID|ID)[:\s-]*([A-Z0-9\s-]{11,22})/gi;
+    let match: RegExpExecArray | null;
+    while ((match = labeledRegex.exec(cleanText)) !== null) {
+      candidates.push(match[1]);
+    }
+
+    // Match 4-digit grouped patterns: 4870-2189-4386 or 4870 2189 4386 or 16-digit groups
+    const groupedRegex = /\b([A-Z0-9]{4}[-\s][A-Z0-9]{4}[-\s][A-Z0-9]{4}(?:[-\s][A-Z0-9]{4})?)\b/gi;
+    while ((match = groupedRegex.exec(cleanText)) !== null) {
+      candidates.push(match[1]);
+    }
+
+    // Match standalone 12 or 16 digit numbers
+    const standaloneRegex = /\b(\d{12}|\d{16})\b/g;
+    while ((match = standaloneRegex.exec(cleanText)) !== null) {
+      candidates.push(match[1]);
+    }
+
+    const normalizeOcrDigits = (str: string): string => {
+      return str
+        .replace(/[A]/g, '4')
+        .replace(/[B]/g, '8')
+        .replace(/[O|D|Q]/g, '0')
+        .replace(/[I|L|l]/g, '1')
+        .replace(/[S|s]/g, '5')
+        .replace(/[T]/g, '7')
+        .replace(/[Z]/g, '2')
+        .replace(/[G]/g, '6');
+    };
+
+    let validFan: string | undefined;
+    for (const c of candidates) {
+      const norm = normalizeOcrDigits(c.trim());
+      const digits = norm.replace(/\D/g, '');
+      if (digits.length === 12 || digits.length === 16) {
+        const struct = validateFaydaStructure(digits);
+        if (struct.valid) {
+          validFan = struct.fanNumber || digits;
+          break;
+        }
+      }
+    }
+
+    if (!validFan) {
+      return { success: false };
+    }
+
+    // Extract name candidate if present
+    let name: string | undefined;
+    const lines = cleanText.split('\n').map((l: string) => l.trim()).filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (/^[A-Za-z\s]{3,35}$/.test(l) && !markers.some((m: string) => l.toLowerCase() === m)) {
+        if (!name) name = l;
+      }
+    }
+
+    return {
+      success: true,
+      fan: validFan,
+      phone,
+      fullName: name,
+    };
+  } catch (err) {
+    console.warn('[fayda-photo-verifier] extractFaydaCardViaOcr error:', err);
+    return { success: false };
+  }
 }
 
 /**

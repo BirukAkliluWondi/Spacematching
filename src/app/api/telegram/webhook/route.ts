@@ -31,6 +31,7 @@ import {
  releaseActionLock,
 } from '@/lib/bot-session-store';
 import { verifyTelebirrPayment, extractTransactionReference } from '@/lib/verify-et';
+import { extractTransactionReferenceFromImage } from '@/lib/receipt-extractor';
 import {
  broadcastListingToChannel,
  broadcastRoommateProfileToChannel,
@@ -1345,7 +1346,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  errorCode: 'FILE_TOO_LARGE',
  messageAm: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.am,
  messageEn: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.en,
- message: `${FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.en}\n\n${FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.am}`,
+ message: FAYDA_ERROR_GUIDANCE.FILE_TOO_LARGE.bilingual,
  };
  }
  return {
@@ -1353,7 +1354,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  errorCode: 'QR_UNREADABLE',
  messageAm: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.am,
  messageEn: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.en,
- message: `${FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.en}\n\n${FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.am}`,
+ message: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.bilingual,
  error: err?.message,
  };
  }
@@ -3113,7 +3114,7 @@ ${postPreview}
       ? `Connect with roommate${metadata?.targetDisplayCode ? ` #${metadata.targetDisplayCode}` : ''} / ከቤት አጋር ጋር ይገናኙ`
       : 'Post your listing to the channel / ማስታወቂያዎን ቻናል ላይ ይለጥፉ';
 
-    const paywallText = `<b>3-Month Pass / የ3 ወር አባልነት (100 ETB)</b>\n\n<blockquote>${purposeNotice}</blockquote>\n\n<b>Payment Accounts (Wahid):</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code>\n• <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>\n• <b>Dashen:</b> <code>${dashenAccount}</code>\n\n<blockquote>Send transaction reference code:\nየደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REF</code></blockquote>`.trim();
+    const paywallText = `<b>3-Month Pass / የ3 ወር አባልነት (100 ETB)</b>\n\n<blockquote>${purposeNotice}</blockquote>\n\n<b>Payment Accounts (Wahid):</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code>\n• <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>\n• <b>Dashen:</b> <code>${dashenAccount}</code>\n\n<blockquote>📸 <b>Upload your payment receipt screenshot below for instant verification!</b>\nየከፈሉበትን የደረሰኝ ስክሪንሽት (ፎቶ) ከስር ይላኩ፤ ወዲያውኑ በራስ-ሰር ይረጋገጣል!</blockquote>\n\n<i>Or send transaction code: <code>/verify telebirr YOUR_REF</code></i>`.trim();
 
     // Strict Grid Symmetry: Hero CTA on Top + 2-Column Action Grid
     const paywallKeyboard = [
@@ -3121,7 +3122,7 @@ ${postPreview}
       [{ text: 'Pay via Telebirr SuperApp >', url: 'https://telebirr.et' }],
       // 2-Column Action Grid: Group secondary actions side-by-side
       [
-        { text: 'Verify Receipt / ደረሰኝ አረጋግጥ', callback_data: 'view_membership_pass' },
+        { text: '📸 Upload Receipt / ደረሰኝ ላክ', callback_data: 'view_membership_pass' },
         { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
       ],
     ];
@@ -9500,10 +9501,31 @@ All administrators of this channel can now use bot admin features, and approved 
 
  if (captionRef) {
  text = captionRef;
+ } else if (!('error' in uploadedMedia)) {
+ // Fast in-memory receipt OCR & QR extraction (Zero-Storage Policy)
+ const scanNotice = await sendTelegram('sendMessage', {
+ chat_id: chatId,
+ text: `🔍 <b>Scanning Receipt Screenshot... / ደረሰኝዎን በመመርመር ላይ...</b>\n\n<blockquote>Extracting transaction reference in-memory · Zero documents stored\nየግብይት ቁጥሩን በራስ-ሰር በመፈለግ ላይ · ምንም አይነት ምስል አይቀመጥም</blockquote>`,
+ parse_mode: 'HTML',
+ });
+ const scanNoticeId = scanNotice?.result?.message_id;
+
+ try {
+ const buffer = await downloadTelegramFile(uploadedMedia.fileId);
+ const extraction = await extractTransactionReferenceFromImage(buffer);
+
+ if (scanNoticeId) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: scanNoticeId }).catch(() => {});
+ }
+
+ if (extraction.success && extraction.reference) {
+ text = extraction.reference;
+ // Execution falls through to line 10482 or 10633 for instant bank verification and pass activation!
  } else {
+ // Friendly fallback per user decision in /grill-me
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `<b>Payment Receipt Photo Received / የክፍያ ደረሰኝ ደርሶናል 📸</b>\n\n<blockquote>Thank you for sending your receipt photo! To instantly verify your payment with the bank, please type and send the transaction reference code written on your receipt (e.g. <code>DKM7J1EXAP</code> or <code>FT...</code>).\n\nየደረሰኝ ፎቶዎን ስለላኩ እናመሰግናለን! ክፍያዎን ከባንኩ ጋር በራስ-ሰር ወዲያውኑ ለማረጋገጥ፣ በደረሰኙ ላይ የሚገኘውን የግብይት ቁጥር (ለምሳሌ <code>DKM7J1EXAP</code> ወይም <code>FT...</code>) ጽፈው ይላኩልን።</blockquote>`,
+ text: `<b>Could Not Read Receipt Code / የደረሰኝ ቁጥሩን ማንበብ አልተቻለም</b>\n\n<blockquote>We received your screenshot, but could not detect a clear transaction reference code (e.g. <code>DKM7J1EXAP</code> or <code>FT...</code>).\n\nየደረሰኝ ፎቶው ደርሶናል፤ ነገር ግን የግብይት ቁጥሩን (ለምሳሌ <code>DKM7J1EXAP</code> ወይም <code>FT...</code>) በግልጽ ማንበብ አልተቻለም።</blockquote>\n\n• <b>Option 1 / አማራጭ 1:</b> Upload a closer, clearer screenshot of your receipt / ደረሰኙ በቅርብና በግልጽ የሚታይበትን ፎቶ ይላኩ\n• <b>Option 2 / አማራጭ 2:</b> Type and send the transaction code manually / የግብይት ቁጥሩን በቀጥታ ጽፈው ይላኩልን`,
  parse_mode: 'HTML',
  reply_markup: {
  inline_keyboard: [
@@ -9512,6 +9534,19 @@ All administrators of this channel can now use bot admin features, and approved 
  },
  });
  return NextResponse.json({ ok: true });
+ }
+ } catch (err) {
+ console.error('[webhook] Error extracting receipt reference:', err);
+ if (scanNoticeId) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: scanNoticeId }).catch(() => {});
+ }
+ await sendTelegram('sendMessage', {
+ chat_id: chatId,
+ text: `<b>Receipt Scan Error / የደረሰኝ ፍተሻ ስህተት</b>\n\n<blockquote>Please type and send the transaction reference code written on your receipt (e.g. <code>DKM7J1EXAP</code> or <code>FT...</code>).\n\nእባክዎ በደረሰኙ ላይ የሚገኘውን የግብይት ቁጥር (ለምሳሌ <code>DKM7J1EXAP</code> ወይም <code>FT...</code>) ጽፈው ይላኩልን።</blockquote>`,
+ parse_mode: 'HTML',
+ });
+ return NextResponse.json({ ok: true });
+ }
  }
  } else {
  const lang = getLanguage(session.draft_data, chatId);
@@ -9561,10 +9596,33 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
 
- // If in idle or any other step, guide the user clearly:
+ // If in idle or any other step, check if the photo is a payment receipt first
+ if (!('error' in uploadedMedia)) {
+ try {
+ const buffer = await downloadTelegramFile(uploadedMedia.fileId);
+ const receiptExt = await extractTransactionReferenceFromImage(buffer);
+ if (receiptExt.success && receiptExt.reference) {
+ const mem = await getUserMembershipStatus(chatId);
+ if (!mem.isActive) {
+ text = receiptExt.reference;
+ await saveSession({
+ telegram_id: chatId,
+ step: 'awaiting_payment_for_membership:general',
+ draft_data: { membership_purpose: 'connect_request', membership_metadata: { generalPass: true } },
+ updated_at: new Date().toISOString(),
+ });
+ session.step = 'awaiting_payment_for_membership:general';
+ session.draft_data = { membership_purpose: 'connect_request', membership_metadata: { generalPass: true } };
+ }
+ }
+ } catch {}
+ }
+
+ if (!text) {
+ // If not a receipt, guide the user clearly regarding Fayda verification:
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `<b>Photo Received / ፎቶ ደርሶናል</b>\n\n<blockquote>No authentic Fayda National ID QR code was detected in this photo. Please send a clear photo of the BACK of your Fayda card showing the square QR code, or send /verify.\n\nይህ ፎቶ ትክክለኛ የፋይዳ ብሔራዊ መታወቂያ QR ኮድ አልያዘም። የፋይዳ መታወቂያዎን ለማረጋገጥ የመታወቂያዎን ጀርባ (የካሬ QR ኮድ ያለበትን) በቅርብ እና በብርሃን ጥራት ያለው ፎቶ ይላኩ፣ ወይም /verify ብለው ይጻፉ።</blockquote>`,
+ text: `<b>Photo Received / ፎቶ ደርሶናል</b>\n\n<blockquote>No authentic Fayda National ID QR code or payment receipt was detected in this photo. Please send a clear photo of the BACK of your Fayda card showing the square QR code, or your payment receipt.\n\nይህ ፎቶ ትክክለኛ የፋይዳ ብሔራዊ መታወቂያ QR ኮድ ወይም የክፍያ ደረሰኝ አልያዘም። የፋይዳ መታወቂያዎን ለማረጋገጥ የመታወቂያዎን ጀርባ (የካሬ QR ኮድ ያለበትን) ፎቶ ይላኩ፣ ወይም የክፍያ ደረሰኝዎን ይላኩ።</blockquote>`,
  parse_mode: 'HTML',
  reply_markup: {
  inline_keyboard: [
@@ -9574,6 +9632,7 @@ All administrators of this channel can now use bot admin features, and approved 
  },
  });
  return NextResponse.json({ ok: true });
+ }
  }
  }
 
@@ -10517,7 +10576,9 @@ All administrators of this channel can now use bot admin features, and approved 
  }
 
  const isCbe = txRef.toUpperCase().startsWith('FT') || txRef.toLowerCase().includes('cbe.com.et');
- const bankHint = isCbe ? 'cbe' : undefined;
+ const isBoa = txRef.toUpperCase().startsWith('TX') || txRef.toLowerCase().includes('abyssinia');
+ const isTelebirr = txRef.toUpperCase().startsWith('DK') || txRef.toUpperCase().startsWith('DT') || /^\d{8,16}$/.test(txRef);
+ const bankHint = isCbe ? 'cbe' : isBoa ? 'boa' : isTelebirr ? 'telebirr' : undefined;
  const verifyRes = await verifyTelebirrPayment(txRef, 100, bankHint);
 
  if (!verifyRes.success) {
@@ -10652,7 +10713,9 @@ All administrators of this channel can now use bot admin features, and approved 
  });
 
  const isCbe = txRef.toUpperCase().startsWith('FT') || txRef.toLowerCase().includes('cbe.com.et');
- const bankHint = isCbe ? 'cbe' : undefined;
+ const isBoa = txRef.toUpperCase().startsWith('TX') || txRef.toLowerCase().includes('abyssinia');
+ const isTelebirr = txRef.toUpperCase().startsWith('DK') || txRef.toUpperCase().startsWith('DT') || /^\d{8,16}$/.test(txRef);
+ const bankHint = isCbe ? 'cbe' : isBoa ? 'boa' : isTelebirr ? 'telebirr' : undefined;
  const verifyRes = await verifyTelebirrPayment(txRef, 100, bankHint);
 
  if (!verifyRes.success) {

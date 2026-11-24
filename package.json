@@ -21,6 +21,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0",
     "zod": "^4.6.5",
     "zxing-wasm": "^3.1.6"
   },

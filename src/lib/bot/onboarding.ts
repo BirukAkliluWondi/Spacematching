@@ -625,7 +625,7 @@ export async function handleOnboardingMessage(
       const verifyResult = await verifyFaydaPhotoUpload(fileBuffer, chatId);
 
       if (!verifyResult.success) {
-        await sendMessage(chatId, `${verifyResult.messageEn}\n\n${verifyResult.messageAm}`);
+        await sendMessage(chatId, verifyResult.message || `${verifyResult.messageEn}\n\n${verifyResult.messageAm}`);
         return true;
       }
 

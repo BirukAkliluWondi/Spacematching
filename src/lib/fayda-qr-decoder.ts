@@ -94,7 +94,8 @@ for (let i = 0; i < B45_CHARSET.length; i++) {
  */
 export function decodeBase45(input: string): Uint8Array | null {
   if (typeof input !== 'string') return null;
-  const clean = input.trim();
+  // Strip whitespace, carriage returns, newlines, and non-base45 control characters
+  const clean = input.replace(/[\r\n\t]/g, '').trim();
   const len = clean.length;
   if (len === 0) return null;
 
@@ -247,8 +248,8 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
 
   // 1. Try MOSIP Claim 169 via RFC 9285 Base45
   if (rawStr) {
-    const cleanB45 = rawStr.replace(/^(?:C169|MOSIP|ETH|FAYDA)[:=\s]+/i, '').trim();
-    const b45Bytes = decodeBase45(cleanB45) || decodeBase45(rawStr);
+    const cleanB45 = rawStr.replace(/^(?:C169|MOSIP|ETH|FAYDA|HC1|M|1)[:=\s]+/i, '').replace(/[\r\n\t]/g, '').trim();
+    const b45Bytes = decodeBase45(cleanB45) || decodeBase45(rawStr.replace(/[\r\n\t]/g, '').trim());
     if (b45Bytes && b45Bytes.length > 4) {
       const cborRes = extractFromCborPayload(b45Bytes);
       if (cborRes.success) return { ...cborRes, rawType: 'mosip_claim169_base45' };
@@ -295,12 +296,17 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
   if (rawStr && (rawStr.startsWith('http://') || rawStr.startsWith('https://'))) {
     try {
       const url = new URL(rawStr);
-      const uin =
+      let uin =
         url.searchParams.get('uin') ||
         url.searchParams.get('fin') ||
         url.searchParams.get('id') ||
         url.searchParams.get('fayda_id') ||
         url.searchParams.get('fan');
+
+      if (!uin) {
+        const pathMatches = url.pathname.match(/\b\d{12}\b|\b\d{16}\b/);
+        if (pathMatches) uin = pathMatches[0];
+      }
 
       if (uin) {
         const cleanFin = uin.replace(/\D/g, '');
@@ -381,21 +387,47 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
     }
 
     // 2. Decode CBOR
-    const decoded = decodeCbor(cborBytes);
+    let decoded: any;
+    try {
+      decoded = decodeCbor(cborBytes);
+    } catch {
+      return { success: false };
+    }
     if (!decoded) return { success: false };
 
+    // Helper to unwrap cbor-x Tag instances recursively
+    const unwrapTag = (val: any): any => {
+      let cur = val;
+      while (cur && typeof cur === 'object' && ('value' in cur || 'tag' in cur)) {
+        if ('value' in cur && cur.value !== undefined) {
+          cur = cur.value;
+        } else {
+          break;
+        }
+      }
+      return cur;
+    };
+
+    let unwrapped = unwrapTag(decoded);
+
     // 3. Unwrap COSE_Sign1 or CWT array [protected, unprotected, payload, signature]
-    let claims: any = decoded;
-    if (Array.isArray(decoded) && decoded.length >= 3) {
-      const payloadCandidate = decoded[2];
+    let claims: any = unwrapped;
+    if (Array.isArray(unwrapped) && unwrapped.length >= 3) {
+      const payloadCandidate = unwrapped[2];
       if (Buffer.isBuffer(payloadCandidate) || payloadCandidate instanceof Uint8Array) {
+        let payloadBuf = Buffer.from(payloadCandidate);
+        try { payloadBuf = zlib.inflateSync(payloadBuf); } catch {}
+        try { payloadBuf = zlib.inflateRawSync(payloadBuf); } catch {}
+        try { payloadBuf = zlib.brotliDecompressSync(payloadBuf); } catch {}
         try {
-          claims = decodeCbor(payloadCandidate);
+          claims = decodeCbor(payloadBuf);
         } catch {
           claims = payloadCandidate;
         }
       }
     }
+
+    claims = unwrapTag(claims);
 
     // 4. Resolve Claim 169 (identity-data) or root claims
     let identityData: any =
@@ -403,14 +435,18 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
         ? claims.get(169) || claims.get('169')
         : claims?.[169] || claims?.['169']) || claims;
 
+    identityData = unwrapTag(identityData);
+
     // If Claim 169 is serialized as a nested CBOR byte string (bstr .cbor IdentityData per MOSIP spec), decode it
     if (Buffer.isBuffer(identityData) || identityData instanceof Uint8Array) {
       try {
         let innerBuf: Buffer = Buffer.from(identityData);
         try { innerBuf = zlib.inflateSync(innerBuf); } catch {}
+        try { innerBuf = zlib.inflateRawSync(innerBuf); } catch {}
+        try { innerBuf = zlib.brotliDecompressSync(innerBuf); } catch {}
         const innerDecoded = decodeCbor(innerBuf);
         if (innerDecoded && typeof innerDecoded === 'object') {
-          identityData = innerDecoded;
+          identityData = unwrapTag(innerDecoded);
         }
       } catch {}
     }
@@ -437,9 +473,10 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
       return undefined;
     };
 
-    // Key 1 in MOSIP Claim 169 is UIN / ID
+    // Key 1 in MOSIP Claim 169 is UIN / ID, Key 2 is sub (Subject ID)
     let fin = getVal([
       1, '1',
+      2, '2',
       'uin', 'fin', 'fayda_number', 'fayda_id', 'id',
       'UIN', 'FIN', 'sub', 'fan', 'FAN'
     ]);
@@ -487,10 +524,16 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
     const cleanFin = String(fin).replace(/\D/g, '');
     if (!isValidFaydaLength(cleanFin)) return { success: false };
 
-    // Key 4: Full Name, Key 5: First Name, 6: Middle Name, 7: Last Name
+    // Key 4: Full Name, Key 5: First Name, 6: Middle Name, 7: Last Name, Key 19: Secondary (Amharic) Name
     let name = getVal([4, '4', 'name', 'fullName', 'full_name', 'resident_name', 'NAME', 'residentName']);
     if (Buffer.isBuffer(name) || name instanceof Uint8Array) {
       name = Buffer.from(name).toString('utf-8');
+    }
+    if (!name) {
+      name = getVal([19, '19', 'secondaryName', 'nameAm', 'fullNameAm']);
+      if (Buffer.isBuffer(name) || name instanceof Uint8Array) {
+        name = Buffer.from(name).toString('utf-8');
+      }
     }
     if (!name) {
       const first = getVal([5, '5', 'firstName', 'first_name']);

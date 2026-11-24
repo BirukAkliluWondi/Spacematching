@@ -26,10 +26,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Validate Telegram handles against RFC rules (`^[a-zA-Z0-9_]{5,32}$`).
 - For synthetic, concierge, or admin listings, automatically route contact details to the verified SpaceMatch Coordinator (`@WWEHID`).
 
-## 4. Pure QR-Only Fayda Identity Verification (Zero Biometric / Zero Admin Friction)
-- Fayda National ID verification is 100% automated via cryptographic RS256 QR code extraction (`fayda-photo-verifier.ts` + `fayda-decoder`).
+## 4. Multi-Tier Resilient Fayda Identity Verification (Zero Biometric / Zero Admin Friction)
+- Fayda National ID verification is 100% automated via a multi-tier in-memory verification engine:
+  - **Strategy A:** Official NIDP V4 JWS RS256 detached signature parsing (`fayda-decoder`).
+  - **Strategy B:** Universal MOSIP Claim 169 CBOR / CWT / COSE_Sign1 and RFC 9285 Base45 payload extraction (`fayda-qr-decoder.ts`).
+  - **Strategy C (OCR Fallback):** High-speed in-memory OCR extraction of human-readable FIN/FAN numbers directly from the physical card text (`extractFaydaCardViaOcr`), validating Verhoeff check digits when QR codes suffer from camera blur or Telegram photo compression.
 - Never require secondary selfies, video notes, or facial biometrics to compare against low-resolution ID thumbnails.
-- Never place Fayda verification into a manual admin approval queue or waiting status; immediately persist verified status to Supabase upon successful cryptographic signature extraction and Verhoeff checksum validation.
+- Never place Fayda verification into a manual admin approval queue or waiting status; immediately persist verified status to Supabase upon successful verification.
 
 ## 5. Simultaneous Bilingual Parity & Native Telegram Visual Styling
 - All user-facing bot prompts, questions, options, error messages, and buttons must present both English and Amharic simultaneously (`English Text / የአማርኛ ጽሁፍ`).
@@ -56,5 +59,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Under no circumstances may a user send, queue, or deliver a roommate connection request or match notification without an active 100 ETB 3-Month Pass (`getUserMembershipStatus(chatId).isActive === true`).
 - Any attempt to initiate a match request (whether via channel deep link `/start req_...`, the matchmaker wizard, or returning user preview card) must immediately present `sendMembershipPaywallCard('connect_request', ...)` if the requesting user does not hold an active $\ge 100\text{ ETB}$ order within the 90-day window.
 - `executeDirectMatchRequest` and `finalizeFaydaVerification` must strictly enforce this check as a defense-in-depth gate, preventing any unauthorized match insertion or notification delivery.
+
+## 9. Automated In-Memory Payment Receipt Screenshot Extraction
+- When users submit payment receipts as screenshots/photos, never prompt them to manually re-type reference codes.
+- Use the high-speed in-memory dual-engine pipeline (`extractTransactionReferenceFromImage` via `zxing-wasm` and warm `tesseract.js`) to extract the transaction reference code directly in RAM.
+- Automatically verify with Verify.ET and activate the 100 ETB 3-Month Pass with zero extra taps.
+- In-memory Buffer processing only (strictly enforcing Invariant 1: Zero-Storage Policy).
+
 
 

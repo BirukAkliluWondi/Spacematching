@@ -48,6 +48,20 @@ export function extractTransactionReference(input: string): string {
     return ftMatch[1].trim().toUpperCase();
   }
 
+  // 3b. Telebirr 10-char Alphanumeric Reference (e.g., DKM7J1EXAP, DK29M7PCJT, DT...)
+  const tbRegex = /\b(D[KTS][A-Z0-9]{8})\b/i;
+  const tbMatch = cleaned.match(tbRegex);
+  if (tbMatch && tbMatch[1]) {
+    return tbMatch[1].trim().toUpperCase();
+  }
+
+  // 3c. Bank of Abyssinia TX Reference (e.g., TX...)
+  const boaRegex = /\b(TX[0-9A-Z]{6,16})\b/i;
+  const boaMatch = cleaned.match(boaRegex);
+  if (boaMatch && boaMatch[1]) {
+    return boaMatch[1].trim().toUpperCase();
+  }
+
   // 4. Amharic labeled pattern
   // Matches: የግብይት ቁጥር, የደረሰኝ ቁጥር, የማጣቀሻ ቁጥር, የክፍያ መለያ, ትራንዛክሽን ቁጥር, etc.
   const amharicRegex =
