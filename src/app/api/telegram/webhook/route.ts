@@ -3130,11 +3130,7 @@ ${postPreview}
 
     const paywallText = `<b>3-Month Pass / የ3 ወር አባልነት (100 ETB)</b>\n\n<blockquote>${purposeNotice}</blockquote>\n\n<b>Payment Accounts (Wahid):</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code>\n• <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>\n• <b>Dashen:</b> <code>${dashenAccount}</code>\n\n<blockquote>📸 <b>Upload your payment receipt screenshot below for instant verification!</b>\nየከፈሉበትን የደረሰኝ ስክሪንሽት (ፎቶ) ከስር ይላኩ፤ ወዲያውኑ በራስ-ሰር ይረጋገጣል!</blockquote>\n\n<i>Or send transaction code: <code>/verify telebirr YOUR_REF</code></i>`.trim();
 
-    // Strict Grid Symmetry: Hero CTA on Top + 2-Column Action Grid
     const paywallKeyboard = [
-      // Hero CTA on Top: Single most important payment action
-      [{ text: 'Pay via Telebirr SuperApp >', url: 'https://telebirr.et' }],
-      // 2-Column Action Grid: Group secondary actions side-by-side
       [
         { text: '📸 Upload Receipt / ደረሰኝ ላክ', callback_data: 'view_membership_pass' },
         { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
