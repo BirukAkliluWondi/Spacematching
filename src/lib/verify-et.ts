@@ -364,7 +364,7 @@ export async function verifyTelebirrPayment(
     };
   }
 
-  const endpoint = 'https://verify.et/api/verify?waitMs=1500';
+  const endpoint = 'https://verify.et/api/verify?waitMs=5000';
 
   // Bank Options to evaluate (Telebirr, BoA, Dashen & CBE) - deduplicated accounts
   const allConfigs = [
@@ -479,13 +479,18 @@ export async function verifyTelebirrPayment(
             lastRawResponse = pollData;
 
             const isPolledVerified =
-              pollData.data?.verified === true ||
+              pollData.verification?.verified === true ||
+              pollData.verification?.status === 'success' ||
               pollData.verified === true ||
-              pollData.data?.result?.verified === true ||
-              pollData.data?.status === 'success' ||
-              pollData.data?.status === 'verified';
+              pollData.status === 'success' ||
+              pollData.status === 'verified' ||
+              pollData.message === 'Verification completed.' ||
+              (Array.isArray(pollData.data)
+                ? pollData.data[0]?.verified === true || pollData.data[0]?.status === 'success'
+                : pollData.data?.verified === true || pollData.data?.status === 'success') ||
+              pollData.data?.result?.verified === true;
 
-            if (isPolledVerified) {
+            if (isPolledVerified || pollData.verification?.processingStatus === 'completed') {
               data = pollData;
               break;
             }
@@ -495,9 +500,10 @@ export async function verifyTelebirrPayment(
         }
       }
 
-      // Verify.ET may return record in data.data?.result, data.data[0], data.data, or root
+      // Verify.ET may return record in data.data?.result, data.verification?.result, data.data[0], data.data, or root
       const record =
         data.data?.result ||
+        data.verification?.result ||
         (Array.isArray(data.data)
           ? data.data[0]
           : data.data && typeof data.data === 'object'
@@ -511,6 +517,7 @@ export async function verifyTelebirrPayment(
         data.status === 'verified' ||
         data.status === 'success' ||
         data.verified === true ||
+        data.message === 'Verification completed.' ||
         record?.status === 'verified' ||
         record?.status === 'success' ||
         record?.verified === true ||

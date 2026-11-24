@@ -1423,6 +1423,20 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  );
  }
 
+ // Enforce Invariant 8: Requester must hold active 100 ETB 3-Month Pass
+ const reqTgId = (match.requester as any)?.telegram_id;
+ if (reqTgId && reqTgId > 0) {
+ const reqMem = await getUserMembershipStatus(reqTgId);
+ if (!reqMem.isActive) {
+ return await sendOrEditCard(
+ chatId,
+ `<b>Fayda Verified / ፋይዳ ተረጋግጧል</b>\n\n<blockquote>The requesting member has not yet activated their 3-Month Membership Pass. Contacts cannot be revealed until their pass is active.\n\nይህንን ጥያቄ የላከው አባል እስካሁን የአባልነት ክፍያውን ስላላጠናቀቀ አድራሻዎችን መክፈት አይቻልም።</blockquote>`,
+ [[{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
+ activeMsgId
+ );
+ }
+ }
+
  return await revealMutualMatchContacts(targetMatchId, chatId, activeMsgId);
  }
 
@@ -2228,7 +2242,23 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  return;
  }
 
- // Check if match already requested
+ // Check 3-Month Unified Membership Pass FIRST (Invariant 8)
+ const mem = await getUserMembershipStatus(chatId);
+ if (!mem.isActive) {
+ await sendMembershipPaywallCard(
+ chatId,
+ 'connect_request',
+ {
+ targetProfileId: targetProfile.id,
+ targetDisplayCode: targetProfile.display_code || targetCode,
+ targetProfile,
+ },
+ activeMsgId
+ );
+ return;
+ }
+
+ // Check if match already requested (only after active membership confirmed)
  const { data: existingMatch } = await supabaseAdmin
  .from('matches')
  .select('id, status')
@@ -2244,22 +2274,6 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  activeMsgId
  );
  await clearSession(chatId);
- return;
- }
-
- // Check 3-Month Unified Membership Pass
- const mem = await getUserMembershipStatus(chatId);
- if (!mem.isActive) {
- await sendMembershipPaywallCard(
- chatId,
- 'connect_request',
- {
- targetProfileId: targetProfile.id,
- targetDisplayCode: targetProfile.display_code || targetCode,
- targetProfile,
- },
- activeMsgId
- );
  return;
  }
 
@@ -3778,7 +3792,7 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  requester_id: requesterProfile.id,
  target_id: targetProfile.id,
  status: 'pending_acceptance',
- payment_status: 'unpaid',
+ payment_status: 'paid',
  })
  .select('id')
  .single();
@@ -5965,6 +5979,18 @@ ${res.message}
  if (callbackData.startsWith('search_unlock_contact:')) {
  const targetProfileId = callbackData.split(':')[1];
 
+ // Mandatory 100 ETB Pass Gate (Invariant 8)
+ const memCheck = await getUserMembershipStatus(chatId);
+ if (!memCheck.isActive) {
+ await sendMembershipPaywallCard(
+ chatId,
+ 'connect_request',
+ { targetProfileId },
+ msgId
+ );
+ return NextResponse.json({ ok: true });
+ }
+
  // 1. Check if requester is Fayda verified and has profile (Parallelized for maximum speed)
  const [isVerified, { data: myProfile }] = await Promise.all([
  isUserFaydaVerified(chatId),
@@ -6672,25 +6698,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  return NextResponse.json({ ok: true });
  }
 
- // Check for existing match
- const { data: existingMatch } = await supabaseAdmin
- .from('matches')
- .select('id, status')
- .eq('requester_id', requesterProfile.id)
- .eq('target_id', targetProfile.id)
- .maybeSingle();
-
- if (existingMatch) {
- await sendOrEditCard(
- chatId,
- `You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
- [[{ text: 'Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu', callback_data: 'nav_start' }]],
- msgId
- );
- return NextResponse.json({ ok: true });
- }
-
- // Check 3-Month Unified Membership Pass
+ // Mandatory 100 ETB Pass Gate (Invariant 8) - Check FIRST!
  const userLang = getUserLanguage(chatId);
  const isAm = userLang === 'am';
 
@@ -6704,6 +6712,24 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  targetDisplayCode: targetProfile.display_code,
  targetProfile,
  },
+ msgId
+ );
+ return NextResponse.json({ ok: true });
+ }
+
+ // Check for existing match (only after membership pass verified)
+ const { data: existingMatch } = await supabaseAdmin
+ .from('matches')
+ .select('id, status')
+ .eq('requester_id', requesterProfile.id)
+ .eq('target_id', targetProfile.id)
+ .maybeSingle();
+
+ if (existingMatch) {
+ await sendOrEditCard(
+ chatId,
+ `You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
+ [[{ text: 'Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu', callback_data: 'nav_start' }]],
  msgId
  );
  return NextResponse.json({ ok: true });
@@ -6757,6 +6783,26 @@ Before accepting this roommate connection, SpaceMatch requires both parties to b
  if (!match || match.status !== 'pending_acceptance') {
  await tgSend(chatId, acceptIsAm ? `ይህ የግንኙነት ጥያቄ በአሁኑ ሰዓት ክፍት አይደለም።` : `This match request is no longer pending.`);
  return NextResponse.json({ ok: true });
+ }
+
+ // Enforce Invariant 8: Requester must hold active 100 ETB 3-Month Pass
+ const requesterTgId = (match.requester as any)?.telegram_id;
+ if (requesterTgId && requesterTgId > 0) {
+ const reqMem = await getUserMembershipStatus(requesterTgId);
+ if (!reqMem.isActive) {
+ await tgSend(
+ chatId,
+ acceptIsAm
+ ? `<b>ጥያቄውን መቀበል አልተቻለም</b>\n\n<blockquote>ይህንን ጥያቄ የላከው አባል እስካሁን የ100 ብር የአባልነት ፓስ ስላላጠናቀቀ አድራሻዎችን መክፈት አይቻልም። አባልነታቸውን ሲያነቁ ወዲያውኑ ማሳወቂያ ይደርስዎታል።</blockquote>`
+ : `<b>Cannot Accept Connection Request</b>\n\n<blockquote>The requesting roommate has not yet activated their 100 ETB 3-Month Membership Pass. Contacts cannot be revealed until their pass is active. You will be notified once their pass is active.</blockquote>`
+ );
+ await sendMembershipPaywallCard(
+ requesterTgId,
+ 'connect_request',
+ { targetProfileId: match.target_id, targetDisplayCode: (match.target as any)?.display_code, targetProfile: match.target }
+ );
+ return NextResponse.json({ ok: true });
+ }
  }
 
  // Instant Mutual Contact Dossier Reveal
@@ -8456,13 +8502,23 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  `.trim();
 
  const mem = await getUserMembershipStatus(chatId);
- const reqBtnText = mem.isActive
- ? ' Send Free Request (Pass Active ) / ጥያቄ ላክ (የሚሰራ )'
- : ' Send Request (3-Month Pass · 100 ETB) / ጥያቄ ላክ (100 ብር)';
+ if (!mem.isActive) {
+ // Enforce Invariant 8: Unpaid returning users must immediately receive the Membership Paywall Card
+ await sendMembershipPaywallCard(
+ chatId,
+ 'connect_request',
+ {
+ targetProfileId: targetProfile.id,
+ targetDisplayCode: targetProfile.display_code || lookupCode,
+ targetProfile,
+ }
+ );
+ return NextResponse.json({ ok: true });
+ }
 
- const passBadge = mem.isActive
- ? `\n\n• <b>3-Month Pass / አባልነት:</b> Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል) `
- : `\n\n• <b>3-Month Pass / አባልነት:</b> Inactive (100 ETB needed) / የለም (100 ብር ያስፈልጋል)`;
+ // Active Pass Holders: Present returning user preview card with instant free request button
+ const reqBtnText = '⚡ Send Free Request (Pass Active) / ጥያቄ ላክ (የሚሰራ)';
+ const passBadge = `\n\n• <b>3-Month Pass / አባልነት:</b> Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል)`;
 
  await sendOrEditCard(
  chatId,
@@ -8564,14 +8620,28 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  ? targetProfile.locations.join(', ')
  : 'Addis Ababa';
 
+ const mem = await getUserMembershipStatus(chatId);
+ if (!mem.isActive) {
+ await sendMembershipPaywallCard(
+ chatId,
+ 'connect_request',
+ {
+ targetProfileId: targetProfile.id,
+ targetDisplayCode: targetProfile.display_code || pendingCode,
+ targetProfile,
+ }
+ );
+ return NextResponse.json({ ok: true });
+ }
+
  await tgSend(
  chatId,
  `<b>Profile ready!</b> Here is the listing you wanted to connect with:\n\n<b>Roommate #${targetProfile.display_code}</b>\n ${targetLocations}\n ${Number(targetProfile.budget_min || 0).toLocaleString()} – ${Number(targetProfile.budget_max || 0).toLocaleString()} ETB/month`,
  {
  inline_keyboard: [
  [
- { text: 'Send Match Request', callback_data: `confirm_match:${targetProfile.id}` },
- { text: 'Cancel', callback_data: 'nav_start' },
+ { text: '⚡ Send Match Request / ጥያቄ ላክ', callback_data: `confirm_match:${targetProfile.id}` },
+ { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ],
  }

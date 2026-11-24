@@ -733,14 +733,14 @@ export async function verifyFaydaPhotoUpload(
     };
   }
 
-  // QR code was found but payload is not a recognizable Fayda structure
+  // QR code was found or attempted but payload is blurred or not a recognizable Fayda structure
   return {
     success: false,
-    errorCode: 'NOT_FAYDA',
-    messageAm: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.am,
-    messageEn: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.en,
-    message: FAYDA_ERROR_GUIDANCE.NOT_FAYDA.bilingual,
-    error: 'The uploaded QR code is not recognized as an Ethiopian National Fayda ID.',
+    errorCode: 'QR_UNREADABLE',
+    messageAm: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.am,
+    messageEn: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.en,
+    message: FAYDA_ERROR_GUIDANCE.QR_UNREADABLE.bilingual,
+    error: 'The QR code modules on the card were blurred or compressed. Please take a clear, well-lit photo of the back of your Fayda card.',
   };
 }
 
@@ -798,15 +798,15 @@ export async function extractFaydaCardViaOcr(buffer: Buffer): Promise<{
     // 3. Extract FIN / FAN candidates
     const candidates: string[] = [];
 
-    // Match labeled: FIN 4870-2189-4386, LIN 4870-2189-4386, etc.
-    const labeledRegex = /(?:FIN|FAN|LIN|F[I|1]N|NID|ID)[:\s-]*([A-Z0-9\s-]{11,22})/gi;
+    // Match labeled: FIN 4870-2189-4386, LIN 4870-2189-4386, LRN 4870-2189-4386, etc.
+    const labeledRegex = /(?:FIN|FAN|LIN|LRN|F[I|R|1]N|FYN|F[A|4]N|NID|ID)[:\s-]*([A-Za-z0-9\s-]{10,25})/gi;
     let match: RegExpExecArray | null;
     while ((match = labeledRegex.exec(cleanText)) !== null) {
       candidates.push(match[1]);
     }
 
-    // Match 4-digit grouped patterns: 4870-2189-4386 or 4870 2189 4386 or 16-digit groups
-    const groupedRegex = /\b([A-Z0-9]{4}[-\s][A-Z0-9]{4}[-\s][A-Z0-9]{4}(?:[-\s][A-Z0-9]{4})?)\b/gi;
+    // Match 4-digit grouped patterns: 4870-2189-4386 or 4870 2189 4386 or letter-number mixed groups
+    const groupedRegex = /\b([A-Za-z0-9]{4}[-\s][A-Za-z0-9]{4}[-\s][A-Za-z0-9]{4}(?:[-\s][A-Za-z0-9]{4})?)\b/gi;
     while ((match = groupedRegex.exec(cleanText)) !== null) {
       candidates.push(match[1]);
     }
@@ -818,13 +818,15 @@ export async function extractFaydaCardViaOcr(buffer: Buffer): Promise<{
     }
 
     const normalizeOcrDigits = (str: string): string => {
-      return str
+      return str.toUpperCase()
         .replace(/[A]/g, '4')
         .replace(/[B]/g, '8')
+        .replace(/[E]/g, '8')
+        .replace(/[R]/g, '9')
+        .replace(/[S]/g, '8')
+        .replace(/[T]/g, '7')
         .replace(/[O|D|Q]/g, '0')
         .replace(/[I|L|l]/g, '1')
-        .replace(/[S|s]/g, '5')
-        .replace(/[T]/g, '7')
         .replace(/[Z]/g, '2')
         .replace(/[G]/g, '6');
     };
