@@ -142,13 +142,13 @@ export function validateFaydaStructure(input: string): {
     };
   }
 
-  // 2. Anti-spoofing: Reject ascending / descending sequential sequences
+  // 2. Anti-spoofing: Reject ascending / descending sequential sequences & known sample dummy numbers
   const ascending = '01234567890123456789';
   const descending = '98765432109876543210';
-  if (ascending.includes(clean) || descending.includes(clean)) {
+  if (ascending.includes(clean) || descending.includes(clean) || clean === '123123412345') {
     return {
       valid: false,
-      error: 'Invalid Fayda number: sequential numbers are not genuine national IDs.',
+      error: 'Invalid Fayda number: sequential or sample placeholder numbers are not genuine national IDs.',
     };
   }
 
@@ -167,18 +167,21 @@ export function validateFaydaStructure(input: string): {
   const isLuhnValid = validateLuhnChecksum(clean);
 
   if (clean.length === 12) {
-    // 12-digit FIN: Validated against MOSIP non-zero start, anti-spoofing, and length.
+    // 12-digit FIN: Genuine physical Ethiopian NIDP FINs do not always pass Verhoeff,
+    // so validate non-zero start, anti-spoofing, and exclude Ethiopian phone numbers (2519/2517).
+    if (/^251[79]\d{8}$/.test(clean)) {
+      return { valid: false, error: 'Phone number cannot be used as a Fayda ID.' };
+    }
     return {
       valid: true,
       fanNumber: clean,
     };
   } else if (clean.length === 16) {
-    // 16-digit FAN: Must satisfy either MOSIP Verhoeff check digit, Luhn check, or valid structural pattern.
+    // 16-digit FAN: Reject sequential/repeating and enforce checksum unless disabled by environment
     if (!isVerhoeffValid && !isLuhnValid) {
-      // Allow valid structured 16-digit numbers if they pass anti-spoofing
       return {
-        valid: true,
-        fanNumber: clean,
+        valid: false,
+        error: 'Invalid 16-digit Fayda FAN checksum.',
       };
     }
   }
@@ -567,22 +570,16 @@ export async function persistFaydaVerification(
     console.error('[fayda-verification] Exception updating profiles table:', profErr);
   }
 
-  // Sync to roommate_profiles table if present
+  // Sync gender to roommate_profiles table if row exists (uses user_telegram_id)
   try {
-    const roommateUpdates: Record<string, any> = {
-      fayda_status: 'verified',
-      fayda_id_number: cleanFan,
-      updated_at: nowIso,
-    };
     if (options?.gender) {
-      roommateUpdates.my_gender = options.gender;
+      await supabaseAdmin
+        .from('roommate_profiles')
+        .update({ my_gender: options.gender, updated_at: nowIso })
+        .eq('user_telegram_id', telegramId);
     }
-    await supabaseAdmin
-      .from('roommate_profiles')
-      .update(roommateUpdates)
-      .eq('telegram_id', telegramId);
-  } catch (rmErr) {
-    // Non-fatal if table or row doesn't exist
+  } catch {
+    // Non-fatal if row doesn't exist
   }
 
   return true;

@@ -264,14 +264,15 @@ async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<Array<string |
     {
       name: 'center_crop',
       run: async () => {
-        const meta = await sharp(buffer).metadata();
+        const rotated = await sharp(buffer).rotate().toBuffer();
+        const meta = await sharp(rotated).metadata();
         const w = meta.width || 800;
         const h = meta.height || 600;
         const cropW = Math.floor(w * 0.8);
         const cropH = Math.floor(h * 0.8);
         const left = Math.floor(w * 0.1);
         const top = Math.floor(h * 0.1);
-        const { data, info } = await sharp(buffer)
+        const { data, info } = await sharp(rotated)
           .extract({ left, top, width: cropW, height: cropH })
           .grayscale()
           .normalize()
@@ -285,12 +286,13 @@ async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<Array<string |
     {
       name: 'right_half_crop',
       run: async () => {
-        const meta = await sharp(buffer).metadata();
+        const rotated = await sharp(buffer).rotate().toBuffer();
+        const meta = await sharp(rotated).metadata();
         const w = meta.width || 800;
         const h = meta.height || 600;
         const left = Math.floor(w * 0.4);
         const cropW = Math.floor(w * 0.6);
-        const { data, info } = await sharp(buffer)
+        const { data, info } = await sharp(rotated)
           .extract({ left, top: 0, width: cropW, height: h })
           .grayscale()
           .normalize()
@@ -304,12 +306,13 @@ async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<Array<string |
     {
       name: 'right_half_upscale_sharpen',
       run: async () => {
-        const meta = await sharp(buffer).metadata();
+        const rotated = await sharp(buffer).rotate().toBuffer();
+        const meta = await sharp(rotated).metadata();
         const w = meta.width || 800;
         const h = meta.height || 600;
         const left = Math.floor(w * 0.4);
         const cropW = Math.floor(w * 0.6);
-        const { data, info } = await sharp(buffer)
+        const { data, info } = await sharp(rotated)
           .extract({ left, top: 0, width: cropW, height: h })
           .resize({ width: 1200, withoutEnlargement: false })
           .grayscale()
@@ -352,12 +355,13 @@ async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<Array<string |
     {
       name: 'right_half_contrast',
       run: async () => {
-        const meta = await sharp(buffer).metadata();
+        const rotated = await sharp(buffer).rotate().toBuffer();
+        const meta = await sharp(rotated).metadata();
         const w = meta.width || 800;
         const h = meta.height || 600;
         const left = Math.floor(w * 0.4);
         const cropW = Math.floor(w * 0.6);
-        const { data, info } = await sharp(buffer)
+        const { data, info } = await sharp(rotated)
           .extract({ left, top: 0, width: cropW, height: h })
           .grayscale()
           .linear(1.8, -0.25)
@@ -381,18 +385,21 @@ async function scanBarcodesWithMultiPass(buffer: Buffer): Promise<Array<string |
         { formats: ['QRCode'], tryHarder: true, tryRotate: true, tryInvert: true }
       );
 
+      let decodedValidFaydaInPass = false;
       for (const b of barcodes) {
         if (b.bytes && b.bytes.length > 0) {
           foundPayloads.push(b.bytes);
+          if (decodeFaydaQr(b.bytes).success) decodedValidFaydaInPass = true;
         }
         if (b.text && b.text.trim() && !seenTexts.has(b.text.trim())) {
           seenTexts.add(b.text.trim());
           foundPayloads.push(b.text.trim());
+          if (decodeFaydaQr(b.text.trim()).success) decodedValidFaydaInPass = true;
         }
       }
 
-      if (foundPayloads.length > 0) {
-        break; // Found readable QR code, stop further passes
+      if (decodedValidFaydaInPass) {
+        break; // Found and decoded genuine Fayda QR, stop further passes
       }
     } catch {
       // Continue to next pass
@@ -459,8 +466,8 @@ export function extractMediaFileFromMessage(
     if (!isImageMime && !isImageExt) {
       return {
         error: 'QR_UNREADABLE',
-        messageEn: `<b>Invalid Document Format / የተሳሳተ የሰነድ አይነት</b>\n\n<blockquote>Please upload a supported image file (JPEG, PNG, or WebP).\n\nእባክዎ ተቀባይነት ያለው የምስል ሰነድ (JPEG, PNG, ወይም WebP) ይላኩ።</blockquote>`,
-        messageAm: `<b>የተሳሳተ የሰነድ አይነት / Invalid Document Format</b>\n\n<blockquote>እባክዎ ተቀባይነት ያለው የምስል ሰነድ (JPEG, PNG, ወይም WebP) ይላኩ።\n\nPlease upload a supported image file (JPEG, PNG, or WebP).</blockquote>`,
+        messageEn: `<b>Invalid Document Format</b>\n\n<blockquote>Please upload a clear photo or image file (JPEG, PNG, or WebP) showing the back QR code of your Fayda card.</blockquote>`,
+        messageAm: `<b>የተሳሳተ የሰነድ አይነት</b>\n\n<blockquote>እባክዎ የፋይዳ መታወቂያዎን ጀርባ QR ኮድ የሚያሳይ ግልጽ ፎቶ ወይም ምስል (JPEG, PNG, ወይም WebP) ይላኩ።</blockquote>`,
       };
     }
 
@@ -569,10 +576,32 @@ export async function verifyFaydaPhotoUpload(
     const decodeResult: FaydaResult = await decodeImage(uint8, { includeFace: true });
 
     if (decodeResult.ok && decodeResult.fields?.fan) {
+      // Cryptographically verify detached RS256 JWS signature when present
+      if (decodeResult.signature?.present) {
+        const sigCheck = await verifySignature(decodeResult, {
+          publicKeyPem: options?.customPublicKeyPem || process.env.FAYDA_PUBLIC_KEY_PEM,
+        });
+        if (
+          !sigCheck.verified &&
+          (sigCheck.reason === 'INVALID_SIGNATURE' ||
+            sigCheck.reason === 'MALFORMED_JWS' ||
+            sigCheck.reason === 'UNSUPPORTED_ALGORITHM')
+        ) {
+          return {
+            success: false,
+            errorCode: 'INVALID_SIGNATURE',
+            messageAm: FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.am,
+            messageEn: FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.en,
+            message: FAYDA_ERROR_GUIDANCE.INVALID_SIGNATURE.bilingual,
+            error: `Digital signature verification failed (${sigCheck.reason}).`,
+          };
+        }
+      }
+
       const cleanFan = String(decodeResult.fields.fan).replace(/[\s-]/g, '').trim();
       const struct = validateFaydaStructure(cleanFan);
 
-      if (struct.valid || cleanFan.length === 12 || cleanFan.length === 16) {
+      if (struct.valid) {
         // Uniqueness check
         const isDuplicate = await checkDatabaseFanUniqueness(cleanFan, chatId);
         if (isDuplicate) {
@@ -758,8 +787,9 @@ export async function extractFaydaCardViaOcr(buffer: Buffer): Promise<{
   gender?: string;
 }> {
   try {
-    // Preprocess: Bilinear upscale to 1200px width, grayscale, sharpen, normalize
+    // Preprocess: Apply EXIF orientation (.rotate()), bilinear upscale to 1200px width, grayscale, normalize, sharpen
     const ocrBuf = await sharp(buffer)
+      .rotate()
       .resize({ width: 1200, withoutEnlargement: false })
       .grayscale()
       .normalize()
@@ -777,43 +807,50 @@ export async function extractFaydaCardViaOcr(buffer: Buffer): Promise<{
     const cleanText = rawText.replace(/\r/g, '');
     const lower = cleanText.toLowerCase();
 
-    // 1. Detect Ethiopian Fayda ID markers
+    // 0. Reject payment screenshots immediately so receipts never verify as Fayda IDs
+    const receiptIndicators = ['telebirr', 'total paid', 'service fee', 'credited party', 'cbe', 'abyssinia', 'dashen', 'etb'];
+    if (receiptIndicators.filter((r) => lower.includes(r)).length >= 2) {
+      return { success: false };
+    }
+
+    // 1. Detect specific Ethiopian Fayda ID markers (avoid false substring matches like 'et')
     const markers = [
-      'nationality', 'ethiopia', 'amhara', 'oromia', 'dessie', 'dessio', 'hote',
-      'administration', 'town', 'et', 'fin', 'fan', 'phone', 'address', 'sn',
-      'fayda', 'national', 'resident', 'ኢትዮጵያ', 'ፋይዳ', 'አማራ'
+      'nationality', 'ethiopia', 'amhara', 'oromia', 'tigray', 'sidama', 'dessie', 'addis', 'hote',
+      'administration', 'fin', 'fan', 'fayda', 'national', 'resident', 'ኢትዮጵያ', 'ፋይዳ', 'አማራ'
     ];
     const matchedMarkers = markers.filter((m) => lower.includes(m));
     if (matchedMarkers.length < 2) {
       return { success: false };
     }
 
-    // 2. Extract phone number
+    // 2. Extract phone number and strip phone numbers before FIN/FAN candidate matching
     let phone: string | undefined;
-    const phoneMatch = cleanText.match(/(?:\+?251|0)\s*[97][0-9\s-]{7,12}/);
+    const phonePattern = /(?:\+?251|0)\s*[97][0-9\s-]{7,12}/g;
+    const phoneMatch = cleanText.match(phonePattern);
     if (phoneMatch) {
       phone = phoneMatch[0].replace(/\s+/g, ' ').trim();
     }
+    const textWithoutPhones = cleanText.replace(phonePattern, ' ');
 
-    // 3. Extract FIN / FAN candidates
+    // 3. Extract FIN / FAN candidates from textWithoutPhones
     const candidates: string[] = [];
 
     // Match labeled: FIN 4870-2189-4386, LIN 4870-2189-4386, LRN 4870-2189-4386, etc.
-    const labeledRegex = /(?:FIN|FAN|LIN|LRN|F[I|R|1]N|FYN|F[A|4]N|NID|ID)[:\s-]*([A-Za-z0-9\s-]{10,25})/gi;
+    const labeledRegex = /(?:FIN|FAN|LIN|LRN|F[I|R|1]N|FYN|F[A|4]N|NID)[:\s-]*([A-Za-z0-9\s-]{10,25})/gi;
     let match: RegExpExecArray | null;
-    while ((match = labeledRegex.exec(cleanText)) !== null) {
+    while ((match = labeledRegex.exec(textWithoutPhones)) !== null) {
       candidates.push(match[1]);
     }
 
-    // Match 4-digit grouped patterns: 4870-2189-4386 or 4870 2189 4386 or letter-number mixed groups
-    const groupedRegex = /\b([A-Za-z0-9]{4}[-\s][A-Za-z0-9]{4}[-\s][A-Za-z0-9]{4}(?:[-\s][A-Za-z0-9]{4})?)\b/gi;
-    while ((match = groupedRegex.exec(cleanText)) !== null) {
+    // Match 4-digit grouped patterns: 4870-2189-4386 or 4870 - 2189 - 4386
+    const groupedRegex = /\b([A-Za-z0-9]{4}[-\s]+[A-Za-z0-9]{4}[-\s]+[A-Za-z0-9]{4}(?:[-\s]+[A-Za-z0-9]{4})?)\b/gi;
+    while ((match = groupedRegex.exec(textWithoutPhones)) !== null) {
       candidates.push(match[1]);
     }
 
     // Match standalone 12 or 16 digit numbers
     const standaloneRegex = /\b(\d{12}|\d{16})\b/g;
-    while ((match = standaloneRegex.exec(cleanText)) !== null) {
+    while ((match = standaloneRegex.exec(textWithoutPhones)) !== null) {
       candidates.push(match[1]);
     }
 
@@ -876,23 +913,14 @@ export async function extractFaydaCardViaOcr(buffer: Buffer): Promise<{
 async function checkDatabaseFanUniqueness(fan: string, chatId?: number): Promise<boolean> {
   if (!chatId) return false;
   try {
-    const { data: existingUser } = await supabaseAdmin
+    const { data: existingUsers } = await supabaseAdmin
       .from('users')
       .select('id, telegram_id')
       .eq('fayda_id_number', fan)
       .neq('telegram_id', chatId)
-      .maybeSingle();
+      .limit(1);
 
-    if (existingUser) return true;
-
-    const { data: existingRoommate } = await supabaseAdmin
-      .from('roommate_profiles')
-      .select('id, telegram_id')
-      .eq('fayda_id_number', fan)
-      .neq('telegram_id', chatId)
-      .maybeSingle();
-
-    if (existingRoommate) return true;
+    if (existingUsers && existingUsers.length > 0) return true;
   } catch (err) {
     console.warn('[fayda-photo-verifier] Supabase uniqueness guard check warning:', err);
   }

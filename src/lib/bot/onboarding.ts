@@ -14,7 +14,7 @@
  */
 
 import { supabaseAdmin } from '@/lib/supabase-server';
-import { saveSession } from '@/lib/bot-session-store';
+import { getSession, saveSession, getUserMembershipStatus, getManagedChannels } from '@/lib/bot-session-store';
 import {
   verifyFaydaPhotoUpload,
   extractMediaFileFromMessage,
@@ -78,7 +78,6 @@ const ONBOARDING_STEPS = [
   'traits',
   'phone',
   'kyc',
-  'completed',
 ] as const;
 
 type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
@@ -169,14 +168,16 @@ async function updateProfile(
     _profileCache.set(telegramId, data as Profile);
   }
 
-  // Keep bot_sessions table in sync with onboarding step (non-blocking)
+  // Keep bot_sessions table in sync with onboarding step while preserving existing draft_data (e.g. lang)
   if (updates.onboarding_step) {
-    saveSession({
+    const existingSession = getSession(telegramId);
+    const nextStep = String(updates.onboarding_step) === 'completed' ? 'idle' : String(updates.onboarding_step);
+    await saveSession({
       telegram_id: telegramId,
-      step: String(updates.onboarding_step),
-      draft_data: {},
+      step: nextStep,
+      draft_data: existingSession.draft_data || {},
       updated_at: new Date().toISOString(),
-    }, false).catch(() => {});
+    }, true);
   }
 
   return (data || _profileCache.get(telegramId)) as Profile;
@@ -355,8 +356,8 @@ async function sendKycStep(chatId: number) {
       inline_keyboard: [
         [
           {
-            text: 'Upload Fayda Photo / የፋይዳ ፎቶ ላክ',
-            callback_data: 'dyn_upload_fayda',
+            text: 'Verify Fayda / ፋይዳ አረጋግጥ',
+            callback_data: 'verify_fayda',
           },
         ],
         [
@@ -382,13 +383,13 @@ async function sendKycStep(chatId: number) {
  * Handle inline button presses that belong to the onboarding flow.
  */
 export async function handleOnboardingCallback(
-  callbackQueryId: string,
+  _callbackQueryId: string,
   callbackData: string,
   chatId: number,
   telegramUsername?: string,
   messageId?: number
 ): Promise<void> {
-  answerCallbackQuery(callbackQueryId).catch(() => {});
+  // Callback query is already answered in webhook handler before routing
 
   // ── /start → begin onboarding ─────────────────────────────────────────────
   if (callbackData === 'onboard_start') {
@@ -405,10 +406,10 @@ export async function handleOnboardingCallback(
     const cached = _profileCache.get(chatId) || {};
     _profileCache.set(chatId, { ...cached, gender: normalised, onboarding_step: 'locations', locations: [] });
 
-    updateProfile(chatId, {
+    await updateProfile(chatId, {
       gender: normalised,
       onboarding_step: 'locations',
-    }).catch((err) => console.error('[onboarding] gender update error:', err));
+    });
 
     await sendLocationsStep(chatId, [], messageId);
     return;
@@ -419,10 +420,10 @@ export async function handleOnboardingCallback(
     const cached = _profileCache.get(chatId) || {};
     _profileCache.set(chatId, { ...cached, locations: [...LOCATIONS], onboarding_step: 'budget' });
 
-    updateProfile(chatId, {
+    await updateProfile(chatId, {
       locations: [...LOCATIONS],
       onboarding_step: 'budget',
-    }).catch((err) => console.error('[onboarding] select all error:', err));
+    });
 
     await sendBudgetStep(chatId);
     return;
@@ -450,13 +451,10 @@ export async function handleOnboardingCallback(
 
     _profileCache.set(chatId, { ...cached, locations: updated });
 
-    // Non-blocking background update to Supabase
-    (async () => {
-      await supabaseAdmin
-        .from('profiles')
-        .update({ locations: updated })
-        .eq('telegram_id', chatId);
-    })().catch((err: unknown) => console.error('[onboarding] location bg update error:', err));
+    await supabaseAdmin
+      .from('profiles')
+      .update({ locations: updated })
+      .eq('telegram_id', chatId);
 
     await sendLocationsStep(chatId, updated, messageId);
     return;
@@ -513,6 +511,7 @@ export async function handleOnboardingMessage(
     from?: { first_name?: string; last_name?: string; username?: string };
     contact?: { phone_number: string; first_name?: string; last_name?: string };
     photo?: { file_id: string; file_size?: number }[];
+    document?: { file_id: string; file_size?: number; mime_type?: string };
   },
   telegramUsername?: string
 ): Promise<boolean> {
@@ -654,7 +653,27 @@ export async function handleOnboardingMessage(
         return true;
       }
 
-      // 5. Publish listing to the channel
+      // 5. Enforce 100 ETB 3-Month Membership Pass before public channel broadcast (Invariant 7 & 8)
+      const memStatus = await getUserMembershipStatus(chatId);
+      const channels = await getManagedChannels();
+      const activeCh = channels.find((c) => c.is_active);
+      const chHandle = (activeCh?.channel_username || process.env.TELEGRAM_CHANNEL_ID || '@Spacematch_Addis').replace(/^@/, '');
+      const chUrl = `https://t.me/${chHandle}`;
+
+      if (!memStatus.isActive) {
+        await sendMessage(
+          chatId,
+          `<b>Fayda ID Verified! / የፋይዳ መታወቂያዎ ተረጋግጧል!</b>\n\n<blockquote>Your profile (<code>#${escapeHtml(displayCode)}</code>) is saved! Activate your <b>3-Month Membership Pass (100 ETB)</b> to broadcast to the channel or send unlimited roommate connection requests.\n\nመረጃዎ (<code>#${escapeHtml(displayCode)}</code>) ተመዝግቧል! ወደ ቻናሉ ለመለጠፍ እና የግንኙነት ጥያቄዎችን ለመላክ የ<b>3 ወር አባልነት (100 ETB)</b> ያግብሩ።</blockquote>`,
+          {
+            inline_keyboard: [
+              [{ text: 'Activate 3-Month Pass (100 ETB) / አባልነት ክፈት >', callback_data: 'view_membership_pass' }],
+              [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+            ],
+          }
+        );
+        return true;
+      }
+
       try {
         const channelMsgId = await publishListingToChannel(updatedProfile);
         await supabaseAdmin
@@ -668,10 +687,10 @@ export async function handleOnboardingMessage(
       // 6. Confirmation message
       await sendMessage(
         chatId,
-        `<b>Listing Draft Ready / የማስታወቂያ ረቂቅ ተዘጋጅቷል</b>\n\n<blockquote><b>Draft Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>Verified & Live / የጸደቀ</b>\n• <b>Budget / በጀት:</b> <code>${updatedProfile.budget_min || 0} – ${updatedProfile.budget_max || 0} ETB</code>\n• <b>Areas / ሰፈሮች:</b> <code>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</code>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
+        `<b>Listing Live / ማስታወቂያዎ ተለጥፏል</b>\n\n<blockquote><b>Listing Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>Verified & Live / የጸደቀ</b>\n• <b>Budget / በጀት:</b> <code>${updatedProfile.budget_min || 0} – ${updatedProfile.budget_max || 0} ETB</code>\n• <b>Areas / ሰፈሮች:</b> <code>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</code>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
-            [{ text: 'View on Channel / በቻናል ላይ እይ >', url: 'https://t.me/spacematch_aa' }],
+            [{ text: 'View on Channel / በቻናል ላይ እይ >', url: chUrl }],
             [{ text: 'Find Roommates / የቤት አጋር ፈልግ', callback_data: 'matchmaker_start' }],
             [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
           ],

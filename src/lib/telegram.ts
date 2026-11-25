@@ -794,8 +794,8 @@ export function formatRoommatePost(profile: Profile | Record<string, any>): stri
   });
 
   return `
-<b>LOOKING FOR A ROOM · ID #${cleanCode}</b>
-<b>${escapeHtml(locationDisplay)}</b>
+<b>SpaceMatch Addis / ስፔስማች አዲስ</b> · <b>#${cleanCode}</b>
+<b>LOOKING FOR A ROOM · ${escapeHtml(locationDisplay)}</b>
 Budget: ${budgetDisplay} · Move in: ${moveInDisplay}
 
 <b>WHAT I'M LOOKING FOR / የምፈልገው</b>
@@ -915,8 +915,8 @@ export function formatSpacePost(space: Record<string, any>): string {
   });
 
   return `
-<b>ROOM AVAILABLE · ID #${cleanCode}</b>
-<b>${escapeHtml(locationDisplay)}</b>
+<b>SpaceMatch Addis / ስፔስማች አዲስ</b> · <b>#${cleanCode}</b>
+<b>ROOM AVAILABLE · ${escapeHtml(locationDisplay)}</b>
 Rent: ${rentDisplay} · Move in: ${moveInDisplay}
 
 <b>SPACE DETAILS / የቤቱ ዝርዝር</b>
@@ -960,14 +960,13 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
     inline_keyboard: [
       [
         {
-          text: `Connect with #${cleanCode} / ተገናኝ >`,
+          text: 'Connect with this roommate / ከዚህ አጋር ጋር ተገናኝ >',
           url: `https://t.me/${botUsername}?start=req_${cleanCode}`,
         },
       ],
-      // [{ text: 'Post Profile / መረጃዬን ልለጥፍ >', url: `https://t.me/${botUsername}?start=post_profile` }],
       [
         {
-          text: 'Search Roommate for Me / የቤት አጋር ፈልግ >',
+          text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >',
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],

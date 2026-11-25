@@ -62,9 +62,11 @@ export function middleware(request: NextRequest) {
   }
 
   // 2. Sliding Window Rate Limiting
+  // Exempt Telegram webhook delivery paths from shared-IP per-minute throttling
+  // because Telegram delivers all users' updates from a small shared pool of Bot API IPs.
   const windowMs = 60 * 1000; // 60-second sliding window
-  const limit = isWebhook ? 30 : 100; // 30 req/min for webhook, 100 req/min for general APIs
-  const isRateLimitDisabled = process.env.DISABLE_RATE_LIMIT === 'true';
+  const limit = 100; // 100 req/min per IP for general APIs
+  const isRateLimitDisabled = process.env.DISABLE_RATE_LIMIT === 'true' || isWebhook;
 
   let remaining = limit;
   let resetSeconds = 60;

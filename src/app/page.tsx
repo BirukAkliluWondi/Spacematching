@@ -5,55 +5,12 @@ import { FeedView, SpaceSummary, RoommateSeekerSummary } from '@/components/Feed
 import { SpaceDetailSheet } from '@/components/SpaceDetailSheet';
 import { FaydaQRScannerModal } from '@/components/FaydaQRScannerModal';
 
-const FALLBACK_SPACES: SpaceSummary[] = [
-  {
-    id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-    title: 'Modern Single Studio Room in Bole Atlas',
-    description: 'Cozy, fully furnished room with private bathroom, high-speed WiFi, 24/7 security, and generator back-up. Walking distance to Edna Mall.',
-    price_per_month: 12500,
-    unlock_fee: 50,
-    neighborhood: 'Bole Atlas',
-    amenities: ['WiFi', 'Furnished', 'Private Bath', 'Backup Generator', 'Parking'],
-    rules: ['No smoking', 'Quiet hours after 10 PM', 'No pets'],
-    status: 'published',
-    contact_name: 'Solomon Kebede',
-    created_at: new Date(Date.now() - 3600000).toISOString(),
-    space_images: [
-      {
-        id: 'img1',
-        image_path: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80',
-        display_order: 1,
-      },
-    ],
-  },
-  {
-    id: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-    title: 'Spacious Master Bedroom in Kazanchis',
-    description: 'Sunlit room with balcony, dedicated workspace, shared kitchen, and water tanker. Located near UNECA and Intercontinental Hotel.',
-    price_per_month: 15000,
-    unlock_fee: 50,
-    neighborhood: 'Kazanchis',
-    amenities: ['WiFi', 'Balcony', 'Workspace', 'Shared Kitchen', 'Hot Shower'],
-    rules: ['Professional renters preferred', 'No overnight unregistered guests'],
-    status: 'published',
-    contact_name: 'Marta Tadesse',
-    created_at: new Date(Date.now() - 7200000).toISOString(),
-    space_images: [
-      {
-        id: 'img2',
-        image_path: 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?auto=format&fit=crop&w=800&q=80',
-        display_order: 1,
-      },
-    ],
-  },
-];
-
 export default function Home() {
   const [telegramUser, setTelegramUser] = useState<any>(null);
   const [faydaStatus, setFaydaStatus] = useState<string>('pending');
-  const [spaces, setSpaces] = useState<SpaceSummary[]>(FALLBACK_SPACES);
+  const [spaces, setSpaces] = useState<SpaceSummary[]>([]);
   const [seekers, setSeekers] = useState<RoommateSeekerSummary[]>([]);
-  const [isLoadingSpaces, setIsLoadingSpaces] = useState<boolean>(false);
+  const [isLoadingSpaces, setIsLoadingSpaces] = useState<boolean>(true);
   const [selectedSpace, setSelectedSpace] = useState<SpaceSummary | null>(null);
   const [isFaydaModalOpen, setIsFaydaModalOpen] = useState<boolean>(false);
 
@@ -101,11 +58,7 @@ export default function Home() {
             username: unsafeUser.username || null,
           });
         } else {
-          setTelegramUser({
-            id: 123456789,
-            first_name: 'Guest Renter',
-            username: 'guest_renter',
-          });
+          setTelegramUser(null);
         }
       } catch (err) {
         console.error('TMA Auth Error:', err);
@@ -185,7 +138,7 @@ export default function Home() {
     }
   };
 
-  const currentTelegramId = telegramUser?.telegram_id || telegramUser?.id || 123456789;
+  const currentTelegramId = telegramUser?.telegram_id || telegramUser?.id || 0;
 
   return (
     <div className="min-h-screen bg-[#EBECEF] text-slate-900 flex justify-center selection:bg-rose-500 selection:text-white">

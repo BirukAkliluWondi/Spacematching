@@ -70,6 +70,15 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
     }
   }, [space]);
 
+  useEffect(() => {
+    if (!space) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [space, onClose]);
+
   if (!space) return null;
 
   const images =
@@ -85,12 +94,18 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
     setErrorMsg(null);
 
     try {
+      const tg = (window as any).Telegram?.WebApp;
+      const initData: string = tg?.initData || '';
       const res = await fetch('/api/orders/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(initData ? { 'x-telegram-init-data': initData } : {}),
+        },
         body: JSON.stringify({
           space_id: space.id,
           telegram_id: telegramId,
+          initData,
         }),
       });
 
@@ -120,7 +135,6 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
       const payUrl = `https://t.me/${cleanBotUsername}?start=pay_${data.order_id}`;
       setBotPayUrl(payUrl);
 
-      const tg = (window as any).Telegram?.WebApp;
       if (tg && typeof tg.openTelegramLink === 'function') {
         try {
           tg.openTelegramLink(payUrl);
@@ -148,13 +162,19 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
     setErrorMsg(null);
 
     try {
+      const tg = (window as any).Telegram?.WebApp;
+      const initData: string = tg?.initData || '';
       const res = await fetch('/api/orders/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(initData ? { 'x-telegram-init-data': initData } : {}),
+        },
         body: JSON.stringify({
           order_id: orderId,
           telegram_id: telegramId,
           transaction_reference: txRefInput.trim(),
+          initData,
         }),
       });
 
@@ -194,7 +214,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
         {/* Dark Backdrop */}
         <motion.div
           initial={{ opacity: 0 }}
@@ -210,7 +230,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-          className="relative w-full max-w-md sm:max-w-lg max-h-[90vh] rounded-t-3xl bg-[#0D1424] border-t border-white/10 text-white overflow-y-auto no-scrollbar shadow-2xl z-10"
+          className="relative w-full max-w-md sm:max-w-lg max-h-[90vh] rounded-t-3xl sm:rounded-3xl bg-[#0D1424] border-t sm:border border-white/10 text-white overflow-y-auto no-scrollbar shadow-2xl z-10"
         >
           {/* Top Bar Header */}
           <div className="sticky top-0 z-20 bg-[#0D1424]/95 backdrop-blur-md py-3 px-4 flex items-center justify-between border-b border-white/10">
@@ -276,7 +296,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                       <span className="text-xs font-normal text-slate-400">/mo</span>
                     </span>
                     <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
-                      Unlock Fee: {space.unlock_fee || 50} ETB
+                      3-Month Pass: {space.unlock_fee || 100} ETB
                     </span>
                   </div>
                   <h2 className="text-lg font-black text-white leading-snug">{space.title}</h2>
@@ -306,7 +326,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                   ) : (
                     <>
                       <Unlock className="w-4 h-4 stroke-[3]" />
-                      <span>Unlock Contact Information ({space.unlock_fee || 50} ETB)</span>
+                      <span>Unlock Contact Information ({space.unlock_fee || 100} ETB)</span>
                     </>
                   )}
                 </button>
@@ -319,7 +339,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                 <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-1">
                   <h3 className="font-extrabold text-sm text-emerald-300">Payment Verification Required</h3>
                   <p className="text-xs text-slate-300">
-                    Transfer <strong>{space.unlock_fee || 300} ETB</strong> via Telebirr, Abyssinia, or Dashen to unlock homeowner details instantly.
+                    Transfer <strong>{space.unlock_fee || 100} ETB</strong> via Telebirr, Abyssinia, or Dashen to activate your 3-Month Pass and unlock homeowner details instantly.
                   </p>
                 </div>
 

@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { verifyAdminRequest } from '@/lib/admin-auth';
 
 export async function GET(request: Request) {
   try {
+    const auth = await verifyAdminRequest(request);
+    if (!auth.authenticated) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
     const { searchParams } = new URL(request.url);
     const rawQuery = (searchParams.get('query') || '').trim();
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);

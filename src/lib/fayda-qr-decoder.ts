@@ -190,12 +190,13 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
       const rawFan = map['A'] || map['FIN'] || map['UIN'] || map['FAN'];
       if (rawFan) {
         const cleanFan = rawFan.replace(/\D/g, '');
-        if (cleanFan.length === 12 || cleanFan.length === 16) {
+        const struct = validateFaydaStructure(cleanFan);
+        if (struct.valid) {
           const rawGen = (map['G'] || '').toUpperCase();
           const normGender = rawGen === 'M' ? 'Male' : rawGen === 'F' ? 'Female' : rawGen || undefined;
           return {
             success: true,
-            faydaNumber: cleanFan,
+            faydaNumber: struct.fanNumber || cleanFan,
             fullName: directName || undefined,
             gender: normGender,
             dob: map['D'] || undefined,
@@ -292,33 +293,43 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
     } catch {}
   }
 
-  // 5. Try Official NIDP URL (e.g. https://id.gov.et/verify?uin=... or resident.fayda.et)
+  // 5. Try Official NIDP URL (strictly id.gov.et or fayda.et domains)
   if (rawStr && (rawStr.startsWith('http://') || rawStr.startsWith('https://'))) {
     try {
       const url = new URL(rawStr);
-      let uin =
-        url.searchParams.get('uin') ||
-        url.searchParams.get('fin') ||
-        url.searchParams.get('id') ||
-        url.searchParams.get('fayda_id') ||
-        url.searchParams.get('fan');
+      const host = url.hostname.toLowerCase();
+      const isOfficialFaydaHost =
+        host === 'id.gov.et' ||
+        host.endsWith('.id.gov.et') ||
+        host === 'fayda.et' ||
+        host.endsWith('.fayda.et');
 
-      if (!uin) {
-        const pathMatches = url.pathname.match(/\b\d{12}\b|\b\d{16}\b/);
-        if (pathMatches) uin = pathMatches[0];
-      }
+      if (isOfficialFaydaHost) {
+        let uin =
+          url.searchParams.get('uin') ||
+          url.searchParams.get('fin') ||
+          url.searchParams.get('id') ||
+          url.searchParams.get('fayda_id') ||
+          url.searchParams.get('fan');
 
-      if (uin) {
-        const cleanFin = uin.replace(/\D/g, '');
-        if (isValidFaydaLength(cleanFin)) {
-          return {
-            success: true,
-            faydaNumber: cleanFin,
-            fullName: url.searchParams.get('name') || url.searchParams.get('full_name') || undefined,
-            gender: url.searchParams.get('gender') || undefined,
-            dob: url.searchParams.get('dob') || undefined,
-            rawType: 'url',
-          };
+        if (!uin) {
+          const pathMatches = url.pathname.match(/\b\d{12}\b|\b\d{16}\b/);
+          if (pathMatches) uin = pathMatches[0];
+        }
+
+        if (uin) {
+          const cleanFin = uin.replace(/\D/g, '');
+          const struct = validateFaydaStructure(cleanFin);
+          if (struct.valid) {
+            return {
+              success: true,
+              faydaNumber: struct.fanNumber || cleanFin,
+              fullName: url.searchParams.get('name') || url.searchParams.get('full_name') || undefined,
+              gender: url.searchParams.get('gender') || undefined,
+              dob: url.searchParams.get('dob') || undefined,
+              rawType: 'url',
+            };
+          }
         }
       }
     } catch {}
@@ -486,22 +497,23 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
       fin = Buffer.from(fin).toString('utf-8');
     }
 
-    // Fallback: Recursively search CBOR structure if direct key was absent
+    // Fallback: Recursively search CBOR structure if direct key was absent (exclude Ethiopian phone numbers)
     if (!fin) {
+      const isPhoneLike = (s: string) => /^(?:251|0)[79]\d{8}$/.test(s);
       const findFaydaNumberRecursive = (node: any): string | null => {
         if (!node) return null;
         if (typeof node === 'string') {
           const clean = node.replace(/\D/g, '');
-          if (clean.length === 12 || clean.length === 16) return clean;
+          if ((clean.length === 12 || clean.length === 16) && !isPhoneLike(clean)) return clean;
         }
         if (typeof node === 'number') {
           const s = String(node);
-          if (s.length === 12 || s.length === 16) return s;
+          if ((s.length === 12 || s.length === 16) && !isPhoneLike(s)) return s;
         }
         if (Buffer.isBuffer(node) || node instanceof Uint8Array) {
           const s = Buffer.from(node).toString('utf-8');
           const clean = s.replace(/\D/g, '');
-          if (clean.length === 12 || clean.length === 16) return clean;
+          if ((clean.length === 12 || clean.length === 16) && !isPhoneLike(clean)) return clean;
         }
         if (node instanceof Map) {
           for (const [k, v] of node.entries()) {

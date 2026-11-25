@@ -72,54 +72,9 @@ interface FeedViewProps {
   faydaStatus?: string;
 }
 
-const FALLBACK_SEEKERS: RoommateSeekerSummary[] = [
-  {
-    id: 'seeker-1',
-    display_code: 'RM482',
-    display_name: 'Roommate #RM482',
-    first_name: 'Roommate #RM482',
-    preferred_subcity: ['Bole', 'Kazanchis'],
-    my_gender: 'Female',
-    preferred_gender: 'Female',
-    budget_max: 12000,
-    lifestyle_bio: 'Software Developer working at Kazanchis. Quiet, non-smoker, clean. Looking to share a 2-bedroom condo.',
-    fayda_status: 'verified',
-    unlock_fee: 50,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'seeker-2',
-    display_code: 'RM719',
-    display_name: 'Roommate #RM719',
-    first_name: 'Roommate #RM719',
-    preferred_subcity: ['CMC', 'Sarbet'],
-    my_gender: 'Male',
-    preferred_gender: 'Male',
-    budget_max: 9500,
-    lifestyle_bio: 'Civil Engineer, loves gaming and coffee. Looking for a friendly roommate to split rent.',
-    fayda_status: 'verified',
-    unlock_fee: 50,
-    created_at: new Date(Date.now() - 3600000).toISOString(),
-  },
-  {
-    id: 'seeker-3',
-    display_code: 'RM205',
-    display_name: 'Roommate #RM205',
-    first_name: 'Roommate #RM205',
-    preferred_subcity: ['Piassa', '4 Kilo'],
-    my_gender: 'Female',
-    preferred_gender: 'Any',
-    budget_max: 10000,
-    lifestyle_bio: 'Postgrad student at AAU. Respectful, tidy, move-in target by Nov 1.',
-    fayda_status: 'pending',
-    unlock_fee: 50,
-    created_at: new Date(Date.now() - 7200000).toISOString(),
-  },
-];
-
 export function FeedView({
   spaces,
-  seekers = FALLBACK_SEEKERS,
+  seekers = [],
   isLoading,
   onSelectSpace,
   botUsername = 'Spacematchaddis_bot',
@@ -440,7 +395,7 @@ export function FeedView({
                     className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all active:scale-95 group"
                   >
                     <Unlock className="w-4 h-4 stroke-[2.5] animate-icon-shake" />
-                    <span>Unlock Contact Info ({seeker.unlock_fee || 50} ETB via Telebirr)</span>
+                    <span>Unlock Contact Info ({seeker.unlock_fee || 100} ETB · 3-Month Pass)</span>
                   </a>
                 </div>
               ))
@@ -450,6 +405,27 @@ export function FeedView({
           /* ================================================================= */
           /* SECONDARY TAB: SPACES FOR RENT (HOMEOWNERS)                       */
           /* ================================================================= */
+          filteredSpaces.length === 0 ? (
+            <div className="py-16 text-center space-y-3 luxury-card rounded-3xl p-6 text-slate-300">
+              <Home className="w-10 h-10 text-[#0088CC] mx-auto" />
+              <h4 className="font-black text-base text-white">
+                {activeTab === 'wishlist' ? 'No Saved Spaces Yet' : 'No Available Spaces Found'}
+              </h4>
+              <p className="text-xs text-slate-400">
+                {activeTab === 'wishlist'
+                  ? 'Tap the heart icon on any space listing to save it here.'
+                  : 'Check back soon or browse verified roommate seekers.'}
+              </p>
+              {activeTab === 'wishlist' && (
+                <button
+                  onClick={() => setActiveTab('home')}
+                  className="inline-block mt-2 px-4 py-2 rounded-xl bg-[#0088CC] text-white font-black text-xs"
+                >
+                  Browse All Listings
+                </button>
+              )}
+            </div>
+          ) : (
           <div className="grid grid-cols-2 gap-3">
             {filteredSpaces.map((space) => {
               const coverImg =
@@ -520,6 +496,7 @@ export function FeedView({
               );
             })}
           </div>
+          )
         )}
       </main>
 
@@ -536,7 +513,10 @@ export function FeedView({
         </button>
 
         <button
-          onClick={() => setActiveTab('wishlist')}
+          onClick={() => {
+            setActiveTab('wishlist');
+            setActiveMainTab('spaces');
+          }}
           className={`flex flex-col items-center gap-1 transition-all relative ${
             activeTab === 'wishlist' ? 'text-[#0088CC] font-bold scale-105' : 'text-slate-400 hover:text-slate-200'
           }`}

@@ -492,8 +492,9 @@ export async function dispatchAdminChannelGet(): Promise<{
   durationMs: number;
 }> {
   const routeMod = await import('../../src/app/api/admin/channel/route');
+  const req = new Request('https://spacematch.local/api/admin/channel', { method: 'GET' });
   const t0 = performance.now();
-  const res = await routeMod.GET();
+  const res = await routeMod.GET(req);
   const t1 = performance.now();
   const body = await res.json();
   return { status: res.status, body, durationMs: t1 - t0 };

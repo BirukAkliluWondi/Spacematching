@@ -361,7 +361,7 @@ function getCardConfig(type: CardScreenType, params: DynamicCardParams): CardCon
           icon: 'shield',
           title: 'Verified Resident',
           amharic: 'የተረጋገጠ አባል',
-          desc: 'Keep your 30-day pass and Fayda verified status active.',
+          desc: 'Keep your 90-day pass and Fayda verified status active.',
         },
       };
 
@@ -692,16 +692,19 @@ interface CachedCardPng {
 }
 const _cardPngCache = new Map<string, CachedCardPng>();
 const CARD_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour in-memory RAM cache
+const MAX_CARD_CACHE_SIZE = 200;
 
 /**
  * Universal PNG generator supporting all bot screen cards.
- * Implements high-speed in-memory buffer caching to eliminate bot lag.
+ * Implements bounded high-speed in-memory LRU buffer caching to eliminate bot lag.
  */
 export async function generateCardPng(type: CardScreenType, params: DynamicCardParams = {}): Promise<Buffer> {
   const cacheKey = `${type}:${JSON.stringify(params)}`;
   const now = Date.now();
   const cached = _cardPngCache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
+    _cardPngCache.delete(cacheKey);
+    _cardPngCache.set(cacheKey, cached);
     return cached.buffer;
   }
 
@@ -735,6 +738,10 @@ export async function generateCardPng(type: CardScreenType, params: DynamicCardP
 
   const arrayBuffer = await response.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
+  if (_cardPngCache.size >= MAX_CARD_CACHE_SIZE) {
+    const oldestKey = _cardPngCache.keys().next().value;
+    if (oldestKey !== undefined) _cardPngCache.delete(oldestKey);
+  }
   _cardPngCache.set(cacheKey, { buffer, expiresAt: now + CARD_CACHE_TTL_MS });
   return buffer;
 }

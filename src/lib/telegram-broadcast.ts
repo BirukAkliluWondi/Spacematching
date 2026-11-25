@@ -116,7 +116,7 @@ export async function broadcastRoommateProfileToChannel(
         space_share: pFromProfiles.space_share,
         space_amenities: pFromProfiles.space_amenities || [],
         space_photos: Array.isArray(pFromProfiles.space_photos) ? pFromProfiles.space_photos : [],
-        unlock_fee: 300,
+        unlock_fee: 100,
         users: {
           first_name: pFromProfiles.full_name || 'Seeker',
           fayda_status: pFromProfiles.kyc_status || 'verified',
@@ -144,7 +144,7 @@ export async function broadcastRoommateProfileToChannel(
             budget_max: dRow.budget_max || 10000,
             lifestyle_bio: dRow.lifestyle_bio || 'Seeking compatible roommate in Addis Ababa.',
             listing_category: 'seeker',
-            unlock_fee: dRow.unlock_fee || 300,
+            unlock_fee: dRow.unlock_fee || 100,
             users: {
               first_name: dRow.user_name || 'Seeker',
               fayda_status: dRow.fayda_status || 'verified',
@@ -178,7 +178,7 @@ export async function broadcastRoommateProfileToChannel(
             space_rent: sRow.price_per_month,
             space_amenities: [],
             space_photos: sRow.photo_url ? [sRow.photo_url] : [],
-            unlock_fee: 300,
+            unlock_fee: 100,
             users: {
               first_name: sRow.homeowner_name || 'Homeowner',
               fayda_status: 'verified',
@@ -251,7 +251,7 @@ export async function broadcastRoommateProfileToChannel(
         space_share: dbProfile.space_share,
         space_amenities: dbProfile.space_amenities || [],
         space_photos: Array.isArray(dbProfile.space_photos) ? dbProfile.space_photos : [],
-        unlock_fee: dbProfile.unlock_fee || 300,
+        unlock_fee: dbProfile.unlock_fee || 100,
         fayda_status: dbProfile.users?.fayda_status || 'verified',
       };
     } else {
@@ -301,7 +301,7 @@ export async function broadcastRoommateProfileToChannel(
               space_share: d.space_share ? Number(d.space_share) : undefined,
               space_amenities: d.space_amenities || [],
               space_photos: d.space_photos || [],
-              unlock_fee: 300,
+              unlock_fee: 100,
               fayda_status: 'verified',
             };
           }
@@ -334,7 +334,7 @@ export async function broadcastRoommateProfileToChannel(
               space_share: d.space_share ? Number(d.space_share) : undefined,
               space_amenities: d.space_amenities || [],
               space_photos: d.space_photos || [],
-              unlock_fee: 300,
+              unlock_fee: 100,
               fayda_status: 'verified',
             };
           }
@@ -480,27 +480,15 @@ export async function broadcastRoommateProfileToChannel(
       inline_keyboard: [
         [
           {
-            text: hasSpace
-              ? `Contact Host #${cleanDisplayCode} / ከአከራይ ጋር ተገናኝ >`
-              : `Connect with #${cleanDisplayCode} / ተገናኝ >`,
+            text: `Connect with this roommate / ከዚህ አጋር ጋር ተገናኝ >`,
             url: hasSpace
               ? `https://t.me/${botUsername}?start=order_${cleanDisplayCode}`
               : `https://t.me/${botUsername}?start=req_${cleanDisplayCode}`,
           },
         ],
-        // [
-        //   {
-        //     text: hasSpace
-        //       ? 'Post My Space / ክፍሌን ልለጥፍ >'
-        //       : 'Post Profile / መረጃዬን ልለጥፍ >',
-        //     url: hasSpace
-        //       ? `https://t.me/${botUsername}?start=post_branch_space`
-        //       : `https://t.me/${botUsername}?start=post_profile`,
-        //   },
-        // ],
         [
           {
-            text: 'Search Roommate for Me / የቤት አጋር ፈልግ >',
+            text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >',
             url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
@@ -629,7 +617,14 @@ export async function broadcastListingToChannel(
   const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
   const botUsername = rawBotUsername.replace('@', '');
   const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
-  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
+  let targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@Spacematch_Addis';
+  try {
+    if (!channelId) {
+      const channels = await getManagedChannels();
+      const active = channels.find((c) => c.is_active);
+      if (active) targetChannel = String(active.channel_id || active.channel_username || targetChannel);
+    }
+  } catch {}
 
   if (!botToken) {
     return {
@@ -668,7 +663,7 @@ export async function broadcastListingToChannel(
           title: draft.title,
           neighborhood: draft.neighborhood,
           price_per_month: draft.price_per_month,
-          unlock_fee: 300,
+          unlock_fee: 100,
           description: draft.description,
         };
         if (draft.photo_url) photoUrl = draft.photo_url;
@@ -706,19 +701,13 @@ export async function broadcastListingToChannel(
       inline_keyboard: [
         [
           {
-            text: `Contact Host #${cleanSpaceCode} / ከአከራይ ጋር ተገናኝ >`,
+            text: 'Connect with this roommate / ከዚህ አጋር ጋር ተገናኝ >',
             url: `https://t.me/${botUsername}?start=order_${cleanSpaceCode}`,
           },
         ],
         [
           {
-            text: 'Post My Space / ክፍሌን ልለጥፍ >',
-            url: `https://t.me/${botUsername}?start=post_branch_space`,
-          },
-        ],
-        [
-          {
-            text: 'Search Roommate / የቤት አጋር ፈልግ >',
+            text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >',
             url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
@@ -816,7 +805,14 @@ export async function postCustomToChannel(
   const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
   const botUsername = rawBotUsername.replace('@', '');
   const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
-  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
+  let targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@Spacematch_Addis';
+  try {
+    if (!channelId) {
+      const channels = await getManagedChannels();
+      const active = channels.find((c) => c.is_active);
+      if (active) targetChannel = String(active.channel_id || active.channel_username || targetChannel);
+    }
+  } catch {}
 
   if (!botToken) {
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
@@ -830,14 +826,17 @@ export async function postCustomToChannel(
     ? `https://t.me/${botUsername}/${appName}?startapp=listing_${listingId}`
     : `https://t.me/${botUsername}/${appName}`;
 
+  const footerNote =
+    '\n\n📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ';
+  const finalText = text.includes('@WWEHID') ? text : `${text}${footerNote}`;
+
   const inlineKeyboard = {
     inline_keyboard: [
       [
-        { text: 'I Have a Space / ክፍል አለኝ', url: `https://t.me/${botUsername}?start=property_type`, style: 'primary' },
-        { text: 'I Need a Space / ክፍል እፈልጋለሁ', url: `https://t.me/${botUsername}?start=seeker_flow`, style: 'primary' },
+        { text: 'Connect with this roommate / ከዚህ አጋር ጋር ተገናኝ >', url: orderUrl },
       ],
       [
-        { text: 'Order in Bot / በቦት እዘዝ', url: orderUrl, style: 'success' },
+        { text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >', url: `https://t.me/${botUsername}?start=search_roommate` },
       ],
     ],
   };
@@ -846,7 +845,7 @@ export async function postCustomToChannel(
     let endpoint = 'sendMessage';
     let body: Record<string, any> = {
       chat_id: targetChannel,
-      text,
+      text: finalText,
       parse_mode: 'HTML',
       reply_markup: inlineKeyboard,
     };
@@ -856,7 +855,7 @@ export async function postCustomToChannel(
       body = {
         chat_id: targetChannel,
         photo: photoUrl.trim(),
-        caption: text,
+        caption: truncateTelegramHtml(finalText, 1024),
         parse_mode: 'HTML',
         reply_markup: inlineKeyboard,
       };
@@ -892,7 +891,14 @@ export async function deleteChannelPost(
   channelId?: string
 ): Promise<{ success: boolean; message: string }> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
+  let targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@Spacematch_Addis';
+  try {
+    if (!channelId) {
+      const channels = await getManagedChannels();
+      const active = channels.find((c) => c.is_active);
+      if (active) targetChannel = String(active.channel_id || active.channel_username || targetChannel);
+    }
+  } catch {}
 
   if (!botToken) {
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };
@@ -939,7 +945,14 @@ export async function closeChannelPost(
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
   const botUsername = rawBotUsername.replace('@', '');
-  const targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
+  let targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@Spacematch_Addis';
+  try {
+    if (!channelId) {
+      const channels = await getManagedChannels();
+      const active = channels.find((c) => c.is_active);
+      if (active) targetChannel = String(active.channel_id || active.channel_username || targetChannel);
+    }
+  } catch {}
 
   if (!botToken) {
     return { success: false, message: 'TELEGRAM_BOT_TOKEN is missing.' };

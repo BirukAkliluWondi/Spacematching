@@ -56,6 +56,11 @@ export default function AdminPage() {
  const [loading, setLoading] = useState(true);
  const [activeTab, setActiveTab] = useState<'channel' | 'custom' | 'orders' | 'users' | 'register_roommate'>('channel');
  const [actionStatus, setActionStatus] = useState<string | null>(null);
+ const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'unauthenticated'>('checking');
+ const [passcode, setPasscode] = useState('');
+ const [passcodeEnabled, setPasscodeEnabled] = useState(false);
+ const [authError, setAuthError] = useState<string | null>(null);
+ const [authenticating, setAuthenticating] = useState(false);
 
  // Fayda & Users search state
  const [usersList, setUsersList] = useState<AdminUser[]>([]);
@@ -209,8 +214,90 @@ export default function AdminPage() {
  }
  };
 
+ const initAdminAuth = async () => {
+   setAuthState('checking');
+   try {
+     const url = new URL(window.location.href);
+     const urlToken = url.searchParams.get('auth_token');
+     if (urlToken) {
+       const res = await fetch('/api/admin/auth', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ auth_token: urlToken }),
+       });
+       if (res.ok) {
+         url.searchParams.delete('auth_token');
+         window.history.replaceState({}, '', url.toString());
+         setAuthState('authenticated');
+         fetchAdminData();
+         return;
+       }
+     }
+
+     const checkRes = await fetch('/api/admin/auth');
+     const checkData = await checkRes.json();
+     setPasscodeEnabled(Boolean(checkData.passcodeEnabled));
+     if (checkData.authenticated) {
+       setAuthState('authenticated');
+       fetchAdminData();
+       return;
+     }
+
+     const tgInit = (window as any).Telegram?.WebApp?.initData;
+     if (tgInit) {
+       const tgRes = await fetch('/api/admin/auth', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ initData: tgInit }),
+       });
+       if (tgRes.ok) {
+         setAuthState('authenticated');
+         fetchAdminData();
+         return;
+       }
+     }
+
+     setAuthState('unauthenticated');
+   } catch {
+     setAuthState('unauthenticated');
+   }
+ };
+
+ const handlePasscodeLogin = async (e: React.FormEvent) => {
+   e.preventDefault();
+   setAuthenticating(true);
+   setAuthError(null);
+   try {
+     const res = await fetch('/api/admin/auth', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ passcode }),
+     });
+     const data = await res.json();
+     if (res.ok && data.success) {
+       setAuthState('authenticated');
+       setPasscode('');
+       fetchAdminData();
+     } else {
+       setAuthError(data.error || 'Unauthorized passcode');
+     }
+   } catch {
+     setAuthError('Authentication request failed.');
+   } finally {
+     setAuthenticating(false);
+   }
+ };
+
+ const handleLogout = async () => {
+   await fetch('/api/admin/auth', { method: 'DELETE' });
+   setAuthState('unauthenticated');
+   setStats(null);
+   setSpaces([]);
+   setUsersList([]);
+ };
+
  useEffect(() => {
- fetchAdminData();
+ initAdminAuth();
  }, []);
 
  const handleBroadcast = async (listingId: string) => {
@@ -297,6 +384,58 @@ export default function AdminPage() {
  return true;
  });
 
+ if (authState === 'checking') {
+   return (
+     <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+       <div className="text-center space-y-3">
+         <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+         <p className="text-sm text-slate-400">Verifying SpaceMatch Admin session...</p>
+       </div>
+     </main>
+   );
+ }
+
+ if (authState === 'unauthenticated') {
+   return (
+     <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+       <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xl">
+         <div>
+           <h1 className="text-xl font-bold text-white">SpaceMatch Admin Portal</h1>
+           <p className="text-xs text-slate-400 mt-1">
+             Restricted Access / የተፈቀደላቸው አስተዳዳሪዎች ብቻ
+           </p>
+         </div>
+         <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 space-y-2 leading-relaxed">
+           <p className="font-semibold text-emerald-400">Sign in via Telegram Bot (Recommended):</p>
+           <p>Open <b>@Spacematchaddis_bot</b> as a verified Super Admin and send <code>/admin</code>, then tap the <b>Open Web Admin Portal</b> button.</p>
+         </div>
+         {passcodeEnabled && (
+           <form onSubmit={handlePasscodeLogin} className="space-y-3">
+             <div>
+               <label className="block text-xs text-slate-400 mb-1">Admin Passcode</label>
+               <input
+                 type="password"
+                 value={passcode}
+                 onChange={(e) => setPasscode(e.target.value)}
+                 placeholder="Enter admin passcode..."
+                 className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-emerald-500"
+               />
+             </div>
+             {authError && <p className="text-xs text-rose-400">{authError}</p>}
+             <button
+               type="submit"
+               disabled={authenticating || !passcode.trim()}
+               className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold transition"
+             >
+               {authenticating ? 'Signing in...' : 'Sign In'}
+             </button>
+           </form>
+         )}
+       </div>
+     </main>
+   );
+ }
+
  return (
  <main className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-16">
  {/* Top Navigation */}
@@ -311,12 +450,20 @@ export default function AdminPage() {
  <p className="text-xs text-slate-400">ስማርት የቴሌግራም ቻነልና የክፍሎች አስተዳዳሪ</p>
  </div>
  </div>
+ <div className="flex items-center gap-2">
  <button
  onClick={fetchAdminData}
  className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition flex items-center gap-1.5"
  >
  Refresh Data
  </button>
+ <button
+ onClick={handleLogout}
+ className="px-3 py-1.5 text-xs bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 rounded-lg border border-rose-800/50 transition"
+ >
+ Sign Out
+ </button>
+ </div>
  </div>
  </header>
 

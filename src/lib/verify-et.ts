@@ -48,14 +48,21 @@ export function extractTransactionReference(input: string): string {
     return ftMatch[1].trim().toUpperCase();
   }
 
-  // 3b. Telebirr 10-char Alphanumeric Reference (e.g., DKM7J1EXAP, DK29M7PCJT, DT...)
-  const tbRegex = /\b(D[KTS][A-Z0-9]{8})\b/i;
+  // 3b. Dashen Bank Reference (e.g., DTS41AB2C90) — checked before Telebirr generic D[KT]
+  const dashenRegex = /\b(DTS[A-Z0-9]{5,14})\b/i;
+  const dashenMatch = cleaned.match(dashenRegex);
+  if (dashenMatch && dashenMatch[1]) {
+    return dashenMatch[1].trim().toUpperCase();
+  }
+
+  // 3c. Telebirr 10-char Alphanumeric Reference (e.g., DKM7J1EXAP, DK29M7PCJT, DT...)
+  const tbRegex = /\b(D[KT][A-Z0-9]{8})\b/i;
   const tbMatch = cleaned.match(tbRegex);
   if (tbMatch && tbMatch[1]) {
     return tbMatch[1].trim().toUpperCase();
   }
 
-  // 3c. Bank of Abyssinia TX Reference (e.g., TX...)
+  // 3d. Bank of Abyssinia TX Reference (e.g., TX...)
   const boaRegex = /\b(TX[0-9A-Z]{6,16})\b/i;
   const boaMatch = cleaned.match(boaRegex);
   if (boaMatch && boaMatch[1]) {
@@ -106,13 +113,14 @@ export function extractTransactionReference(input: string): string {
     }
   }
 
-  // 8. Strip outer punctuation and quotes from single tokens
+  // 8. Strip outer punctuation and quotes from single alphanumeric code tokens (>= 6 chars, non-word stop list)
   const cleanSingleToken = cleaned.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
-  if (/^[a-zA-Z0-9_-]+$/.test(cleanSingleToken)) {
+  const commonWordBlacklist = /^(?:verify|receipt|payment|telebirr|abyssinia|dashen|fayda|ethiopia|success|completed|failed|hello|start|cancel|search|profile|roommate|spacematch)$/i;
+  if (/^[a-zA-Z0-9_-]{6,32}$/.test(cleanSingleToken) && !commonWordBlacklist.test(cleanSingleToken) && /\d/.test(cleanSingleToken)) {
     return cleanSingleToken;
   }
 
-  return cleaned;
+  return '';
 }
 
 /**
@@ -379,32 +387,41 @@ export async function verifyTelebirrPayment(
   if (normalizedBank === 'abyssinia') {
     normalizedBank = 'boa';
   }
-  const isCbeRef = cleanRef.toUpperCase().startsWith('FT') || cleanRef.toLowerCase().includes('cbe.com.et');
-  const isDashenRef = cleanRef.toUpperCase().startsWith('DTS');
+  const refUpper = cleanRef.toUpperCase();
+  const refLower = cleanRef.toLowerCase();
+  const isCbeRef = refUpper.startsWith('FT') || refLower.includes('cbe.com.et');
+  const isDashenRef = refUpper.startsWith('DTS') || refLower.includes('dashen');
+  const isBoaRef = refUpper.startsWith('TX') || refLower.includes('abyssinia');
   const isTelebirrRef =
-    /^\d{8,16}$/.test(cleanRef) ||
-    (!isCbeRef && !isDashenRef && /^[A-Z0-9]{8,14}$/i.test(cleanRef));
+    refUpper.startsWith('DK') ||
+    (refUpper.startsWith('DT') && !refUpper.startsWith('DTS')) ||
+    refLower.includes('ethiotelecom') ||
+    refLower.includes('telebirr');
 
   if (!normalizedBank) {
     if (isCbeRef) {
       normalizedBank = 'cbe';
-    } else if (isTelebirrRef) {
-      normalizedBank = 'telebirr';
+    } else if (isBoaRef) {
+      normalizedBank = 'boa';
     } else if (isDashenRef) {
       normalizedBank = 'dashen';
+    } else if (isTelebirrRef) {
+      normalizedBank = 'telebirr';
     }
   }
 
-  // Strictly target the specific bank if identified, or evaluate at most 2 configs to avoid blocking delays
+  // Strictly target identified bank, or evaluate prioritized list for purely numeric refs
   let bankConfigs: typeof allConfigs;
   if (normalizedBank) {
     bankConfigs = allConfigs.filter((c) => c.bank === normalizedBank);
     if (bankConfigs.length === 0) {
       bankConfigs = [{ bank: normalizedBank, settlementAccount: receiverPhone.trim() || '0987310978' }];
     }
+  } else if (/^\d{8,16}$/.test(cleanRef)) {
+    bankConfigs = allConfigs;
   } else {
-    // Default prioritized: Telebirr first, CBE second
-    bankConfigs = allConfigs.filter((c) => c.bank === 'telebirr' || c.bank === 'cbe');
+    // Default prioritized: Telebirr first, CBE second, BoA third
+    bankConfigs = allConfigs.filter((c) => c.bank === 'telebirr' || c.bank === 'cbe' || c.bank === 'boa');
   }
 
   let lastFailure: { message: string; messageAm: string; errorCode: string } | null = null;
@@ -421,7 +438,7 @@ export async function verifyTelebirrPayment(
           'x-api-key': apiKey,
         },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(8500),
       });
 
       if (!response.ok) {
@@ -491,6 +508,11 @@ export async function verifyTelebirrPayment(
               pollData.data?.result?.verified === true;
 
             if (isPolledVerified || pollData.verification?.processingStatus === 'completed') {
+              data = pollData;
+              break;
+            }
+            const procStatus = String(pollData.verification?.processingStatus || pollData.status || '').toLowerCase();
+            if (procStatus === 'failed' || procStatus === 'rejected' || procStatus === 'error') {
               data = pollData;
               break;
             }
@@ -568,14 +590,31 @@ export async function verifyTelebirrPayment(
       }
 
       // 3. Ensure paid amount matches or exceeds expected fee
-      const paidAmount = Number(
-        record?.amount || record?.paidAmount || data.amount || data.paidAmount || 0
-      );
-      if (paidAmount > 0 && paidAmount < expectedFee) {
+      const rawAmtCandidate =
+        record?.amount ??
+        record?.paidAmount ??
+        record?.settledAmountValue ??
+        record?.settledAmount ??
+        data.amount ??
+        data.paidAmount ??
+        0;
+      const parsedAmtNum =
+        typeof rawAmtCandidate === 'number'
+          ? rawAmtCandidate
+          : parseFloat(String(rawAmtCandidate).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+      const paidAmount = Number.isFinite(parsedAmtNum) ? parsedAmtNum : 0;
+
+      if (paidAmount < expectedFee) {
         return {
           success: false,
-          message: `Insufficient payment. Received ${paidAmount} ETB, but fee requires at least ${expectedFee} ETB.`,
-          messageAm: `የተከፈለው ገንዘብ መጠን በቂ አይደለም። የተከፈለው ${paidAmount} ብር ሲሆን የሚያስፈልገው ክፍያ ${expectedFee} ብር ነው።`,
+          message:
+            paidAmount > 0
+              ? `Insufficient payment. Received ${paidAmount} ETB, but fee requires at least ${expectedFee} ETB.`
+              : `Could not verify a valid payment amount (requires at least ${expectedFee} ETB). Please double-check your receipt.`,
+          messageAm:
+            paidAmount > 0
+              ? `የተከፈለው ገንዘብ መጠን በቂ አይደለም። የተከፈለው ${paidAmount} ብር ሲሆን የሚያስፈልገው ክፍያ ${expectedFee} ብር ነው።`
+              : `የተከፈለው የገንዘብ መጠን (ቢያንስ ${expectedFee} ብር) ማረጋገጥ አልተቻለም። እባክዎ ደረሰኝዎን ያረጋግጡ።`,
           errorCode: 'INSUFFICIENT_AMOUNT',
           paidAmount,
           bank: config.bank,
@@ -593,7 +632,7 @@ export async function verifyTelebirrPayment(
         message: `Payment receipt verified successfully via ${config.bank.toUpperCase()}.`,
         messageAm: `የክፍያ ደረሰኝ በ${config.bank.toUpperCase()} በተሳካ ሁኔታ ተረጋግጧል።`,
         transactionNumber: txNum,
-        paidAmount: paidAmount || expectedFee,
+        paidAmount,
         senderName,
         bank: config.bank,
         rawResponse: data,

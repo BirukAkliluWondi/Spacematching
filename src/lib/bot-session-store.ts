@@ -160,6 +160,7 @@ export interface RoommateProfileDraft {
   user_name: string;
   username: string | null;
   contact_phone?: string;
+  phone_number?: string;
   age?: number;
   job?: string;
   religion?: string;
@@ -339,7 +340,7 @@ export async function preloadSession(telegramId: number): Promise<BotSession> {
 // Per-user write queue to guarantee database persistence ordering without blocking webhook responses
 const _sessionWriteQueues: Record<string, Promise<any>> = {};
 
-export async function saveSession(session: BotSession, awaitDb = false): Promise<void> {
+export async function saveSession(session: BotSession, awaitDb = true): Promise<void> {
   // Ensure draft_data is an object and retains language
   session.draft_data = session.draft_data ?? {};
   const activeLang = session.draft_data.lang || _userLanguageCache.get(String(session.telegram_id));
@@ -471,7 +472,23 @@ export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<vo
   }
 
   // 3. Upsert into pending_roommate_drafts with ONLY valid DB columns to prevent PostgreSQL schema cache errors
+  // Encode non-column space/contact metadata safely inside fayda_document_url JSON so Space listings survive lambda restarts
   try {
+    const serializedMeta = JSON.stringify({
+      display_code: cleanCode,
+      listing_category: draft.listing_category || (draft.space_rent ? 'space_available' : 'seeker'),
+      space_type: draft.space_type,
+      space_rent: draft.space_rent,
+      space_share: draft.space_share,
+      space_amenities: draft.space_amenities,
+      space_photos: draft.space_photos,
+      phone_number: draft.phone_number,
+      age: draft.age,
+      job: draft.job,
+      religion: draft.religion,
+      source_doc: draft.fayda_document_url && !draft.fayda_document_url.startsWith('{') ? draft.fayda_document_url : undefined,
+    });
+
     const validDbPayload = {
       id: cleanId,
       user_telegram_id: draft.user_telegram_id,
@@ -484,8 +501,8 @@ export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<vo
       budget_max: Number(draft.budget_max || 10000),
       lifestyle_bio: draft.lifestyle_bio || '',
       fayda_status: draft.fayda_status || 'verified',
-      fayda_document_url: draft.fayda_document_url || null,
-      unlock_fee: Number(draft.unlock_fee || 300),
+      fayda_document_url: serializedMeta,
+      unlock_fee: Number(draft.unlock_fee || 100),
       status: draft.status || 'pending_approval',
       updated_at: new Date().toISOString(),
     };
@@ -497,6 +514,31 @@ export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<vo
   } catch (err) {
     console.warn('[saveRoommateDraft] DB exception:', err);
   }
+}
+
+function hydrateDbDraft(dbDraft: any): RoommateProfileDraft | null {
+  if (!dbDraft) return null;
+  let parsedMeta: any = {};
+  if (typeof dbDraft.fayda_document_url === 'string' && dbDraft.fayda_document_url.trim().startsWith('{')) {
+    try {
+      parsedMeta = JSON.parse(dbDraft.fayda_document_url);
+    } catch {}
+  }
+  return {
+    ...dbDraft,
+    display_code: parsedMeta.display_code || dbDraft.display_code || dbDraft.id,
+    listing_category: parsedMeta.listing_category || (parsedMeta.space_rent ? 'space_available' : 'seeker'),
+    space_type: parsedMeta.space_type,
+    space_rent: parsedMeta.space_rent ? Number(parsedMeta.space_rent) : undefined,
+    space_share: parsedMeta.space_share ? Number(parsedMeta.space_share) : undefined,
+    space_amenities: Array.isArray(parsedMeta.space_amenities) ? parsedMeta.space_amenities : undefined,
+    space_photos: Array.isArray(parsedMeta.space_photos) ? parsedMeta.space_photos : undefined,
+    phone_number: parsedMeta.phone_number || dbDraft.phone_number,
+    age: parsedMeta.age || dbDraft.age,
+    job: parsedMeta.job || dbDraft.job,
+    religion: parsedMeta.religion || dbDraft.religion,
+    unlock_fee: Number(dbDraft.unlock_fee || 100),
+  };
 }
 
 export async function getRoommateDraft(draftId: string): Promise<RoommateProfileDraft | null> {
@@ -513,9 +555,9 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
     const { data } = await supabase
       .from('pending_roommate_drafts')
       .select('*')
-      .eq('id', draftId)
+      .ilike('id', draftId.trim())
       .maybeSingle();
-    if (data) dbDraft = data;
+    if (data) dbDraft = hydrateDbDraft(data);
   } catch {}
 
   // 3. Check in-memory session cache first, then single-row DB fallback
@@ -584,7 +626,7 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
         space_share: d.space_share ? Number(d.space_share) : undefined,
         space_amenities: d.space_amenities || [],
         space_photos: d.space_photos || [],
-        unlock_fee: 300,
+        unlock_fee: 100,
         fayda_status: 'verified',
         status: 'pending_approval',
         created_at: dbDraft?.created_at || new Date().toISOString(),
@@ -613,7 +655,8 @@ export async function getAllRoommateDrafts(): Promise<Record<string, RoommatePro
     const { data } = await supabase.from('pending_roommate_drafts').select('*');
     if (data && Array.isArray(data)) {
       data.forEach((d: any) => {
-        result[d.id] = d;
+        const hydrated = hydrateDbDraft(d);
+        if (hydrated) result[d.id] = hydrated;
       });
     }
   } catch {}
@@ -759,7 +802,7 @@ export async function getNextSpmarbrCode(category: 'seeker' | 'space_available' 
       .select('display_code')
       .ilike('display_code', `${prefix}%`)
       .order('created_at', { ascending: false })
-      .limit(30);
+      .limit(100);
 
     let dbMax = 0;
     if (data && Array.isArray(data)) {
@@ -791,7 +834,7 @@ export async function getNextSpmarbrCode(category: 'seeker' | 'space_available' 
 }
 
 /**
- * 300 ETB 30-Day Unified Membership Pass Management
+ * 100 ETB 3-Month (90-Day) Unified Membership Pass Management
  */
 export interface MembershipStatus {
   isActive: boolean;
@@ -830,9 +873,9 @@ export async function getUserMembershipStatus(telegramId: number): Promise<Membe
       .select('id, verified_at, created_at, transaction_reference, amount')
       .or(`buyer_telegram_id.eq.${telegramId},renter_telegram_id.eq.${telegramId}`)
       .eq('payment_status', 'completed')
-      .gte('created_at', ninetyDaysAgo)
+      .or(`verified_at.gte.${ninetyDaysAgo},created_at.gte.${ninetyDaysAgo}`)
       .gte('amount', 100)
-      .order('created_at', { ascending: false })
+      .order('verified_at', { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();
 
@@ -865,11 +908,61 @@ export async function getUserMembershipStatus(telegramId: number): Promise<Membe
 
 export async function activateUserMembership(
   telegramId: number,
-  orderId?: string,
-  txRef?: string
+  _orderId?: string,
+  _txRef?: string
 ): Promise<MembershipStatus> {
   invalidateMembershipCache(telegramId);
   return await getUserMembershipStatus(telegramId);
+}
+
+let _adminIdsCache: { ids: number[]; expiresAt: number } | null = null;
+
+export function invalidateAdminIdsCache(): void {
+  _adminIdsCache = null;
+}
+
+/**
+ * Shared authoritative list of Admin Telegram IDs across webhook and admin web/API auth.
+ */
+export async function getAdminTelegramIds(): Promise<number[]> {
+  const now = Date.now();
+  if (_adminIdsCache && _adminIdsCache.expiresAt > now) {
+    return _adminIdsCache.ids;
+  }
+
+  const defaultAdminIds = [800701176, 980853835, 148318506]; // @birukadiyee & @WWEHID
+  const envAdmins = (process.env.ADMIN_TELEGRAM_IDS || '')
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => !isNaN(n) && n > 0);
+
+  const adminSet = new Set<number>([...defaultAdminIds, ...envAdmins]);
+
+  try {
+    const [usersRes, channels] = await Promise.all([
+      supabase.from('users').select('telegram_id').eq('role', 'admin'),
+      getManagedChannels(),
+    ]);
+
+    if (usersRes?.data) {
+      for (const u of usersRes.data) {
+        const id = Number(u.telegram_id);
+        if (id) adminSet.add(id);
+      }
+    }
+
+    for (const ch of channels) {
+      if (ch.is_active && ch.added_by && Number(ch.added_by) > 0) {
+        adminSet.add(Number(ch.added_by));
+      }
+    }
+  } catch (err) {
+    console.error('[getAdminTelegramIds] error:', err);
+  }
+
+  const result = Array.from(adminSet);
+  _adminIdsCache = { ids: result, expiresAt: now + 5 * 60 * 1000 };
+  return result;
 }
 
 

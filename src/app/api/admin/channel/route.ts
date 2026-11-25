@@ -1,13 +1,18 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { verifyAdminRequest } from '@/lib/admin-auth';
 import {
   broadcastListingToChannel,
   deleteChannelPost,
   postCustomToChannel,
 } from '@/lib/telegram-broadcast';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await verifyAdminRequest(request);
+    if (!auth.authenticated) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
     // 1. Fetch published & pending spaces
     const { data: spaces, error: spacesErr } = await supabaseAdmin
       .from('spaces')
@@ -57,6 +62,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const auth = await verifyAdminRequest(request);
+    if (!auth.authenticated) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
     const body = await request.json();
     const { action, listingId, messageId, text, photoUrl } = body;
 

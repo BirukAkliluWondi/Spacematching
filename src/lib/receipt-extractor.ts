@@ -12,7 +12,7 @@
  */
 
 import sharp from 'sharp';
-import { getZXingModule, readBarcodes } from 'zxing-wasm';
+import { prepareZXingModule, readBarcodesFromImageData } from 'zxing-wasm/reader';
 import { createWorker } from 'tesseract.js';
 import { extractTransactionReference } from '@/lib/verify-et';
 
@@ -28,12 +28,32 @@ export interface ReceiptExtractionResult {
 
 // Warm singleton Tesseract worker for instant recognition without cold-spawn overhead
 let _ocrWorkerPromise: Promise<any> | null = null;
+let _receiptZxingReady: Promise<void> | null = null;
+
+async function ensureReceiptZxingReady(): Promise<void> {
+  if (_receiptZxingReady) return _receiptZxingReady;
+  _receiptZxingReady = (async () => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const p = path.resolve(process.cwd(), 'node_modules/zxing-wasm/dist/reader/zxing_reader.wasm');
+      if (fs.existsSync(/*turbopackIgnore: true*/ p)) {
+        const wasmBinary = fs.readFileSync(/*turbopackIgnore: true*/ p).buffer;
+        await prepareZXingModule({ overrides: { wasmBinary }, fireImmediately: true });
+      }
+    } catch (err) {
+      console.warn('[receipt-extractor] ensureReceiptZxingReady warning:', err);
+    }
+  })();
+  return _receiptZxingReady;
+}
 
 export async function getOcrWorker() {
   if (!_ocrWorkerPromise) {
     _ocrWorkerPromise = (async () => {
       try {
-        const worker = await createWorker('eng');
+        // Store traineddata cache in writable /tmp on Vercel serverless
+        const worker = await createWorker('eng', 1, { cachePath: '/tmp' });
         return worker;
       } catch (err) {
         _ocrWorkerPromise = null;
@@ -49,10 +69,18 @@ export async function getOcrWorker() {
  */
 async function preprocessReceiptImage(buffer: Buffer): Promise<Buffer> {
   try {
-    return await sharp(buffer)
-      .resize({ width: 1200, withoutEnlargement: true })
+    const meta = await sharp(buffer).metadata();
+    const width = meta.width || 0;
+    const pipeline = sharp(buffer).rotate();
+    if (width > 0 && width < 1000) {
+      pipeline.resize({ width: 1400, withoutEnlargement: false });
+    } else {
+      pipeline.resize({ width: 1400, withoutEnlargement: true });
+    }
+    return await pipeline
       .grayscale()
       .normalize()
+      .sharpen()
       .toBuffer();
   } catch {
     return buffer;
@@ -117,11 +145,24 @@ export async function extractTransactionReferenceFromImage(
 
   // ── Step 1: Fast Path via Embedded Barcode / QR Code (10-30ms) ───────────
   try {
-    await getZXingModule();
-    const barcodes = await readBarcodes(imageBuffer, {
-      tryHarder: true,
-      formats: ['QRCode', 'DataMatrix', 'PDF417'],
-    });
+    await ensureReceiptZxingReady();
+    const { data, info } = await sharp(imageBuffer)
+      .rotate()
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const barcodes = await readBarcodesFromImageData(
+      {
+        data: new Uint8ClampedArray(data),
+        width: info.width,
+        height: info.height,
+      } as any,
+      {
+        tryHarder: true,
+        formats: ['QRCode', 'DataMatrix', 'PDF417'],
+      }
+    );
 
     for (const b of barcodes) {
       if (b.text && b.text.trim()) {
@@ -152,6 +193,19 @@ export async function extractTransactionReferenceFromImage(
     const ocrText = (ret?.data?.text || '').trim();
 
     if (ocrText) {
+      const lowerOcr = ocrText.toLowerCase();
+      // Guard against misclassifying Fayda National ID cards as payment receipts
+      const looksLikeFayda =
+        (lowerOcr.includes('fayda') || lowerOcr.includes('nationality') || lowerOcr.includes('administration')) &&
+        !lowerOcr.includes('telebirr') &&
+        !lowerOcr.includes('etb') &&
+        !lowerOcr.includes('transaction') &&
+        !lowerOcr.includes('receipt') &&
+        !lowerOcr.includes('service fee');
+      if (looksLikeFayda) {
+        return { success: false, latencyMs: Date.now() - startTime };
+      }
+
       // 1. Direct verify-et extraction
       const refCandidate = extractTransactionReference(ocrText);
       const bankHint = detectBankHint(ocrText, refCandidate);

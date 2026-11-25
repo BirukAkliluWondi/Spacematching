@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { verifyAdminRequest } from '@/lib/admin-auth';
 import { getNextSpmarbrCode, saveRoommateDraft } from '@/lib/bot-session-store';
 
 /**
@@ -8,6 +9,10 @@ import { getNextSpmarbrCode, saveRoommateDraft } from '@/lib/bot-session-store';
  */
 export async function GET(request: Request) {
   try {
+    const auth = await verifyAdminRequest(request);
+    if (!auth.authenticated) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
     const { searchParams } = new URL(request.url);
     const query = (searchParams.get('query') || '').trim();
 
@@ -19,10 +24,12 @@ export async function GET(request: Request) {
       .limit(100);
 
     if (query) {
-      const clean = query.replace(/^[@#]/, '').trim();
-      dbQuery = dbQuery.or(
-        `full_name.ilike.%${clean}%,display_code.ilike.%${clean}%,roommate_traits.ilike.%${clean}%,telegram_username.ilike.%${clean}%`
-      );
+      const clean = query.replace(/^[@#]/, '').replace(/[,()":]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (clean) {
+        dbQuery = dbQuery.or(
+          `full_name.ilike.%${clean}%,display_code.ilike.%${clean}%,roommate_traits.ilike.%${clean}%,telegram_username.ilike.%${clean}%`
+        );
+      }
     }
 
     const { data: profiles, error } = await dbQuery;
@@ -53,6 +60,10 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   try {
+    const auth = await verifyAdminRequest(request);
+    if (!auth.authenticated) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
     const body = await request.json();
     const {
       fullName,

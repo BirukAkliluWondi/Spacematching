@@ -22,8 +22,7 @@ export function FaydaQRScannerModal({
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [verifiedData, setVerifiedData] = useState<{ faydaNumber?: string; fullName?: string } | null>(null);
-  const [manualCodeInput, setManualCodeInput] = useState('');
-  const [showManualFallback, setShowManualFallback] = useState(false);
+  const [showBotFallback, setShowBotFallback] = useState(false);
 
   if (!isOpen) return null;
 
@@ -51,8 +50,8 @@ export function FaydaQRScannerModal({
       }
     }
 
-    // Fallback if not inside Telegram mobile client (e.g. desktop browser test)
-    setShowManualFallback(true);
+    // Invariant 2: Manual typed FIN numbers are prohibited; guide browser users to upload QR photo in Telegram bot
+    setShowBotFallback(true);
   };
 
   const processQrData = async (rawQr: string) => {
@@ -60,12 +59,18 @@ export function FaydaQRScannerModal({
     setErrorMsg(null);
 
     try {
+      const tg = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp : undefined;
+      const initData = tg?.initData || '';
       const res = await fetch('/api/user/verify-fayda-qr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(initData ? { 'x-telegram-init-data': initData } : {}),
+        },
         body: JSON.stringify({
           telegram_id: telegramId,
           qr_data: rawQr,
+          initData,
         }),
       });
 
@@ -92,11 +97,9 @@ export function FaydaQRScannerModal({
     }
   };
 
-  const handleManualSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (manualCodeInput.trim()) {
-      processQrData(manualCodeInput.trim());
-    }
+  const handleBotOpen = () => {
+    const botUser = process.env.NEXT_PUBLIC_BOT_USERNAME?.replace('@', '') || 'Spacematchaddis_bot';
+    window.open(`https://t.me/${botUser}?start=verify_fayda`, '_blank');
   };
 
   return (
@@ -216,27 +219,20 @@ export function FaydaQRScannerModal({
                   )}
                 </button>
 
-                {/* Manual Fallback for Desktop/Browser testing */}
-                {showManualFallback && (
-                  <form onSubmit={handleManualSubmit} className="pt-2 border-t border-white/10 space-y-2">
-                    <p className="text-[10px] text-slate-400">
-                      Camera not supported in browser? Paste QR data or 12-digit FIN:
+                {/* Photo Upload in Bot Fallback (Invariant 2: No manual typed FIN input) */}
+                {showBotFallback && (
+                  <div className="pt-3 border-t border-white/10 space-y-2">
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Camera QR scan requires the Telegram mobile app. Open our bot to upload a clear photo of the back of your Fayda ID showing the QR code:
                     </p>
-                    <input
-                      type="text"
-                      value={manualCodeInput}
-                      onChange={(e) => setManualCodeInput(e.target.value)}
-                      placeholder="e.g. 1234 5678 9012 or QR text"
-                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-900 border border-white/15 text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0088CC]"
-                    />
                     <button
-                      type="submit"
-                      disabled={isVerifying || !manualCodeInput.trim()}
-                      className="w-full py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-bold disabled:opacity-40"
+                      type="button"
+                      onClick={handleBotOpen}
+                      className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-bold transition"
                     >
-                      Verify Input
+                      Verify via @Spacematchaddis_bot Photo Upload
                     </button>
-                  </form>
+                  </div>
                 )}
               </>
             )}

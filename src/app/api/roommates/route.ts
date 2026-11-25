@@ -1,51 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-server';
 
-const FALLBACK_SEEKERS = [
-  {
-    id: 'seeker-1',
-    display_code: 'RM482',
-    first_name: 'Roommate #RM482',
-    display_name: 'Roommate #RM482',
-    preferred_subcity: ['Bole', 'Kazanchis'],
-    my_gender: 'Female',
-    preferred_gender: 'Female',
-    budget_max: 12000,
-    lifestyle_bio: 'Software Developer working at Kazanchis. Quiet, non-smoker, clean. Looking to share a 2-bedroom condo.',
-    fayda_status: 'verified',
-    unlock_fee: 50,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'seeker-2',
-    display_code: 'RM719',
-    first_name: 'Roommate #RM719',
-    display_name: 'Roommate #RM719',
-    preferred_subcity: ['CMC', 'Sarbet'],
-    my_gender: 'Male',
-    preferred_gender: 'Male',
-    budget_max: 9500,
-    lifestyle_bio: 'Civil Engineer, loves gaming and coffee. Looking for a friendly roommate to split rent.',
-    fayda_status: 'verified',
-    unlock_fee: 50,
-    created_at: new Date(Date.now() - 3600000).toISOString(),
-  },
-  {
-    id: 'seeker-3',
-    display_code: 'RM205',
-    first_name: 'Roommate #RM205',
-    display_name: 'Roommate #RM205',
-    preferred_subcity: ['Piassa', '4 Kilo'],
-    my_gender: 'Female',
-    preferred_gender: 'Any',
-    budget_max: 10000,
-    lifestyle_bio: 'Postgrad student at AAU. Respectful, tidy, move-in target by Nov 1.',
-    fayda_status: 'pending',
-    unlock_fee: 50,
-    created_at: new Date(Date.now() - 7200000).toISOString(),
-  },
-];
-
 export async function GET(request: Request) {
   let seekers: any[] = [];
 
@@ -79,17 +34,13 @@ export async function GET(request: Request) {
             budget_max: Number(s.budget_max || 0),
             lifestyle_bio: s.lifestyle_bio || '',
             fayda_status: s.users?.fayda_status || 'verified',
-            unlock_fee: Number(s.unlock_fee || 50),
+            unlock_fee: 100,
             created_at: s.created_at,
           };
         });
       }
     } catch {
-      // Supabase unreachable, fallback gracefully
-    }
-
-    if (seekers.length === 0) {
-      seekers = FALLBACK_SEEKERS;
+      // Supabase unreachable, return empty list cleanly
     }
 
     if (subcity && subcity !== 'all') {
@@ -99,7 +50,7 @@ export async function GET(request: Request) {
     }
   } catch (err) {
     console.error('API Roommates Route safe catch:', err);
-    seekers = FALLBACK_SEEKERS;
+    seekers = [];
   }
 
   const pagedSeekers = seekers.slice(0, 50);
