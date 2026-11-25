@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldCheck, QrCode, AlertCircle, CheckCircle, X, Loader2, Camera, ShieldAlert, Sparkles } from 'lucide-react';
 
@@ -23,6 +23,15 @@ export function FaydaQRScannerModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [verifiedData, setVerifiedData] = useState<{ faydaNumber?: string; fullName?: string } | null>(null);
   const [showBotFallback, setShowBotFallback] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -104,11 +113,15 @@ export function FaydaQRScannerModal({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+      <div
+        onClick={onClose}
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 15 }}
+          onClick={(e) => e.stopPropagation()}
           className="relative w-full max-w-sm rounded-3xl luxury-card bg-gradient-to-b from-[#111A2E] via-[#0D1527] to-[#080D1A] border border-[#0088CC]/30 p-6 shadow-2xl overflow-hidden"
         >
           {/* Background Ambient Glow */}
@@ -117,6 +130,7 @@ export function FaydaQRScannerModal({
           {/* Close button */}
           <button
             onClick={onClose}
+            aria-label="Close modal"
             className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
           >
             <X className="w-5 h-5" />

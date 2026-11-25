@@ -153,10 +153,10 @@ async function runAdversarialSuite() {
 
   // 2.4 Update Deduplication
   const testUpdateId = 998877;
-  assert(deduplicateUpdate(testUpdateId) === true, 'First update_id returns true (accepted)');
-  assert(deduplicateUpdate(testUpdateId) === false, 'Duplicate update_id returns false (rejected)');
-  assert(deduplicateUpdate(testUpdateId) === false, 'Third duplicate update_id returns false (rejected)');
-  assert(deduplicateUpdate(0) === true, 'Falsy update_id (0) passes gracefully');
+  assert((await deduplicateUpdate(testUpdateId)) === true, 'First update_id returns true (accepted)');
+  assert((await deduplicateUpdate(testUpdateId)) === false, 'Duplicate update_id returns false (rejected)');
+  assert((await deduplicateUpdate(testUpdateId)) === false, 'Third duplicate update_id returns false (rejected)');
+  assert((await deduplicateUpdate(0)) === true, 'Falsy update_id (0) passes gracefully');
 
   // 2.5 Session Write Queue Race Condition Test
   const raceTgId = 554433221;

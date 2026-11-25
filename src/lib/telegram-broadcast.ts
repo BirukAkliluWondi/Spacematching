@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { getRoommateDraft, getDraft, getAllRoommateDrafts, getManagedChannels } from '@/lib/bot-session-store';
-import { formatRoommatePost, formatSpacePost, truncateTelegramHtml, extractUserDescription } from '@/lib/telegram';
+import { formatRoommatePost, formatSpacePost, truncateTelegramHtml, extractUserDescription, escapeHtml } from '@/lib/telegram';
 
 export { extractUserDescription };
 
@@ -133,17 +133,31 @@ export async function broadcastRoommateProfileToChannel(
           .ilike('id', cleanCode)
           .maybeSingle();
         if (dRow) {
+          let meta: Record<string, any> = {};
+          if (typeof dRow.fayda_document_url === 'string' && dRow.fayda_document_url.trim().startsWith('{')) {
+            try {
+              meta = JSON.parse(dRow.fayda_document_url);
+            } catch {}
+          }
           dbProfile = {
             id: dRow.id,
-            display_code: dRow.id,
+            display_code: meta.display_code || dRow.id,
             user_telegram_id: dRow.user_telegram_id,
             my_gender: dRow.my_gender || 'Member',
-            age: 24,
+            age: meta.age || 24,
+            job: meta.job,
+            religion: meta.religion,
             preferred_gender: dRow.preferred_gender || 'Any',
             preferred_subcity: Array.isArray(dRow.preferred_subcity) ? dRow.preferred_subcity : [],
+            budget_min: dRow.budget_min || 0,
             budget_max: dRow.budget_max || 10000,
             lifestyle_bio: dRow.lifestyle_bio || 'Seeking compatible roommate in Addis Ababa.',
-            listing_category: 'seeker',
+            listing_category: meta.listing_category || (meta.space_rent ? 'space_available' : 'seeker'),
+            space_type: meta.space_type,
+            space_rent: meta.space_rent ? Number(meta.space_rent) : undefined,
+            space_share: meta.space_share ? Number(meta.space_share) : undefined,
+            space_amenities: Array.isArray(meta.space_amenities) ? meta.space_amenities : undefined,
+            space_photos: Array.isArray(meta.space_photos) ? meta.space_photos : undefined,
             unlock_fee: dRow.unlock_fee || 100,
             users: {
               first_name: dRow.user_name || 'Seeker',
@@ -207,6 +221,8 @@ export async function broadcastRoommateProfileToChannel(
             .from('roommate_profiles')
             .select('*')
             .eq('user_telegram_id', Number(cleanCode))
+            .order('created_at', { ascending: false })
+            .limit(1)
             .maybeSingle();
           if (pByTg) dbProfile = pByTg;
         } catch {}
@@ -515,14 +531,14 @@ export async function broadcastRoommateProfileToChannel(
         data = { ok: false };
       }
 
-      // Fallback to text message if photo delivery failed
+      // Fallback to text message if photo delivery failed (safely truncated to 4096)
       if (!data || !data.ok) {
         response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: targetChannel,
-            text,
+            text: truncateTelegramHtml(text, 4096),
             parse_mode: 'HTML',
             reply_markup: inlineKeyboard,
           }),
@@ -535,7 +551,7 @@ export async function broadcastRoommateProfileToChannel(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: targetChannel,
-          text,
+          text: truncateTelegramHtml(text, 4096),
           parse_mode: 'HTML',
           reply_markup: inlineKeyboard,
         }),
@@ -560,12 +576,14 @@ export async function broadcastRoommateProfileToChannel(
             .ilike('display_code', displayCode);
         } catch {}
 
-        try {
-          await supabaseAdmin
-            .from('roommate_profiles')
-            .update({ channel_message_id: messageId, status: 'approved' })
-            .ilike('display_code', displayCode);
-        } catch {}
+        if (dbProfile?.user_telegram_id && Number(dbProfile.user_telegram_id) > 0) {
+          try {
+            await supabaseAdmin
+              .from('roommate_profiles')
+              .update({ channel_message_id: messageId, status: 'approved' })
+              .eq('user_telegram_id', Number(dbProfile.user_telegram_id));
+          } catch {}
+        }
       }
 
       if (isUuid) {
@@ -743,7 +761,7 @@ export async function broadcastListingToChannel(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: targetChannel,
-            text: captionText,
+            text: truncateTelegramHtml(captionText, 4096),
             parse_mode: 'HTML',
             reply_markup: inlineKeyboard,
           }),
@@ -820,11 +838,7 @@ export async function postCustomToChannel(
 
   const orderUrl = listingId
     ? `https://t.me/${botUsername}?start=order_${listingId}`
-    : `https://t.me/${botUsername}?start=order`;
-
-  const miniAppUrl = listingId
-    ? `https://t.me/${botUsername}/${appName}?startapp=listing_${listingId}`
-    : `https://t.me/${botUsername}/${appName}`;
+    : `https://t.me/${botUsername}?start=seeker_flow`;
 
   const footerNote =
     '\n\n📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ';
@@ -842,32 +856,36 @@ export async function postCustomToChannel(
   };
 
   try {
-    let endpoint = 'sendMessage';
-    let body: Record<string, any> = {
-      chat_id: targetChannel,
-      text: finalText,
-      parse_mode: 'HTML',
-      reply_markup: inlineKeyboard,
-    };
-
+    let data: any = null;
     if (photoUrl && photoUrl.trim()) {
-      endpoint = 'sendPhoto';
-      body = {
-        chat_id: targetChannel,
-        photo: photoUrl.trim(),
-        caption: truncateTelegramHtml(finalText, 1024),
-        parse_mode: 'HTML',
-        reply_markup: inlineKeyboard,
-      };
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: targetChannel,
+          photo: photoUrl.trim(),
+          caption: truncateTelegramHtml(finalText, 1024),
+          parse_mode: 'HTML',
+          reply_markup: inlineKeyboard,
+        }),
+      });
+      data = await res.json();
     }
 
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    if (!data || !data.ok) {
+      const resText = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: targetChannel,
+          text: truncateTelegramHtml(finalText, 4096),
+          parse_mode: 'HTML',
+          reply_markup: inlineKeyboard,
+        }),
+      });
+      data = await resText.json();
+    }
 
-    const data = await res.json();
     if (!data.ok) {
       return { success: false, message: data.description || 'Failed to post to channel.' };
     }
@@ -960,10 +978,12 @@ export async function closeChannelPost(
 
   const closedHeader = `━━━━━━━━━━━━━━━━━━━━━━\n       <b>CLOSED / የተዘጋ</b>\nThis listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!\n━━━━━━━━━━━━━━━━━━━━━━`;
 
+  const safeTitle = escapeHtml(itemTitle || 'Listing');
   const closedNotice = existingContent?.trim()
     ? `${closedHeader}\n\n${existingContent.trim()}\n\nListing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ክፍት የሆኑ የተረጋገጡ የቤት አጋሮችን ከታች ይመልከቱ:`
-    : `${closedHeader}\n\n<b>${itemTitle} has found a match / የቤት አጋር ተገኝቷል</b>\n\n<blockquote>This listing is officially closed. No further connection requests are accepted. / ይህ ማስታወቂያ ተዘግቷል። ተጨማሪ ጥያቄዎች አይቀበሉም።</blockquote>`;
+    : `${closedHeader}\n\n<b>${safeTitle} has found a match / የቤት አጋር ተገኝቷል</b>\n\n<blockquote>This listing is officially closed. No further connection requests are accepted. / ይህ ማስታወቂያ ተዘግቷል። ተጨማሪ ጥያቄዎች አይቀበሉም።</blockquote>`;
 
+  const safeText = truncateTelegramHtml(closedNotice, 4096);
   const safeCaption = truncateTelegramHtml(closedNotice, 1024);
 
   const closedMarkup = {
@@ -995,7 +1015,7 @@ export async function closeChannelPost(
     if (isPhoto) {
       body.caption = safeCaption;
     } else {
-      body.text = closedNotice;
+      body.text = safeText;
     }
 
     const res = await fetch(`https://api.telegram.org/bot${botToken}/${endpoint}`, {
@@ -1011,7 +1031,7 @@ export async function closeChannelPost(
       const fallbackBody = { ...body };
       if (isPhoto) {
         delete fallbackBody.caption;
-        fallbackBody.text = closedNotice;
+        fallbackBody.text = safeText;
       } else {
         delete fallbackBody.text;
         fallbackBody.caption = safeCaption;

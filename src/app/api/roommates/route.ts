@@ -13,10 +13,17 @@ export async function GET(request: Request) {
     const offset = (page - 1) * limit;
 
     try {
-      const { data: dbSeekers } = await supabaseAdmin
+      let rmQuery = supabaseAdmin
         .from('roommate_profiles')
         .select('*, users(fayda_status)')
-        .eq('status', 'approved')
+        .eq('status', 'approved');
+
+      if (subcity && subcity !== 'all') {
+        const capSubcity = subcity.charAt(0).toUpperCase() + subcity.slice(1);
+        rmQuery = rmQuery.overlaps('preferred_subcity', [subcity, capSubcity]);
+      }
+
+      const { data: dbSeekers } = await rmQuery
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
@@ -33,7 +40,7 @@ export async function GET(request: Request) {
             preferred_gender: s.preferred_gender,
             budget_max: Number(s.budget_max || 0),
             lifestyle_bio: s.lifestyle_bio || '',
-            fayda_status: s.users?.fayda_status || 'verified',
+            fayda_status: s.users?.fayda_status || 'unverified',
             unlock_fee: 100,
             created_at: s.created_at,
           };

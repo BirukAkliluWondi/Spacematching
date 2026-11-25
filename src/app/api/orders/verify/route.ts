@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
-import { verifyTelebirrPayment, extractTransactionReference } from '@/lib/verify-et';
+import { verifyTelebirrPayment, normalizeCanonicalTransactionRef } from '@/lib/verify-et';
 import { acquireActionLock, releaseActionLock, activateUserMembership } from '@/lib/bot-session-store';
 import { validateTelegramInitData } from '@/lib/telegram-auth';
+import { escapeHtml } from '@/lib/telegram';
 
 const verifyOrderSchema = z.object({
   order_id: z.string().uuid('Invalid order_id UUID format'),
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
     }
 
     const { order_id, telegram_id, transaction_reference } = parsed;
-    const cleanTxRef = extractTransactionReference(transaction_reference);
+    const cleanTxRef = normalizeCanonicalTransactionRef(transaction_reference);
 
     if (!cleanTxRef) {
       return NextResponse.json(
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
     }
 
     lockKey = `tx_ref_verify:${cleanTxRef.toUpperCase()}`;
-    if (!acquireActionLock(lockKey, 15000)) {
+    if (!(await acquireActionLock(lockKey, 15000))) {
       lockKey = null; // do not release someone else's active lock
       return NextResponse.json(
         { error: 'Transaction verification already in progress for this reference.' },
@@ -98,11 +99,12 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. Anti-Replay Check: Reject if transaction_reference is already attached to any completed order (case-insensitive)
+    // 2. Anti-Replay Check: Reject if transaction_reference is already attached to any completed order
+    const safeLikeRef = cleanTxRef.replace(/[%_\\]/g, '\\$&');
     const { data: replayRows } = await supabaseAdmin
       .from('orders')
       .select('id')
-      .ilike('transaction_reference', cleanTxRef)
+      .ilike('transaction_reference', safeLikeRef)
       .eq('payment_status', 'completed')
       .limit(1);
 
@@ -189,7 +191,7 @@ export async function POST(request: Request) {
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     if (botToken && telegram_id && unlocked) {
       try {
-        const spaceTitle = spaceObj?.title || 'Room Listing';
+        const spaceTitle = escapeHtml(spaceObj?.title || 'Room Listing');
         const mapsUrl =
           unlocked.latitude && unlocked.longitude
             ? `https://www.google.com/maps?q=${unlocked.latitude},${unlocked.longitude}`
@@ -199,10 +201,10 @@ export async function POST(request: Request) {
           `<b>Payment Verified / ክፍያዎ ተረጋግጧል (3-Month Pass Active)</b>`,
           ``,
           `<blockquote>Your access to <b>${spaceTitle}</b> is unlocked:`,
-          unlocked.exact_address ? `• <b>Address / አድራሻ:</b> ${unlocked.exact_address}` : '',
-          unlocked.contact_name ? `• <b>Contact Name / ስም:</b> ${unlocked.contact_name}` : '',
-          unlocked.contact_phone ? `• <b>Phone Number / ስልክ:</b> ${unlocked.contact_phone}` : '',
-          unlocked.contact_telegram ? `• <b>Telegram:</b> @${String(unlocked.contact_telegram).replace('@', '')}` : '',
+          unlocked.exact_address ? `• <b>Address / አድራሻ:</b> ${escapeHtml(String(unlocked.exact_address))}` : '',
+          unlocked.contact_name ? `• <b>Contact Name / ስም:</b> ${escapeHtml(String(unlocked.contact_name))}` : '',
+          unlocked.contact_phone ? `• <b>Phone Number / ስልክ:</b> ${escapeHtml(String(unlocked.contact_phone))}` : '',
+          unlocked.contact_telegram ? `• <b>Telegram:</b> @${escapeHtml(String(unlocked.contact_telegram).replace('@', ''))}` : '',
           mapsUrl ? `• <a href="${mapsUrl}">Google Maps Directions</a>` : '',
           `</blockquote>`,
         ]
@@ -251,7 +253,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Internal server error verifying transaction.' }, { status: 500 });
   } finally {
     if (lockKey) {
-      releaseActionLock(lockKey);
+      await releaseActionLock(lockKey);
     }
   }
 }

@@ -38,7 +38,8 @@ async function ensureReceiptZxingReady(): Promise<void> {
       const path = await import('path');
       const p = path.resolve(process.cwd(), 'node_modules/zxing-wasm/dist/reader/zxing_reader.wasm');
       if (fs.existsSync(/*turbopackIgnore: true*/ p)) {
-        const wasmBinary = fs.readFileSync(/*turbopackIgnore: true*/ p).buffer;
+        const fileBuf = fs.readFileSync(/*turbopackIgnore: true*/ p);
+        const wasmBinary = fileBuf.buffer.slice(fileBuf.byteOffset, fileBuf.byteOffset + fileBuf.byteLength);
         await prepareZXingModule({ overrides: { wasmBinary }, fireImmediately: true });
       }
     } catch (err) {
@@ -52,8 +53,17 @@ export async function getOcrWorker() {
   if (!_ocrWorkerPromise) {
     _ocrWorkerPromise = (async () => {
       try {
-        // Store traineddata cache in writable /tmp on Vercel serverless
-        const worker = await createWorker('eng', 1, { cachePath: '/tmp' });
+        const fs = await import('fs');
+        const path = await import('path');
+        const localTrainedData = path.resolve(process.cwd(), 'eng.traineddata');
+        const hasLocalLang = fs.existsSync(/*turbopackIgnore: true*/ localTrainedData);
+        const worker = await createWorker(
+          'eng',
+          1,
+          hasLocalLang
+            ? { langPath: process.cwd(), cachePath: '/tmp', gzip: false }
+            : { cachePath: '/tmp' }
+        );
         return worker;
       } catch (err) {
         _ocrWorkerPromise = null;
@@ -65,20 +75,22 @@ export async function getOcrWorker() {
 }
 
 /**
- * Normalizes and downsizes screenshot image for rapid OCR analysis.
+ * Normalizes EXIF rotation FIRST and scales/enhances screenshot image for rapid OCR analysis.
  */
-async function preprocessReceiptImage(buffer: Buffer): Promise<Buffer> {
+async function preprocessReceiptImage(buffer: Buffer, darkMode = false): Promise<Buffer> {
   try {
-    const meta = await sharp(buffer).metadata();
+    const rotatedBuf = await sharp(buffer).rotate().toBuffer();
+    const meta = await sharp(rotatedBuf).metadata();
     const width = meta.width || 0;
-    const pipeline = sharp(buffer).rotate();
+    const pipeline = sharp(rotatedBuf);
     if (width > 0 && width < 1000) {
       pipeline.resize({ width: 1400, withoutEnlargement: false });
     } else {
       pipeline.resize({ width: 1400, withoutEnlargement: true });
     }
+    pipeline.grayscale();
+    if (darkMode) pipeline.negate({ alpha: false });
     return await pipeline
-      .grayscale()
       .normalize()
       .sharpen()
       .toBuffer();
@@ -97,18 +109,20 @@ function detectBankHint(text: string, reference?: string): 'telebirr' | 'cbe' | 
   if (refUpper.startsWith('FT') || lower.includes('cbe') || lower.includes('commercial bank') || lower.includes('ንግድ ባንክ')) {
     return 'cbe';
   }
-  if (refUpper.startsWith('DK') || refUpper.startsWith('DT') || lower.includes('telebirr') || lower.includes('ቴሌብር') || lower.includes('ethiotelecom')) {
-    return 'telebirr';
+  if (refUpper.startsWith('DTS') || lower.includes('dashen') || lower.includes('ዳሸን') || lower.includes('amole')) {
+    return 'dashen';
   }
   if (refUpper.startsWith('TX') || lower.includes('abyssinia') || lower.includes('አቢሲንያ') || lower.includes('boa')) {
     return 'boa';
   }
-  if (lower.includes('dashen') || lower.includes('ዳሸን') || lower.includes('amole')) {
-    return 'dashen';
-  }
-
-  // Default to telebirr if 10-char alphanumeric starting with DK/DT
-  if (/^D[KTS][A-Z0-9]{8}$/i.test(refUpper)) {
+  if (
+    refUpper.startsWith('DK') ||
+    refUpper.startsWith('DL') ||
+    (refUpper.startsWith('DT') && !refUpper.startsWith('DTS')) ||
+    lower.includes('telebirr') ||
+    lower.includes('ቴሌብር') ||
+    lower.includes('ethiotelecom')
+  ) {
     return 'telebirr';
   }
 
@@ -146,38 +160,42 @@ export async function extractTransactionReferenceFromImage(
   // ── Step 1: Fast Path via Embedded Barcode / QR Code (10-30ms) ───────────
   try {
     await ensureReceiptZxingReady();
-    const { data, info } = await sharp(imageBuffer)
-      .rotate()
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
+    const baseImg = await sharp(imageBuffer).rotate().toBuffer();
+    const scanPasses = [
+      () => sharp(baseImg).ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+      () => sharp(baseImg).resize({ width: 1200, withoutEnlargement: false }).grayscale().normalize().ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+      () => sharp(baseImg).grayscale().negate({ alpha: false }).normalize().ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+    ];
 
-    const barcodes = await readBarcodesFromImageData(
-      {
-        data: new Uint8ClampedArray(data),
-        width: info.width,
-        height: info.height,
-      } as any,
-      {
-        tryHarder: true,
-        formats: ['QRCode', 'DataMatrix', 'PDF417'],
-      }
-    );
+    for (const makePass of scanPasses) {
+      const { data, info } = await makePass();
+      const barcodes = await readBarcodesFromImageData(
+        {
+          data: new Uint8ClampedArray(data),
+          width: info.width,
+          height: info.height,
+        } as any,
+        {
+          tryHarder: true,
+          formats: ['QRCode', 'DataMatrix', 'PDF417'],
+        }
+      );
 
-    for (const b of barcodes) {
-      if (b.text && b.text.trim()) {
-        const qrText = b.text.trim();
-        const extracted = extractTransactionReference(qrText);
-        if (extracted && extracted.length >= 6) {
-          const bankHint = detectBankHint(qrText, extracted);
-          return {
-            success: true,
-            reference: extracted,
-            bankHint,
-            rawText: qrText,
-            source: 'qr',
-            latencyMs: Date.now() - startTime,
-          };
+      for (const b of barcodes) {
+        if (b.text && b.text.trim()) {
+          const qrText = b.text.trim();
+          const extracted = extractTransactionReference(qrText);
+          if (extracted && extracted.length >= 6) {
+            const bankHint = detectBankHint(qrText, extracted);
+            return {
+              success: true,
+              reference: extracted,
+              bankHint,
+              rawText: qrText,
+              source: 'qr',
+              latencyMs: Date.now() - startTime,
+            };
+          }
         }
       }
     }
@@ -185,37 +203,46 @@ export async function extractTransactionReferenceFromImage(
     console.warn('[receipt-extractor] QR fast-path check warning:', err);
   }
 
-  // ── Step 2: High-Speed OCR Path (~700-1100ms) ───────────────────────────
-  try {
-    const preprocessed = await preprocessReceiptImage(imageBuffer);
-    const worker = await getOcrWorker();
-    const ret = await worker.recognize(preprocessed);
-    const ocrText = (ret?.data?.text || '').trim();
+  // ── Step 2: High-Speed OCR Path (Light Mode + Dark Mode fallback) ────────
+  const tryParseOcrText = (ocrText: string): ReceiptExtractionResult | null => {
+    const lowerOcr = ocrText.toLowerCase();
+    // Guard against misclassifying Fayda National ID cards as payment receipts
+    const looksLikeFayda =
+      (lowerOcr.includes('fayda') || lowerOcr.includes('nationality') || lowerOcr.includes('administration')) &&
+      !lowerOcr.includes('telebirr') &&
+      !lowerOcr.includes('etb') &&
+      !lowerOcr.includes('transaction') &&
+      !lowerOcr.includes('receipt') &&
+      !lowerOcr.includes('service fee');
+    if (looksLikeFayda) {
+      return { success: false, latencyMs: Date.now() - startTime };
+    }
 
-    if (ocrText) {
-      const lowerOcr = ocrText.toLowerCase();
-      // Guard against misclassifying Fayda National ID cards as payment receipts
-      const looksLikeFayda =
-        (lowerOcr.includes('fayda') || lowerOcr.includes('nationality') || lowerOcr.includes('administration')) &&
-        !lowerOcr.includes('telebirr') &&
-        !lowerOcr.includes('etb') &&
-        !lowerOcr.includes('transaction') &&
-        !lowerOcr.includes('receipt') &&
-        !lowerOcr.includes('service fee');
-      if (looksLikeFayda) {
-        return { success: false, latencyMs: Date.now() - startTime };
-      }
+    const refCandidate = extractTransactionReference(ocrText);
+    const bankHint = detectBankHint(ocrText, refCandidate);
+    const amount = detectAmount(ocrText);
 
-      // 1. Direct verify-et extraction
-      const refCandidate = extractTransactionReference(ocrText);
-      const bankHint = detectBankHint(ocrText, refCandidate);
-      const amount = detectAmount(ocrText);
+    if (refCandidate && refCandidate.length >= 6) {
+      return {
+        success: true,
+        reference: refCandidate,
+        bankHint,
+        amountDetected: amount,
+        rawText: ocrText,
+        source: 'ocr',
+        latencyMs: Date.now() - startTime,
+      };
+    }
 
-      if (refCandidate && refCandidate.length >= 6) {
+    // Fallback line-by-line scan
+    const lines = ocrText.split(/\r?\n/);
+    for (const line of lines) {
+      const lineCandidate = extractTransactionReference(line);
+      if (lineCandidate && lineCandidate.length >= 6) {
         return {
           success: true,
-          reference: refCandidate,
-          bankHint,
+          reference: lineCandidate,
+          bankHint: detectBankHint(line, lineCandidate),
           amountDetected: amount,
           rawText: ocrText,
           source: 'ocr',
@@ -223,54 +250,62 @@ export async function extractTransactionReferenceFromImage(
         };
       }
 
-      // 2. Fallback: Search line by line for Telebirr / CBE token patterns
-      const lines = ocrText.split(/\r?\n/);
-      for (const line of lines) {
-        const lineCandidate = extractTransactionReference(line);
-        if (lineCandidate && lineCandidate.length >= 6) {
-          return {
-            success: true,
-            reference: lineCandidate,
-            bankHint: detectBankHint(line, lineCandidate),
-            amountDetected: amount,
-            rawText: ocrText,
-            source: 'ocr',
-            latencyMs: Date.now() - startTime,
-          };
-        }
+      // Direct token search for CBE FT / Dashen DTS / BoA TX / Telebirr codes
+      const ftTokenMatch = line.match(/\b(FT[0-9A-Z]{6,16})\b/i);
+      if (ftTokenMatch?.[1]) {
+        return {
+          success: true,
+          reference: ftTokenMatch[1].toUpperCase(),
+          bankHint: 'cbe',
+          amountDetected: amount,
+          rawText: ocrText,
+          source: 'ocr',
+          latencyMs: Date.now() - startTime,
+        };
+      }
 
-        // Direct token search for 10-char Telebirr code (e.g. DKM7J1EXAP)
-        const tbTokenMatch = line.match(/\b(D[KTS][A-Z0-9]{8})\b/i);
-        if (tbTokenMatch && tbTokenMatch[1]) {
-          return {
-            success: true,
-            reference: tbTokenMatch[1].toUpperCase(),
-            bankHint: 'telebirr',
-            amountDetected: amount,
-            rawText: ocrText,
-            source: 'ocr',
-            latencyMs: Date.now() - startTime,
-          };
-        }
+      const dtsTokenMatch = line.match(/\b(DTS[A-Z0-9]{5,14})\b/i);
+      if (dtsTokenMatch?.[1]) {
+        return {
+          success: true,
+          reference: dtsTokenMatch[1].toUpperCase(),
+          bankHint: 'dashen',
+          amountDetected: amount,
+          rawText: ocrText,
+          source: 'ocr',
+          latencyMs: Date.now() - startTime,
+        };
+      }
 
-        // Direct token search for CBE FT code (e.g. FT2412345678)
-        const ftTokenMatch = line.match(/\b(FT[0-9A-Z]{6,16})\b/i);
-        if (ftTokenMatch && ftTokenMatch[1]) {
-          return {
-            success: true,
-            reference: ftTokenMatch[1].toUpperCase(),
-            bankHint: 'cbe',
-            amountDetected: amount,
-            rawText: ocrText,
-            source: 'ocr',
-            latencyMs: Date.now() - startTime,
-          };
-        }
+      const tbTokenMatch = line.match(/\b((?:D[A-LN-Z]|C[A-Z])[A-Z0-9]{8})\b/i);
+      if (tbTokenMatch?.[1] && /\d/.test(tbTokenMatch[1])) {
+        return {
+          success: true,
+          reference: tbTokenMatch[1].toUpperCase(),
+          bankHint: 'telebirr',
+          amountDetected: amount,
+          rawText: ocrText,
+          source: 'ocr',
+          latencyMs: Date.now() - startTime,
+        };
+      }
+    }
+    return null;
+  };
+
+  try {
+    const worker = await getOcrWorker();
+    for (const darkMode of [false, true]) {
+      const preprocessed = await preprocessReceiptImage(imageBuffer, darkMode);
+      const ret = await worker.recognize(preprocessed);
+      const ocrText = (ret?.data?.text || '').trim();
+      if (ocrText) {
+        const parsed = tryParseOcrText(ocrText);
+        if (parsed) return parsed;
       }
     }
   } catch (err) {
     console.error('[receipt-extractor] OCR execution error:', err);
-    // Reset worker promise so next request recovers cleanly
     _ocrWorkerPromise = null;
   }
 

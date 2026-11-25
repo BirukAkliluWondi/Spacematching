@@ -14,7 +14,7 @@
  */
 
 import { supabaseAdmin } from '@/lib/supabase-server';
-import { getSession, saveSession, getUserMembershipStatus, getManagedChannels } from '@/lib/bot-session-store';
+import { BoundedLRUCache, getSession, saveSession, getUserMembershipStatus, getManagedChannels } from '@/lib/bot-session-store';
 import {
   verifyFaydaPhotoUpload,
   extractMediaFileFromMessage,
@@ -99,16 +99,13 @@ export function isOnboardingSession(step: string): boolean {
   return ONBOARDING_STEPS.includes(step as OnboardingStep);
 }
 
-// ─── Profile In-Memory Cache ──────────────────────────────────────────────────
-const _profileCache = new Map<number, any>();
+// ─── Profile In-Memory Cache (Bounded LRU) ─────────────────────────────────────
+const _profileCache = new BoundedLRUCache<number, any>(2000, 30 * 1000);
 
 // ─── Profile DB Helpers ───────────────────────────────────────────────────────
 
 async function getOrCreateProfile(telegramId: number, username?: string): Promise<Profile | null> {
-  const cached = _profileCache.get(telegramId);
-  if (cached && cached.display_code) return cached as Profile;
-
-  // Try to fetch existing
+  // Always read latest from DB to avoid cross-Lambda staleness
   const { data: existing } = await supabaseAdmin
     .from('profiles')
     .select('*')
@@ -141,6 +138,13 @@ async function getOrCreateProfile(telegramId: number, username?: string): Promis
     return null;
   }
 
+  await saveSession({
+    telegram_id: telegramId,
+    step: 'gender',
+    draft_data: { ...(getSession(telegramId).draft_data || {}) },
+    updated_at: new Date().toISOString(),
+  }, true);
+
   _profileCache.set(telegramId, created as Profile);
   return created as Profile;
 }
@@ -149,9 +153,6 @@ async function updateProfile(
   telegramId: number,
   updates: Record<string, unknown>
 ): Promise<Profile | null> {
-  const cached = _profileCache.get(telegramId) || {};
-  _profileCache.set(telegramId, { ...cached, ...updates } as Profile);
-
   const { data, error } = await supabaseAdmin
     .from('profiles')
     .update(updates)
@@ -159,14 +160,12 @@ async function updateProfile(
     .select('*')
     .maybeSingle();
 
-  if (error) {
-    console.error('[onboarding] Failed to update profile:', error.message);
+  if (error || !data) {
+    console.error('[onboarding] Failed to update profile:', error?.message || 'No matching row');
     return null;
   }
 
-  if (data) {
-    _profileCache.set(telegramId, data as Profile);
-  }
+  _profileCache.set(telegramId, data as Profile);
 
   // Keep bot_sessions table in sync with onboarding step while preserving existing draft_data (e.g. lang)
   if (updates.onboarding_step) {
@@ -180,7 +179,7 @@ async function updateProfile(
     }, true);
   }
 
-  return (data || _profileCache.get(telegramId)) as Profile;
+  return data as Profile;
 }
 
 // ─── Step UIs ─────────────────────────────────────────────────────────────────
@@ -318,23 +317,50 @@ async function sendKycStep(chatId: number) {
   try {
     const { data: user } = await supabaseAdmin
       .from('users')
-      .select('fayda_status')
+      .select('fayda_status, fayda_id_number')
       .eq('telegram_id', chatId)
       .maybeSingle();
 
-    if (user?.fayda_status === 'verified') {
+    if (user?.fayda_status === 'verified' && user?.fayda_id_number) {
       const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
       const displayCode: string = codeRow || `RM${Date.now()}`;
-      await updateProfile(chatId, {
+      const memStatus = await getUserMembershipStatus(chatId);
+      const savedProf = await updateProfile(chatId, {
         kyc_status: 'verified',
-        status: 'active',
+        status: memStatus.isActive ? 'active' : 'paused',
         onboarding_step: 'completed',
         display_code: displayCode,
       });
 
+      if (!memStatus.isActive) {
+        const currentSess = getSession(chatId);
+        await saveSession({
+          telegram_id: chatId,
+          step: 'idle',
+          draft_data: {
+            ...(currentSess.draft_data || {}),
+            membership_purpose: 'post_channel',
+            membership_metadata: { ...(savedProf || {}), display_code: displayCode },
+          },
+          updated_at: new Date().toISOString(),
+        }, true);
+
+        await sendMessage(
+          chatId,
+          `<b>Fayda ID Verified! / የፋይዳ መታወቂያዎ ተረጋግጧል!</b>\n\n<blockquote>Your profile (<code>#${escapeHtml(displayCode)}</code>) is saved! Activate your <b>3-Month Membership Pass (100 ETB)</b> to submit for channel review and send unlimited roommate requests.\n\nመረጃዎ (<code>#${escapeHtml(displayCode)}</code>) ተመዝግቧል! ወደ ቻናሉ ለመላክ የ<b>3 ወር አባልነት (100 ETB)</b> ያግብሩ።</blockquote>`,
+          {
+            inline_keyboard: [
+              [{ text: 'Activate 3-Month Pass (100 ETB) / አባልነት ክፈት >', callback_data: 'view_membership_pass' }],
+              [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+            ],
+          }
+        );
+        return;
+      }
+
       await sendMessage(
         chatId,
-        `<b>Listing Draft Ready / የማስታወቂያ ረቂቅ ተዘጋጅቷል</b>\n\n<blockquote><b>Draft Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${displayCode}</code>\n• <b>Status / ሁኔታ:</b> <b>Verified & Live / የጸደቀ</b>\n• <b>Channel / ቻናል:</b> @spacematch_aa</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
+        `<b>Profile Ready / መረጃዎ ተዘጋጅቷል</b>\n\n<blockquote><b>Listing Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>Verified Resident / የተረጋገጠ</b></blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
             [{ text: 'Find Roommates / የቤት አጋር ፈልግ', callback_data: 'matchmaker_start' }],
@@ -350,16 +376,10 @@ async function sendKycStep(chatId: number) {
     chatId,
     `<b>Fayda ID Verification / የፋይዳ ማረጋገጫ</b>
 
-<blockquote>Send a clear photo of the back of your Fayda card showing the QR code.
-የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>`,
+<blockquote>Send a clear photo of the back of your Fayda card showing the QR code right here in chat.
+የQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ እዚሁ ይላኩ።</blockquote>`,
     {
       inline_keyboard: [
-        [
-          {
-            text: 'Verify Fayda / ፋይዳ አረጋግጥ',
-            callback_data: 'verify_fayda',
-          },
-        ],
         [
           {
             text: 'Why Fayda ID? / ለምን ፋይዳ አስፈለገ?',
@@ -508,18 +528,26 @@ export async function handleOnboardingMessage(
   message: {
     message_id?: number;
     text?: string;
+    caption?: string;
     from?: { first_name?: string; last_name?: string; username?: string };
-    contact?: { phone_number: string; first_name?: string; last_name?: string };
+    contact?: { phone_number: string; user_id?: number; first_name?: string; last_name?: string };
     photo?: { file_id: string; file_size?: number }[];
-    document?: { file_id: string; file_size?: number; mime_type?: string };
+    document?: { file_id: string; file_size?: number; mime_type?: string; file_name?: string };
   },
   telegramUsername?: string
 ): Promise<boolean> {
+  if (message.text && message.text.startsWith('/')) {
+    return false;
+  }
   if (message.message_id) {
     deleteMessage(chatId, message.message_id).catch(() => {});
   }
-  if (message.text && message.text.startsWith('/')) {
-    return false;
+  if (step === 'gender' || step === 'locations' || step === 'move_in') {
+    await sendMessage(
+      chatId,
+      `<b>Please tap a button above / እባክዎ ከላይ ያሉትን ቁልፎች ይጠቀሙ</b>\n\n<blockquote>Select your option using the interactive buttons.\nምርጫዎን ከላይ ካሉት ቁልፎች ውስጥ ይምረጡ።</blockquote>`
+    );
+    return true;
   }
   // ── Budget text input ─────────────────────────────────────────────────────
   if (step === 'budget') {
@@ -567,6 +595,13 @@ export async function handleOnboardingMessage(
     let fullName: string | null = null;
 
     if (message.contact) {
+      if (message.contact.user_id && Number(message.contact.user_id) !== chatId) {
+        await sendMessage(
+          chatId,
+          `<b>Own Contact Required / የራስዎን ስልክ ይላኩ</b>\n\n<blockquote>Please tap the "Share My Contact" button below or type your own phone number.\nእባክዎ የራስዎን ስልክ ቁጥር በመላክ ያረጋግጡ።</blockquote>`
+        );
+        return true;
+      }
       phone = message.contact.phone_number;
       const parts = [message.contact.first_name, message.contact.last_name].filter(Boolean);
       fullName = parts.join(' ') || null;
@@ -583,13 +618,20 @@ export async function handleOnboardingMessage(
       }
     }
 
-    if (!phone) return true;
+    if (!phone) {
+      await sendMessage(
+        chatId,
+        `<b>Phone Number Required / ስልክ ቁጥር ያስፈልጋል</b>\n\n<blockquote>Please type your phone number (e.g. <code>0912345678</code>) or tap Share Contact.\nእባክዎ ስልክ ቁጥርዎን ይላኩ።</blockquote>`
+      );
+      return true;
+    }
 
-    await updateProfile(chatId, {
+    const phoneUpdates: Record<string, unknown> = {
       phone_number: phone,
-      full_name: fullName,
       onboarding_step: 'kyc',
-    });
+    };
+    if (fullName) phoneUpdates.full_name = fullName;
+    await updateProfile(chatId, phoneUpdates);
 
     await sendKycStep(chatId);
     return true;
@@ -661,9 +703,21 @@ export async function handleOnboardingMessage(
       const chUrl = `https://t.me/${chHandle}`;
 
       if (!memStatus.isActive) {
+        const currentSess = getSession(chatId);
+        await saveSession({
+          telegram_id: chatId,
+          step: 'idle',
+          draft_data: {
+            ...(currentSess.draft_data || {}),
+            membership_purpose: 'post_channel',
+            membership_metadata: { ...updatedProfile, display_code: displayCode },
+          },
+          updated_at: new Date().toISOString(),
+        }, true);
+
         await sendMessage(
           chatId,
-          `<b>Fayda ID Verified! / የፋይዳ መታወቂያዎ ተረጋግጧል!</b>\n\n<blockquote>Your profile (<code>#${escapeHtml(displayCode)}</code>) is saved! Activate your <b>3-Month Membership Pass (100 ETB)</b> to broadcast to the channel or send unlimited roommate connection requests.\n\nመረጃዎ (<code>#${escapeHtml(displayCode)}</code>) ተመዝግቧል! ወደ ቻናሉ ለመለጠፍ እና የግንኙነት ጥያቄዎችን ለመላክ የ<b>3 ወር አባልነት (100 ETB)</b> ያግብሩ።</blockquote>`,
+          `<b>Fayda ID Verified! / የፋይዳ መታወቂያዎ ተረጋግጧል!</b>\n\n<blockquote>Your profile (<code>#${escapeHtml(displayCode)}</code>) is saved! Activate your <b>3-Month Membership Pass (100 ETB)</b> to submit for channel broadcast or send unlimited roommate connection requests.\n\nመረጃዎ (<code>#${escapeHtml(displayCode)}</code>) ተመዝግቧል! ወደ ቻናሉ ለመለጠፍ እና የግንኙነት ጥያቄዎችን ለመላክ የ<b>3 ወር አባልነት (100 ETB)</b> ያግብሩ።</blockquote>`,
           {
             inline_keyboard: [
               [{ text: 'Activate 3-Month Pass (100 ETB) / አባልነት ክፈት >', callback_data: 'view_membership_pass' }],

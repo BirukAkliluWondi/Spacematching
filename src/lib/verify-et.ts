@@ -24,16 +24,36 @@ export interface VerifyEtResult {
  * - "የደረሰኝ ቁጥር: FT260920042" -> "FT260920042"
  * - "TID: DTS41AB2C90" -> "DTS41AB2C90"
  */
+/**
+ * Canonicalizes a transaction reference or receipt URL for case-insensitive anti-replay storage/matching.
+ * Converts bank receipt URLs (e.g. transactioninfo.ethiotelecom.et/receipt/DKM7J1EXAP or apps.cbe.com.et/?id=FT...)
+ * into their canonical uppercase transaction ID when unambiguous.
+ */
+export function normalizeCanonicalTransactionRef(input: string): string {
+  const extracted = extractTransactionReference(input);
+  if (!extracted) return '';
+  if (/^https?:\/\//i.test(extracted)) {
+    const cbeId = extracted.match(/[?&]id=([A-Z0-9_-]{6,32})/i);
+    if (cbeId?.[1]) return cbeId[1].toUpperCase();
+    const pathTail = extracted.match(/\/(?:receipt|verify|tx)\/([A-Z0-9_-]{6,32})(?:[/?#]|$)/i);
+    if (pathTail?.[1]) return pathTail[1].toUpperCase();
+    return extracted.trim();
+  }
+  return extracted.trim().toUpperCase();
+}
+
 export function extractTransactionReference(input: string): string {
   if (!input || typeof input !== 'string') return '';
   // Strip common HTML markup (e.g. <code>...</code>, <b>...</b>)
   let cleaned = input.replace(/<[^>]*>/g, ' ').trim();
   if (!cleaned) return '';
 
-  // 1. URL extraction (CBE receipt link or any http(s) URL)
-  const urlMatch = cleaned.match(/https?:\/\/[^\s<>'"`]+[A-Za-z0-9]/i);
-  if (urlMatch) {
-    return urlMatch[0].trim().replace(/[.,;)]+$/, '');
+  // 1. Official Ethiopian bank/Telebirr receipt URL extraction (never hijack on promo/footer URLs)
+  const receiptUrlMatch = cleaned.match(
+    /https?:\/\/(?:[a-z0-9-]+\.)*(?:cbe\.com\.et|ethiotelecom\.et\/receipt|transactioninfo\.ethiotelecom\.et|bankofabyssinia\.com|dashenbanksc\.com|verify\.et)[^\s<>'"`]+[A-Za-z0-9]/i
+  );
+  if (receiptUrlMatch) {
+    return receiptUrlMatch[0].trim().replace(/[.,;)]+$/, '');
   }
 
   // 2. Normalize spaced FT reference codes anywhere in text (e.g. "FT 260920042", "FT 2609 20042", "FT-260920042")
@@ -44,29 +64,33 @@ export function extractTransactionReference(input: string): string {
   // 3. CBE FT Reference (e.g., FT2412345678 or FT260920042)
   const ftRegex = /\b(FT[0-9A-Z]{6,16})\b/i;
   const ftMatch = cleaned.match(ftRegex);
-  if (ftMatch && ftMatch[1]) {
+  if (ftMatch && ftMatch[1] && /\d/.test(ftMatch[1])) {
     return ftMatch[1].trim().toUpperCase();
   }
 
-  // 3b. Dashen Bank Reference (e.g., DTS41AB2C90) — checked before Telebirr generic D[KT]
+  // 3b. Dashen Bank Reference (e.g., DTS41AB2C90) — checked before Telebirr generic D*
   const dashenRegex = /\b(DTS[A-Z0-9]{5,14})\b/i;
   const dashenMatch = cleaned.match(dashenRegex);
-  if (dashenMatch && dashenMatch[1]) {
+  if (dashenMatch && dashenMatch[1] && /\d/.test(dashenMatch[1])) {
     return dashenMatch[1].trim().toUpperCase();
   }
 
-  // 3c. Telebirr 10-char Alphanumeric Reference (e.g., DKM7J1EXAP, DK29M7PCJT, DT...)
-  const tbRegex = /\b(D[KT][A-Z0-9]{8})\b/i;
-  const tbMatch = cleaned.match(tbRegex);
-  if (tbMatch && tbMatch[1]) {
-    return tbMatch[1].trim().toUpperCase();
-  }
-
-  // 3d. Bank of Abyssinia TX Reference (e.g., TX...)
+  // 3c. Bank of Abyssinia TX Reference (e.g., TX...)
   const boaRegex = /\b(TX[0-9A-Z]{6,16})\b/i;
   const boaMatch = cleaned.match(boaRegex);
-  if (boaMatch && boaMatch[1]) {
+  if (boaMatch && boaMatch[1] && /\d/.test(boaMatch[1])) {
     return boaMatch[1].trim().toUpperCase();
+  }
+
+  // 3d. Telebirr 10-char Alphanumeric Reference (e.g., DKM7J1EXAP, DK29M7PCJT, DL..., DA..., CJA...)
+  const tbRegex = /\b((?:D[A-LN-Z]|C[A-Z])[A-Z0-9]{8})\b/i;
+  let tbMatch: RegExpExecArray | null;
+  const tbGlobal = new RegExp(tbRegex.source, 'gi');
+  while ((tbMatch = tbGlobal.exec(cleaned)) !== null) {
+    const token = tbMatch[1].trim().toUpperCase();
+    if (/\d/.test(token) && !token.startsWith('DTS')) {
+      return token;
+    }
   }
 
   // 4. Amharic labeled pattern
@@ -76,31 +100,34 @@ export function extractTransactionReference(input: string): string {
   const amharicMatch = cleaned.match(amharicRegex);
   if (amharicMatch && amharicMatch[1]) {
     const candidate = amharicMatch[1].trim();
-    if (!/^(?:09|07|2519|2517)\d{8}$/.test(candidate) && candidate.length >= 6) {
-      return candidate;
+    if (!/^(?:09|07|2519|2517)\d{8}$/.test(candidate) && candidate.length >= 6 && /\d/.test(candidate)) {
+      return candidate.toUpperCase();
     }
   }
 
-  // 5. English labeled pattern: Ref: ..., Txn ID: ..., TID: ..., Receipt No: ..., Code: ...
+  // 5. English labeled pattern: requires explicit punctuation/is delimiter & digit presence (blocks "Transaction Status", "Reference Code")
   const labeledRegex =
-    /(?:ref(?:erence)?(?:\s*no\.?|\s*id)?|txn(?:\s*ref|\s*id)?|transaction\s*(?:id|no\.?|number|reference)?|receipt(?:\s*no\.?)?|tid|code)\s*(?:[:=\-#፡፦]|\bis\b|\s)\s*([A-Za-z0-9_-]+)/i;
+    /(?:ref(?:erence)?(?:\s*no\.?|\s*id)?|txn(?:\s*ref|\s*id)?|transaction\s*(?:id|no\.?|number|ref(?:erence)?)|receipt\s*(?:no\.?|id)|tid|code)\s*(?:[:=\-#፡፦]+|\bis\b)\s*([A-Za-z0-9_-]{6,32})/i;
   const labeledMatch = cleaned.match(labeledRegex);
   if (labeledMatch && labeledMatch[1]) {
     const candidate = labeledMatch[1].trim();
-    const stopWords = new Set(['is', 'was', 'the', 'a', 'to', 'in', 'of', 'for', 'and']);
+    const headerWords = new Set(['is', 'was', 'the', 'status', 'completed', 'amount', 'detail', 'details', 'receipt', 'code', 'number', 'pending', 'verified']);
     if (
-      !stopWords.has(candidate.toLowerCase()) &&
+      !headerWords.has(candidate.toLowerCase()) &&
       !/^(?:09|07|2519|2517)\d{8}$/.test(candidate) &&
-      candidate.length >= 4
+      /\d/.test(candidate)
     ) {
-      return candidate;
+      return candidate.toUpperCase();
     }
   }
 
-  // 6. Alphanumeric transaction codes (TX..., TB..., DTS...)
-  const txMatch = cleaned.match(/\b([A-Z]{1,3}[0-9]{7,15}[A-Z0-9]*)\b/i);
-  if (txMatch && txMatch[1]) {
-    return txMatch[1].trim().toUpperCase();
+  // 6. Alphanumeric transaction codes (TX..., TB..., DTS..., 9AC4827X19)
+  const mixedTxMatch = cleaned.match(/\b((?:[A-Z]{1,3}[0-9]{6,15}|[0-9][A-Z0-9]{7,13})[A-Z0-9]*)\b/i);
+  if (mixedTxMatch && mixedTxMatch[1]) {
+    const tok = mixedTxMatch[1].trim().toUpperCase();
+    if (/\d/.test(tok) && /[A-Z]/i.test(tok) && !/^(?:2519|2517|09|07)\d{8}$/.test(tok)) {
+      return tok;
+    }
   }
 
   // 7. Standalone 8-16 digit numbers (telebirr transaction number or bank reference numbers)
@@ -113,11 +140,11 @@ export function extractTransactionReference(input: string): string {
     }
   }
 
-  // 8. Strip outer punctuation and quotes from single alphanumeric code tokens (>= 6 chars, non-word stop list)
+  // 8. Strip outer punctuation and quotes from single alphanumeric code tokens (>= 6 chars, contains digit)
   const cleanSingleToken = cleaned.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
-  const commonWordBlacklist = /^(?:verify|receipt|payment|telebirr|abyssinia|dashen|fayda|ethiopia|success|completed|failed|hello|start|cancel|search|profile|roommate|spacematch)$/i;
+  const commonWordBlacklist = /^(?:verify|receipt|payment|telebirr|abyssinia|dashen|fayda|ethiopia|success|completed|failed|hello|start|cancel|search|profile|roommate|spacematch|status|amount)$/i;
   if (/^[a-zA-Z0-9_-]{6,32}$/.test(cleanSingleToken) && !commonWordBlacklist.test(cleanSingleToken) && /\d/.test(cleanSingleToken)) {
-    return cleanSingleToken;
+    return cleanSingleToken.toUpperCase();
   }
 
   return '';
@@ -330,9 +357,8 @@ export async function verifyTelebirrPayment(
   expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '100'),
   preferredBank?: string
 ): Promise<VerifyEtResult> {
-  const apiKey =
-    process.env.VERIFY_ET_API_KEY ||
-    'VERIFY_BANK_ET_KR3fTQgvo-2DvqSxGFeT7m-cX4Qd7El55LyRwxnHrPVjV9EVKmelfN8hz9Necag1';
+  const apiKey = (process.env.VERIFY_ET_API_KEY || '').trim();
+  const accountHolder = (process.env.PAYMENT_ACCOUNT_HOLDER || 'Wahid').trim();
   const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
   const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
   const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';
@@ -352,18 +378,6 @@ export async function verifyTelebirrPayment(
   }
 
   if (!apiKey) {
-    if (process.env.ALLOW_MOCK_PAYMENTS === 'true' || process.env.NODE_ENV === 'development') {
-      const bank = cleanRef.toUpperCase().startsWith('FT') ? 'cbe' : (preferredBank || 'telebirr');
-      return {
-        success: true,
-        message: 'Payment receipt verified successfully (Test Mode).',
-        messageAm: 'የክፍያ ደረሰኝ በተሳካ ሁኔታ ተረጋግጧል (የሙከራ ሁነታ)።',
-        transactionNumber: cleanRef.toUpperCase(),
-        paidAmount: expectedFee,
-        senderName: 'Verified Payer (Wahid)',
-        bank,
-      };
-    }
     return {
       success: false,
       message: 'Server configuration error: Payment verification is temporarily unavailable.',
@@ -386,6 +400,8 @@ export async function verifyTelebirrPayment(
   let normalizedBank = preferredBank?.toLowerCase().trim();
   if (normalizedBank === 'abyssinia') {
     normalizedBank = 'boa';
+  } else if (normalizedBank === 'cbebirr' || normalizedBank === 'cbe birr') {
+    normalizedBank = 'cbe';
   }
   const refUpper = cleanRef.toUpperCase();
   const refLower = cleanRef.toLowerCase();
@@ -394,6 +410,7 @@ export async function verifyTelebirrPayment(
   const isBoaRef = refUpper.startsWith('TX') || refLower.includes('abyssinia');
   const isTelebirrRef =
     refUpper.startsWith('DK') ||
+    refUpper.startsWith('DL') ||
     (refUpper.startsWith('DT') && !refUpper.startsWith('DTS')) ||
     refLower.includes('ethiotelecom') ||
     refLower.includes('telebirr');
@@ -410,18 +427,15 @@ export async function verifyTelebirrPayment(
     }
   }
 
-  // Strictly target identified bank, or evaluate prioritized list for purely numeric refs
+  // Strictly target identified bank, or evaluate all banks (Telebirr, CBE, BoA, Dashen)
   let bankConfigs: typeof allConfigs;
   if (normalizedBank) {
     bankConfigs = allConfigs.filter((c) => c.bank === normalizedBank);
     if (bankConfigs.length === 0) {
       bankConfigs = [{ bank: normalizedBank, settlementAccount: receiverPhone.trim() || '0987310978' }];
     }
-  } else if (/^\d{8,16}$/.test(cleanRef)) {
-    bankConfigs = allConfigs;
   } else {
-    // Default prioritized: Telebirr first, CBE second, BoA third
-    bankConfigs = allConfigs.filter((c) => c.bank === 'telebirr' || c.bank === 'cbe' || c.bank === 'boa');
+    bankConfigs = allConfigs;
   }
 
   let lastFailure: { message: string; messageAm: string; errorCode: string } | null = null;
@@ -534,18 +548,26 @@ export async function verifyTelebirrPayment(
       const verificationObj =
         data.verification && typeof data.verification === 'object' ? data.verification : {};
 
-      // 1. Evaluate response verification status across both root and nested schemas
+      // 1. Evaluate response verification status across both root and nested schemas (respect explicit verified === false)
+      const explicitRejected =
+        data.verified === false ||
+        record?.verified === false ||
+        verificationObj?.verified === false ||
+        data.status === 'failed' ||
+        data.status === 'rejected' ||
+        record?.status === 'failed' ||
+        record?.status === 'rejected';
       const isStatusVerified =
-        data.status === 'verified' ||
-        data.status === 'success' ||
-        data.verified === true ||
-        data.message === 'Verification completed.' ||
-        record?.status === 'verified' ||
-        record?.status === 'success' ||
-        record?.verified === true ||
-        verificationObj?.status === 'success' ||
-        verificationObj?.status === 'verified' ||
-        verificationObj?.verified === true;
+        !explicitRejected &&
+        (data.status === 'verified' ||
+          data.status === 'success' ||
+          data.verified === true ||
+          record?.status === 'verified' ||
+          record?.status === 'success' ||
+          record?.verified === true ||
+          verificationObj?.status === 'success' ||
+          verificationObj?.status === 'verified' ||
+          verificationObj?.verified === true);
 
       if (!isStatusVerified) {
         const upstreamMsg =
@@ -569,11 +591,10 @@ export async function verifyTelebirrPayment(
       if (returnedSettlementAccount) {
         const cleanSettlement = config.settlementAccount.replace(/\D/g, '');
         const cleanReturned = String(returnedSettlementAccount).replace(/\D/g, '');
-        // Allow matching if suffix matches or ends with last 4 digits (e.g. 2519****0978)
+        const last4 = cleanSettlement.slice(-4);
         const isMatched =
           cleanSettlement === cleanReturned ||
-          cleanReturned.endsWith(cleanSettlement.slice(-4)) ||
-          String(returnedSettlementAccount).includes(cleanSettlement.slice(-4));
+          (cleanReturned.length >= 4 && last4.length === 4 && cleanReturned.endsWith(last4));
         if (!isMatched) {
           console.warn(
             `[verify-et] Settlement account mismatch for ${config.bank}: expected ${config.settlementAccount}, got ${returnedSettlementAccount}`

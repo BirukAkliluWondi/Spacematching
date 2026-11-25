@@ -98,30 +98,30 @@ async function runConcurrencyTests() {
   const testAction = 'confirm_match:SPMARBR10';
   const lockKey = `action_lock:${testChatId}:${testAction}`;
 
-  const lock1 = acquireActionLock(lockKey, 5000);
+  const lock1 = await acquireActionLock(lockKey, 5000);
   assert(lock1 === true, 'First button tap acquires the action lock');
 
-  const lock2 = acquireActionLock(lockKey, 5000);
+  const lock2 = await acquireActionLock(lockKey, 5000);
   assert(lock2 === false, 'Rapid second button tap is rejected by action lock (debounced)');
 
-  const lock3 = acquireActionLock(lockKey, 5000);
+  const lock3 = await acquireActionLock(lockKey, 5000);
   assert(lock3 === false, 'Rapid third button tap is rejected by action lock (debounced)');
 
-  releaseActionLock(lockKey);
-  const lock4 = acquireActionLock(lockKey, 5000);
+  await releaseActionLock(lockKey);
+  const lock4 = await acquireActionLock(lockKey, 5000);
   assert(lock4 === true, 'Lock released allows subsequent distinct action');
-  releaseActionLock(lockKey);
+  await releaseActionLock(lockKey);
 
   // ── Test 4: Telegram Webhook Update ID Deduplication ──
   console.log('\n▶ [Test 4] Telegram Webhook Update ID Deduplication...');
   const testUpdateId = 998877665;
-  const isFirst = deduplicateUpdate(testUpdateId);
+  const isFirst = await deduplicateUpdate(testUpdateId);
   assert(isFirst === true, 'First arrival of update_id is marked as new');
 
-  const isSecond = deduplicateUpdate(testUpdateId);
+  const isSecond = await deduplicateUpdate(testUpdateId);
   assert(isSecond === false, 'Duplicate delivery of same update_id is flagged and rejected');
 
-  const isThird = deduplicateUpdate(testUpdateId);
+  const isThird = await deduplicateUpdate(testUpdateId);
   assert(isThird === false, 'Third delivery of same update_id is flagged and rejected');
 
   // ── Test 5: Webhook Double-Tap Execution Guard ──

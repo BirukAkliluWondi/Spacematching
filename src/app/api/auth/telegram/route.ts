@@ -18,20 +18,29 @@ export async function POST(request: Request) {
     const validatedData = validateTelegramInitData(parsedPayload.initData);
     const { user } = validatedData;
 
-    const usernameLower = (user.username || '').toLowerCase();
-    const isAdminUsername = ['wwehid', 'birukadiyee', 'spacematchaddis_bot'].includes(usernameLower);
+    const { data: existingUser } = await supabaseAdmin
+      .from('users')
+      .select('id, role, fayda_status, first_name, last_name')
+      .eq('telegram_id', user.id)
+      .maybeSingle();
+
+    const envAdminIds = (process.env.ADMIN_TELEGRAM_IDS || '800701176,148318506,980853835')
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => !isNaN(n) && n > 0);
+    const isConfiguredAdmin = envAdminIds.includes(user.id) || existingUser?.role === 'admin';
+    const isFaydaVerified = existingUser?.fayda_status === 'verified';
 
     const upsertPayload: Record<string, any> = {
       telegram_id: user.id,
-      first_name: user.first_name,
-      last_name: user.last_name || null,
+      first_name: isFaydaVerified && existingUser?.first_name ? existingUser.first_name : user.first_name,
+      last_name: isFaydaVerified && existingUser?.last_name ? existingUser.last_name : (user.last_name || null),
       username: user.username || null,
       updated_at: new Date().toISOString(),
     };
 
-    if (isAdminUsername) {
+    if (isConfiguredAdmin) {
       upsertPayload.role = 'admin';
-      upsertPayload.fayda_status = 'verified';
     }
 
     // 2. Upsert user in Supabase 'users' table by telegram_id

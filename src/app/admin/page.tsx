@@ -53,6 +53,7 @@ interface AdminUser {
 export default function AdminPage() {
  const [stats, setStats] = useState<Stats | null>(null);
  const [spaces, setSpaces] = useState<Space[]>([]);
+ const [ordersList, setOrdersList] = useState<any[]>([]);
  const [loading, setLoading] = useState(true);
  const [activeTab, setActiveTab] = useState<'channel' | 'custom' | 'orders' | 'users' | 'register_roommate'>('channel');
  const [actionStatus, setActionStatus] = useState<string | null>(null);
@@ -206,6 +207,7 @@ export default function AdminPage() {
  if (data.success) {
  setStats(data.stats);
  setSpaces(data.spaces);
+ setOrdersList(data.orders || []);
  }
  } catch (err) {
  console.error('Failed to load admin data:', err);
@@ -517,7 +519,7 @@ export default function AdminPage() {
  </div>
 
  {/* Tab Navigation */}
- <div className="flex border-b border-slate-800 gap-6 text-sm font-medium">
+ <div className="flex overflow-x-auto border-b border-slate-800 gap-6 text-sm font-medium whitespace-nowrap">
  <button
  onClick={() => setActiveTab('channel')}
  className={`pb-3 border-b-2 transition ${
@@ -537,6 +539,29 @@ export default function AdminPage() {
  }`}
  >
  Post Directly to Channel
+ </button>
+ <button
+ onClick={() => setActiveTab('orders')}
+ className={`pb-3 border-b-2 transition ${
+ activeTab === 'orders'
+ ? 'border-emerald-500 text-emerald-400 font-semibold'
+ : 'border-transparent text-slate-400 hover:text-slate-200'
+ }`}
+ >
+ Orders & Payments ({ordersList.length})
+ </button>
+ <button
+ onClick={() => {
+ setActiveTab('register_roommate');
+ if (registeredRoommates.length === 0) fetchRoommates();
+ }}
+ className={`pb-3 border-b-2 transition ${
+ activeTab === 'register_roommate'
+ ? 'border-emerald-500 text-emerald-400 font-semibold'
+ : 'border-transparent text-slate-400 hover:text-slate-200'
+ }`}
+ >
+ Register Roommate (DB)
  </button>
  <button
  onClick={() => {
@@ -957,6 +982,133 @@ export default function AdminPage() {
  })}
  </div>
  )}
+ </div>
+ )}
+
+ {/* TAB: ORDERS & PAYMENTS */}
+ {activeTab === 'orders' && (
+ <div className="space-y-4">
+ <div className="flex items-center justify-between">
+ <h2 className="text-base font-semibold text-slate-200">
+ Verified & Pending Orders ({ordersList.length})
+ </h2>
+ <button
+ onClick={fetchAdminData}
+ className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition"
+ >
+ Refresh
+ </button>
+ </div>
+ <div className="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl">
+ <table className="w-full text-left text-xs text-slate-300">
+ <thead className="bg-slate-950/70 text-slate-400 border-b border-slate-800 uppercase text-[10px]">
+ <tr>
+ <th className="py-3 px-4">Ref</th>
+ <th className="py-3 px-4">Buyer TG ID</th>
+ <th className="py-3 px-4">Type</th>
+ <th className="py-3 px-4">Amount</th>
+ <th className="py-3 px-4">Status</th>
+ <th className="py-3 px-4">Date</th>
+ </tr>
+ </thead>
+ <tbody className="divide-y divide-slate-800/80">
+ {ordersList.length === 0 ? (
+ <tr>
+ <td colSpan={6} className="py-8 text-center text-slate-500">No orders recorded yet.</td>
+ </tr>
+ ) : (
+ ordersList.slice(0, 100).map((ord) => (
+ <tr key={ord.id} className="hover:bg-slate-800/40">
+ <td className="py-3 px-4 font-mono text-slate-200">{ord.transaction_reference || ord.id.slice(0, 8)}</td>
+ <td className="py-3 px-4 font-mono">{ord.buyer_telegram_id || ord.renter_telegram_id || 'N/A'}</td>
+ <td className="py-3 px-4">{ord.order_type || ord.target_type || 'order'}</td>
+ <td className="py-3 px-4 font-semibold text-emerald-400">{Number(ord.amount || 0).toLocaleString()} ETB</td>
+ <td className="py-3 px-4">
+ <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+ ord.payment_status === 'completed'
+ ? 'bg-emerald-500/20 text-emerald-300'
+ : 'bg-amber-500/20 text-amber-300'
+ }`}>
+ {ord.payment_status}
+ </span>
+ </td>
+ <td className="py-3 px-4 text-slate-400">{new Date(ord.created_at).toLocaleDateString()}</td>
+ </tr>
+ ))
+ )}
+ </tbody>
+ </table>
+ </div>
+ </div>
+ )}
+
+ {/* TAB: REGISTER ROOMMATE (DB ONLY) */}
+ {activeTab === 'register_roommate' && (
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+ <form onSubmit={handleRegisterRoommate} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+ <h2 className="text-base font-semibold text-slate-100">Register Concierge Roommate (DB Only)</h2>
+ <div className="grid grid-cols-2 gap-3">
+ <input value={rmFullName} onChange={(e) => setRmFullName(e.target.value)} placeholder="Full Name *" className="col-span-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ <select value={rmGender} onChange={(e) => setRmGender(e.target.value as 'Male' | 'Female')} className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white">
+ <option value="Female">Female</option>
+ <option value="Male">Male</option>
+ </select>
+ <select value={rmPreferredGender} onChange={(e) => setRmPreferredGender(e.target.value as 'Any' | 'Female' | 'Male')} className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white">
+ <option value="Any">Prefers Any</option>
+ <option value="Female">Prefers Female</option>
+ <option value="Male">Prefers Male</option>
+ </select>
+ <input type="number" value={rmBudgetMin} onChange={(e) => setRmBudgetMin(e.target.value)} placeholder="Budget Min (ETB)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ <input type="number" value={rmBudgetMax} onChange={(e) => setRmBudgetMax(e.target.value)} placeholder="Budget Max (ETB) *" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ <input value={rmPhone} onChange={(e) => setRmPhone(e.target.value)} placeholder="Phone (optional)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ <input value={rmTelegram} onChange={(e) => setRmTelegram(e.target.value)} placeholder="Telegram @handle" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ <input value={rmDisplayCode} onChange={(e) => setRmDisplayCode(e.target.value)} placeholder="Display Code (auto if blank)" className="col-span-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ </div>
+ <div className="flex flex-wrap gap-1.5">
+ {ADDIS_SUBCITIES.map((sub) => {
+ const active = rmLocations.includes(sub);
+ return (
+ <button
+ type="button"
+ key={sub}
+ onClick={() => setRmLocations((prev) => active ? prev.filter((x) => x !== sub) : [...prev, sub])}
+ className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border ${active ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300' : 'bg-slate-950 border-slate-800 text-slate-400'}`}
+ >
+ {sub}
+ </button>
+ );
+ })}
+ </div>
+ <textarea value={rmBio} onChange={(e) => setRmBio(e.target.value)} rows={3} placeholder="Lifestyle Bio & Preferences *" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ <button type="submit" disabled={submittingRm} className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold disabled:opacity-50">
+ {submittingRm ? 'Registering...' : 'Save Roommate to Database'}
+ </button>
+ </form>
+
+ <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+ <div className="flex items-center justify-between gap-2">
+ <h2 className="text-base font-semibold text-slate-100">Registered Seekers ({registeredRoommates.length})</h2>
+ <div className="flex gap-2">
+ <input value={roommateSearch} onChange={(e) => setRoommateSearch(e.target.value)} placeholder="Search code/name" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white" />
+ <button type="button" onClick={() => fetchRoommates(roommateSearch)} className="px-3 py-1.5 rounded-xl bg-slate-800 text-xs text-white">Find</button>
+ </div>
+ </div>
+ {loadingRoommates ? (
+ <p className="text-xs text-slate-400">Loading seekers...</p>
+ ) : (
+ <div className="space-y-2 max-h-[480px] overflow-y-auto">
+ {registeredRoommates.map((rm) => (
+ <div key={rm.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs flex justify-between gap-2">
+ <div>
+ <p className="font-bold text-slate-100">{rm.full_name} <span className="text-emerald-400 font-mono">#{String(rm.display_code || '').replace(/^#/, '')}</span></p>
+ <p className="text-slate-400">{rm.gender} · {Array.isArray(rm.locations) ? rm.locations.join(', ') : 'Addis'} · {Number(rm.budget_max || 0).toLocaleString()} ETB</p>
+ </div>
+ <span className="text-[10px] text-slate-400 uppercase">{rm.status}</span>
+ </div>
+ ))}
+ </div>
+ )}
+ </div>
  </div>
  )}
  </div>

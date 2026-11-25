@@ -232,10 +232,11 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
         const rawFanFromMap = v4.raw.map['A'] || v4.raw.map['UIN'] || v4.raw.map['FIN'];
         if (rawFanFromMap) {
           const cleanFan = String(rawFanFromMap).replace(/\D/g, '');
-          if (cleanFan.length === 12 || cleanFan.length === 16) {
+          const struct = validateFaydaStructure(cleanFan);
+          if (struct.valid) {
             return {
               success: true,
-              faydaNumber: cleanFan,
+              faydaNumber: struct.fanNumber || cleanFan,
               fullName: directName || undefined,
               gender: v4.raw.map['G'] === 'M' ? 'Male' : v4.raw.map['G'] === 'F' ? 'Female' : undefined,
               dob: v4.raw.map['D'] || undefined,
@@ -293,7 +294,7 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
     } catch {}
   }
 
-  // 5. Try Official NIDP URL (strictly id.gov.et or fayda.et domains)
+  // 5. Try Official NIDP URL (strictly id.gov.et, fayda.et, nidp.gov.et, or fayda.gov.et domains)
   if (rawStr && (rawStr.startsWith('http://') || rawStr.startsWith('https://'))) {
     try {
       const url = new URL(rawStr);
@@ -302,7 +303,11 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
         host === 'id.gov.et' ||
         host.endsWith('.id.gov.et') ||
         host === 'fayda.et' ||
-        host.endsWith('.fayda.et');
+        host.endsWith('.fayda.et') ||
+        host === 'nidp.gov.et' ||
+        host.endsWith('.nidp.gov.et') ||
+        host === 'fayda.gov.et' ||
+        host.endsWith('.fayda.gov.et');
 
       if (isOfficialFaydaHost) {
         let uin =
@@ -339,24 +344,6 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
   if (rawStr) {
     const textResult = extractFromTextString(rawStr);
     if (textResult.success) return { ...textResult, rawType: 'text' };
-  }
-
-  // 7. Fallback: Search for any 12-digit or 16-digit sequence with MOSIP validity
-  if (rawStr) {
-    const numbers = rawStr.match(/\b\d{12}\b|\b\d{16}\b|\b\d{4}[-\s]\d{4}[-\s]\d{4}\b|\b\d{4}[-\s]\d{4}[-\s]\d{4}[-\s]\d{4}\b/g);
-    if (numbers) {
-      for (const num of numbers) {
-        const clean = num.replace(/\D/g, '');
-        const struct = validateFaydaStructure(clean);
-        if (struct.valid) {
-          return {
-            success: true,
-            faydaNumber: struct.fanNumber || clean,
-            rawType: 'regex_fayda',
-          };
-        }
-      }
-    }
   }
 
   return {
@@ -534,7 +521,8 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
     if (!fin) return { success: false };
 
     const cleanFin = String(fin).replace(/\D/g, '');
-    if (!isValidFaydaLength(cleanFin)) return { success: false };
+    const finStruct = validateFaydaStructure(cleanFin);
+    if (!finStruct.valid) return { success: false };
 
     // Key 4: Full Name, Key 5: First Name, 6: Middle Name, 7: Last Name, Key 19: Secondary (Amharic) Name
     let name = getVal([4, '4', 'name', 'fullName', 'full_name', 'resident_name', 'NAME', 'residentName']);

@@ -225,9 +225,9 @@ export async function GET(request: Request) {
         fayda_dob: dob,
         fayda_metadata: faydaMeta,
         verification_method: faydaMeta?.verified_source
-          ? (faydaMeta.verified_source.includes('qr')
-              ? 'Offline RS256 QR Digital Signature'
-              : 'Verhoeff Checksum Engine')
+          ? (faydaMeta.verified_source.includes('qr') || faydaMeta.verified_source.includes('rs256')
+              ? 'Offline RS256/CBOR QR Verification'
+              : 'In-Memory Card OCR Engine')
           : (isVerified ? 'Fayda Verification Engine' : 'N/A'),
         role: u.role || 'renter',
         display_code: prof?.display_code ? `#${prof.display_code.toUpperCase().replace(/^#/, '')}` : null,

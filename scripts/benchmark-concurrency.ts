@@ -303,8 +303,8 @@ async function main() {
 
   // 2. Update deduplication check
   const uId = 888123;
-  if (!deduplicateUpdate(uId)) throw new Error('Fresh update was rejected');
-  if (deduplicateUpdate(uId)) throw new Error('Duplicate update was not detected');
+  if (!(await deduplicateUpdate(uId))) throw new Error('Fresh update was rejected');
+  if (await deduplicateUpdate(uId)) throw new Error('Duplicate update was not detected');
   console.log('  ✅ Update deduplication window verified');
 
   // 3. Middleware checks

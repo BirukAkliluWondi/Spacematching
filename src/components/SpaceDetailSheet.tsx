@@ -132,7 +132,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
         setDashenAccount(data.dashen_account);
       }
 
-      const payUrl = `https://t.me/${cleanBotUsername}?start=pay_${data.order_id}`;
+      const payUrl = `https://t.me/${cleanBotUsername}?start=order_${space.id}`;
       setBotPayUrl(payUrl);
 
       if (tg && typeof tg.openTelegramLink === 'function') {

@@ -89,11 +89,23 @@ export async function POST(request: Request) {
 
     const existingCompletedOrder = existingOrderRes.data;
     if (existingCompletedOrder || membershipStatus.isActive) {
-      const { data: unlockedData } = await supabaseAdmin.rpc('get_unlocked_space_details', {
+      let unlocked: Record<string, any> | null = null;
+      const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc('get_unlocked_space_details', {
         p_space_id: space_id,
         p_telegram_id: telegram_id,
       });
-      const unlocked = Array.isArray(unlockedData) ? unlockedData[0] : unlockedData;
+      if (!rpcErr && rpcData) {
+        unlocked = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      } else if (membershipStatus.isActive) {
+        // Active 3-Month Pass holders unlock published space contacts directly via service role
+        const { data: spaceDetails } = await supabaseAdmin
+          .from('spaces')
+          .select('exact_address, latitude, longitude, contact_name, contact_phone, contact_telegram')
+          .eq('id', space_id)
+          .eq('status', 'published')
+          .maybeSingle();
+        if (spaceDetails) unlocked = spaceDetails;
+      }
 
       return NextResponse.json({
         success: true,
@@ -110,7 +122,7 @@ export async function POST(request: Request) {
     const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
     const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
     const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';
-    const accountHolder = 'Wahid';
+    const accountHolder = (process.env.PAYMENT_ACCOUNT_HOLDER || 'Wahid').trim();
     const tempTxRef = `PENDING_${crypto.randomUUID()}`;
 
     const { data: order, error: orderError } = await supabaseAdmin

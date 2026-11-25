@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { validateTelegramInitData } from '@/lib/telegram-auth';
 
 const faydaUploadUrlSchema = z.object({
   telegram_id: z.number().or(z.string().transform((val) => parseInt(val, 10))),
@@ -10,12 +11,26 @@ const faydaUploadUrlSchema = z.object({
 export async function POST(request: Request) {
   try {
     const rawBody = await request.json();
+    const initData = request.headers.get('x-telegram-init-data') || rawBody.initData;
+    if (!initData || typeof initData !== 'string') {
+      return NextResponse.json({ error: 'Telegram authentication required.' }, { status: 401 });
+    }
+    let validatedTg;
+    try {
+      validatedTg = validateTelegramInitData(initData);
+    } catch {
+      return NextResponse.json({ error: 'Invalid Telegram session signature.' }, { status: 401 });
+    }
+
     const parsed = faydaUploadUrlSchema.parse({
-      telegram_id: rawBody.telegram_id,
+      telegram_id: rawBody.telegram_id || validatedTg.user.id,
       file_extension: rawBody.file_extension || rawBody.fileExtension,
     });
 
     const { telegram_id } = parsed;
+    if (validatedTg.user.id !== telegram_id) {
+      return NextResponse.json({ error: 'Forbidden: Telegram identity mismatch.' }, { status: 403 });
+    }
 
     // 1. Resolve user profile by telegram_id
     const { data: user, error: userError } = await supabaseAdmin

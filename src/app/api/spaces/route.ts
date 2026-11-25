@@ -13,11 +13,24 @@ export async function GET(request: Request) {
     const limit = Math.min(50, Math.max(1, rawLimit));
     const offset = (page - 1) * limit;
 
-    // Attempt Supabase fetch safely with bounded pagination
+    // Attempt Supabase fetch safely with DB-level filters before bounded pagination
     try {
-      const { data: viewData } = await supabaseClient
+      let viewQuery = supabaseClient
         .from('public_spaces_view')
-        .select('*')
+        .select('*');
+      if (q) {
+        const safeQ = q.replace(/[,()":%_\\]/g, ' ').trim();
+        if (safeQ) {
+          viewQuery = viewQuery.or(`title.ilike.%${safeQ}%,neighborhood.ilike.%${safeQ}%,description.ilike.%${safeQ}%`);
+        }
+      }
+      if (hood) {
+        const safeHood = hood.replace(/[,()":%_\\]/g, ' ').trim();
+        if (safeHood) {
+          viewQuery = viewQuery.ilike('neighborhood', `%${safeHood}%`);
+        }
+      }
+      const { data: viewData } = await viewQuery
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
@@ -30,10 +43,23 @@ export async function GET(request: Request) {
 
     if (spaces.length === 0) {
       try {
-        const { data: spacesData } = await supabaseAdmin
+        let adminQuery = supabaseAdmin
           .from('spaces')
           .select('*, space_images(*)')
-          .eq('status', 'published')
+          .eq('status', 'published');
+        if (q) {
+          const safeQ = q.replace(/[,()":%_\\]/g, ' ').trim();
+          if (safeQ) {
+            adminQuery = adminQuery.or(`title.ilike.%${safeQ}%,neighborhood.ilike.%${safeQ}%,description.ilike.%${safeQ}%`);
+          }
+        }
+        if (hood) {
+          const safeHood = hood.replace(/[,()":%_\\]/g, ' ').trim();
+          if (safeHood) {
+            adminQuery = adminQuery.ilike('neighborhood', `%${safeHood}%`);
+          }
+        }
+        const { data: spacesData } = await adminQuery
           .order('created_at', { ascending: false })
           .range(offset, offset + limit - 1);
 

@@ -212,7 +212,12 @@ function renderPillarIcon(icon: string) {
 function getCardConfig(type: CardScreenType, params: DynamicCardParams): CardContent {
   const isMember = Boolean(params.isMember);
   const days = Math.max(0, params.daysRemaining || 0);
-  const cleanName = (params.userName?.trim() || 'Resident').slice(0, 24);
+  // Strip emoji / lone UTF-16 surrogates safely by codepoint before slicing for Satori SVG rendering
+  const sanitizedUserName = Array.from(params.userName?.trim() || 'Resident')
+    .filter((ch) => (ch.codePointAt(0) || 0) <= 0xffff && !/[\uD800-\uDFFF]/.test(ch))
+    .join('')
+    .trim();
+  const cleanName = Array.from(sanitizedUserName || 'Resident').slice(0, 24).join('');
 
   const memBadgeText = isMember ? `ACTIVE PASS · ${days} DAYS` : '3-MONTH PASS · 100 ETB';
   const memBadgeColor = isMember ? '#10b981' : '#94a3b8';

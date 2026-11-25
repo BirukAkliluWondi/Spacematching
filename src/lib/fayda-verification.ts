@@ -474,6 +474,14 @@ export async function persistFaydaVerification(
     existingUser?.username ||
     (existingProf?.telegram_username ? existingProf.telegram_username.replace(/^@/, '') : null);
 
+  const rawGenderClean = (options?.gender || '').trim().toLowerCase();
+  const normalizedGender: 'Male' | 'Female' | null =
+    rawGenderClean === 'm' || rawGenderClean === 'male' || rawGenderClean.includes('ወንድ')
+      ? 'Male'
+      : rawGenderClean === 'f' || rawGenderClean === 'female' || rawGenderClean.includes('ሴት')
+      ? 'Female'
+      : null;
+
   const userUpsertPayload: Record<string, any> = {
     telegram_id: telegramId,
     first_name: firstName.trim(),
@@ -485,8 +493,8 @@ export async function persistFaydaVerification(
     fayda_document_url: faydaMeta,
     updated_at: nowIso,
   };
-  if (options?.gender) {
-    userUpsertPayload.gender = options.gender;
+  if (normalizedGender) {
+    userUpsertPayload.gender = normalizedGender;
   }
 
   try {
@@ -533,7 +541,7 @@ export async function persistFaydaVerification(
           display_code: displayCode,
           full_name: resolvedFullName,
           telegram_username: resolvedUsername,
-          gender: options?.gender || undefined,
+          gender: normalizedGender || undefined,
           kyc_status: 'verified',
           status: 'active',
           onboarding_step: 'completed',
@@ -553,8 +561,8 @@ export async function persistFaydaVerification(
       if (resolvedUsername && !existingProf.telegram_username) {
         profileUpdates.telegram_username = resolvedUsername;
       }
-      if (options?.gender) {
-        profileUpdates.gender = options.gender;
+      if (normalizedGender) {
+        profileUpdates.gender = normalizedGender;
       }
 
       const { error: profUpdateErr } = await supabaseAdmin
@@ -572,10 +580,10 @@ export async function persistFaydaVerification(
 
   // Sync gender to roommate_profiles table if row exists (uses user_telegram_id)
   try {
-    if (options?.gender) {
+    if (normalizedGender) {
       await supabaseAdmin
         .from('roommate_profiles')
-        .update({ my_gender: options.gender, updated_at: nowIso })
+        .update({ my_gender: normalizedGender, updated_at: nowIso })
         .eq('user_telegram_id', telegramId);
     }
   } catch {

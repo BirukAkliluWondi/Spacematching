@@ -98,13 +98,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Bio / lifestyle description is required.' }, { status: 400 });
     }
 
-    // 1. Resolve Display Code
+    // 1. Resolve canonical Display Code without leading '#' so bot deep links match consistently
     let finalCode = (displayCode || '').trim().toUpperCase().replace(/^#/, '');
     if (!finalCode) {
       finalCode = await getNextSpmarbrCode('seeker');
-    }
-    if (!finalCode.startsWith('#')) {
-      finalCode = `#${finalCode}`;
     }
 
     // Extract digits for synthetic ID allocation

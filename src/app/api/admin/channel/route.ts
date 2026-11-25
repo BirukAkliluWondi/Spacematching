@@ -84,8 +84,18 @@ export async function POST(request: Request) {
 
       let msgIdToDelete = messageId;
 
-      // If listingId provided, update space status to archived in DB
+      // If listingId provided, fetch its channel_message_id first and update space status to archived in DB
       if (listingId) {
+        if (!msgIdToDelete) {
+          const { data: spRow } = await supabaseAdmin
+            .from('spaces')
+            .select('channel_message_id')
+            .eq('id', listingId)
+            .maybeSingle();
+          if (spRow?.channel_message_id) {
+            msgIdToDelete = spRow.channel_message_id;
+          }
+        }
         await supabaseAdmin
           .from('spaces')
           .update({ status: 'archived', updated_at: new Date().toISOString() })

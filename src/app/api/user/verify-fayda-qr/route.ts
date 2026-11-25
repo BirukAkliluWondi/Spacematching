@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { decodePayload } from 'fayda-decoder';
 import { verifySignature } from 'fayda-decoder/verify';
+import { decodeFaydaQr } from '@/lib/fayda-qr-decoder';
 import { persistFaydaVerification, validateFaydaStructure } from '@/lib/fayda-verification';
 import { validateTelegramInitData } from '@/lib/telegram-auth';
 
@@ -41,49 +42,74 @@ export async function POST(request: Request) {
     }
     const { telegram_id, qr_data } = parsed;
 
-    // 1. Decode Fayda QR data offline
+    // 1. Decode Fayda QR data offline: try signed NIDP V4 first, then hardened MOSIP Claim 169 / official NIDP URLs
+    let fan = '';
+    let fullName: string | undefined;
+    let gender: string | undefined;
+    let dob: string | undefined;
+    let verifiedSource = 'offline_rs256_qr';
+
     const decoded = decodePayload(qr_data, { includeFace: false });
-    if (!decoded.ok) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: decoded.error.message || 'Invalid Fayda QR code. Please scan an authentic Ethiopian Fayda card or e-Fayda document.',
-        },
-        { status: 400 }
-      );
+    if (decoded.ok && decoded.fields?.fan) {
+      const signatureVerification = await verifySignature(decoded, {
+        publicKeyPem: process.env.FAYDA_PUBLIC_KEY_PEM,
+      });
+      const cleanFanForCheck = String(decoded.fields.fan).replace(/\D/g, '');
+      const structCheck = validateFaydaStructure(cleanFanForCheck);
+
+      if (!signatureVerification.verified || !structCheck.valid) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Cryptographic signature verification failed: ${signatureVerification.reason || structCheck.error || 'Invalid digital signature'}.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      fan = structCheck.fanNumber || cleanFanForCheck;
+      fullName = decoded.fields.full_name || undefined;
+      gender = decoded.fields.gender === 'M' ? 'Male' : decoded.fields.gender === 'F' ? 'Female' : (decoded.fields.gender || undefined);
+      dob = decoded.fields.date_of_birth || undefined;
+    } else {
+      // Fallback to hardened MOSIP Claim 169 CBOR / official NIDP URL decoder (rejects raw forged V4 JWS)
+      const isForgedV4 = qr_data.includes(':SIGN:') || qr_data.includes(':DLT:');
+      if (isForgedV4) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Invalid or tampered Fayda V4 digital signature.',
+          },
+          { status: 400 }
+        );
+      }
+
+      const fallbackDecoded = decodeFaydaQr(qr_data);
+      if (!fallbackDecoded.success || !fallbackDecoded.faydaNumber) {
+        const decodeErrMsg = !decoded.ok ? decoded.error?.message : undefined;
+        return NextResponse.json(
+          {
+            success: false,
+            error: fallbackDecoded.error || decodeErrMsg || 'Invalid Fayda QR code. Please scan an authentic Ethiopian Fayda card or e-Fayda document.',
+          },
+          { status: 400 }
+        );
+      }
+
+      const structCheck = validateFaydaStructure(fallbackDecoded.faydaNumber);
+      if (!structCheck.valid) {
+        return NextResponse.json(
+          { success: false, error: structCheck.error || 'Invalid Fayda ID number.' },
+          { status: 400 }
+        );
+      }
+
+      fan = structCheck.fanNumber || fallbackDecoded.faydaNumber;
+      fullName = fallbackDecoded.fullName;
+      gender = fallbackDecoded.gender;
+      dob = fallbackDecoded.dob;
+      verifiedSource = `offline_${fallbackDecoded.rawType || 'qr'}`;
     }
-
-    if (!decoded.fields.fan) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Fayda QR payload is missing the Fayda Account Number (FAN).',
-        },
-        { status: 400 }
-      );
-    }
-
-    // Cryptographically verify RS256 signature strictly (close forged :SIGN: bypass)
-    const signatureVerification = await verifySignature(decoded, {
-      publicKeyPem: process.env.FAYDA_PUBLIC_KEY_PEM,
-    });
-    const cleanFanForCheck = String(decoded.fields.fan).replace(/\D/g, '');
-    const structCheck = validateFaydaStructure(cleanFanForCheck);
-
-    if (!signatureVerification.verified || !structCheck.valid) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Cryptographic signature verification failed: ${signatureVerification.reason || structCheck.error || 'Invalid digital signature'}.`,
-        },
-        { status: 400 }
-      );
-    }
-
-    const fan = structCheck.fanNumber || cleanFanForCheck;
-    const fullName = decoded.fields.full_name || undefined;
-    const gender = decoded.fields.gender === 'M' ? 'Male' : decoded.fields.gender === 'F' ? 'Female' : (decoded.fields.gender || undefined);
-    const dob = decoded.fields.date_of_birth || undefined;
 
     // 2. Uniqueness check: Ensure Fayda number is not claimed by another Telegram user
     const { data: existingUsers } = await supabaseAdmin
@@ -104,11 +130,17 @@ export async function POST(request: Request) {
     }
 
     // 3. Persist verified Fayda status to users and profiles tables
-    await persistFaydaVerification(telegram_id, fan, fullName, {
+    const persisted = await persistFaydaVerification(telegram_id, fan, fullName, {
       gender,
       dob,
-      verifiedSource: 'offline_rs256_qr',
+      verifiedSource,
     });
+    if (!persisted) {
+      return NextResponse.json(
+        { success: false, error: 'Failed to save verification status. Please try again.' },
+        { status: 500 }
+      );
+    }
 
     // 4. Send direct Telegram DM confirming instant verification
     const botToken = process.env.TELEGRAM_BOT_TOKEN;

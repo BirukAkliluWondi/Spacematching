@@ -462,9 +462,9 @@ async function runUpdateDeduplicationTests() {
 
   // 4.1 Basic duplicate check
   const testId = 555001;
-  const firstCall = deduplicateUpdate(testId);
-  const secondCall = deduplicateUpdate(testId);
-  const thirdCall = deduplicateUpdate(testId);
+  const firstCall = await deduplicateUpdate(testId);
+  const secondCall = await deduplicateUpdate(testId);
+  const thirdCall = await deduplicateUpdate(testId);
 
   const basicDedupPass = firstCall === true && secondCall === false && thirdCall === false;
   record(
@@ -477,7 +477,7 @@ async function runUpdateDeduplicationTests() {
   // 4.2 High-frequency concurrency burst with identical update_id
   const stormId = 666002;
   const burstResults = await Promise.all(
-    Array.from({ length: 100 }, () => Promise.resolve(deduplicateUpdate(stormId)))
+    Array.from({ length: 100 }, () => deduplicateUpdate(stormId))
   );
   const acceptedBurst = burstResults.filter((r) => r === true).length;
   const droppedBurst = burstResults.filter((r) => r === false).length;
@@ -509,7 +509,7 @@ async function runUpdateDeduplicationTests() {
   let totalAccepted = 0;
   let totalDropped = 0;
   for (const id of allUpdates) {
-    if (deduplicateUpdate(id)) {
+    if (await deduplicateUpdate(id)) {
       totalAccepted++;
     } else {
       totalDropped++;
@@ -525,7 +525,7 @@ async function runUpdateDeduplicationTests() {
   );
 
   // 4.4 Boundary condition: update_id = 0
-  const zeroPass = deduplicateUpdate(0) === true;
+  const zeroPass = (await deduplicateUpdate(0)) === true;
   record(
     'Deduplication',
     'Boundary Update ID = 0 Handling',

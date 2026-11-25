@@ -319,9 +319,9 @@ export function parseBudgetRangeInput(
   const minLimit = options?.minLimit ?? 500;
   const maxLimit = options?.maxLimit ?? 1000000;
 
-  // 1. Detect range with separator: "8000 - 15000", "8k to 15k", "between 8000 and 15000", "8000 15000"
+  // 1. Detect explicit range separators ("8000 - 15000", "8k to 15k", "between 8000 and 15000")
   const rangeMatch = cleaned.match(
-    /(?:between\s+)?(\d+(?:[,\.]\d+)?\s*k?)\s*(?:-|–|—|to|and|\s+)\s*(\d+(?:[,\.]\d+)?\s*k?)/i
+    /(?:between\s+)?([\d,\.]+\s*(?:\s\d{3})*\s*k?)\s*(?:-|–|—|to|and)\s*([\d,\.]+\s*(?:\s\d{3})*\s*k?)/i
   );
 
   if (rangeMatch) {
@@ -330,7 +330,7 @@ export function parseBudgetRangeInput(
     if (p1 !== null && p2 !== null && p1 > 0 && p2 > 0) {
       const lower = Math.min(p1, p2);
       const upper = Math.max(p1, p2);
-      if (upper >= minLimit && lower <= maxLimit) {
+      if (lower >= minLimit && upper <= maxLimit) {
         return {
           min: lower,
           max: upper,
@@ -423,49 +423,62 @@ export function extractUserDescription(rawText?: string | null): string {
 export function truncateTelegramHtml(html: string, maxLen: number = 1024): string {
   if (!html || html.length <= maxLen) return html;
 
-  // Reserve ~35 characters for ellipsis and closing tags
-  const targetLen = Math.max(0, maxLen - 35);
   let truncated = '';
   let inTag = false;
   let tagBuffer = '';
   const openTags: string[] = [];
 
+  const closingTagsLength = () =>
+    openTags.reduce((sum, tag) => sum + tag.length + 3, 0);
+
   let i = 0;
-  while (i < html.length && truncated.length < targetLen) {
+  while (i < html.length) {
     const char = html[i];
+    const reserve = 2 + closingTagsLength(); // '…' + all currently open closing tags
 
     if (char === '<') {
+      const closeBracket = html.indexOf('>', i);
+      if (closeBracket === -1) break;
+      const fullTag = html.slice(i, closeBracket + 1);
+      const matchClosing = fullTag.match(/^<\/([a-zA-Z0-9]+)>/);
+      const matchOpening = fullTag.match(/^<([a-zA-Z0-9]+)(?:\s[^>]*)?>/);
+      let extraClosing = 0;
+      if (!matchClosing && matchOpening) {
+        const t = matchOpening[1].toLowerCase();
+        if (!['br', 'hr', 'img'].includes(t)) extraClosing = t.length + 3;
+      }
+      if (truncated.length + fullTag.length + reserve + extraClosing > maxLen) {
+        break;
+      }
       inTag = true;
-      tagBuffer = '<';
-      i++;
+      tagBuffer = '';
+      if (matchClosing) {
+        const tagName = matchClosing[1].toLowerCase();
+        const lastIdx = openTags.lastIndexOf(tagName);
+        if (lastIdx !== -1) openTags.splice(lastIdx, 1);
+      } else if (matchOpening) {
+        const tagName = matchOpening[1].toLowerCase();
+        if (!['br', 'hr', 'img'].includes(tagName)) openTags.push(tagName);
+      }
+      truncated += fullTag;
+      inTag = false;
+      i = closeBracket + 1;
       continue;
     }
 
-    if (inTag) {
-      tagBuffer += char;
-      if (char === '>') {
-        inTag = false;
-        const matchClosing = tagBuffer.match(/^<\/([a-zA-Z0-9]+)>/);
-        const matchOpening = tagBuffer.match(/^<([a-zA-Z0-9]+)(?:\s[^>]*)?>/);
-
-        if (matchClosing) {
-          const tagName = matchClosing[1].toLowerCase();
-          const lastIdx = openTags.lastIndexOf(tagName);
-          if (lastIdx !== -1) {
-            openTags.splice(lastIdx, 1);
-          }
-        } else if (matchOpening) {
-          const tagName = matchOpening[1].toLowerCase();
-          if (!['br', 'hr', 'img'].includes(tagName)) {
-            openTags.push(tagName);
-          }
-        }
-
-        truncated += tagBuffer;
-        tagBuffer = '';
+    if (char === '&') {
+      const semi = html.indexOf(';', i);
+      if (semi !== -1 && semi - i <= 10 && /^&[a-zA-Z0-9#]+;$/.test(html.slice(i, semi + 1))) {
+        const entity = html.slice(i, semi + 1);
+        if (truncated.length + entity.length + reserve > maxLen) break;
+        truncated += entity;
+        i = semi + 1;
+        continue;
       }
-      i++;
-      continue;
+    }
+
+    if (truncated.length + 1 + reserve > maxLen) {
+      break;
     }
 
     truncated += char;
@@ -481,10 +494,6 @@ export function truncateTelegramHtml(html: string, maxLen: number = 1024): strin
   while (openTags.length > 0) {
     const tag = openTags.pop();
     truncated += `</${tag}>`;
-  }
-
-  if (truncated.length > maxLen) {
-    return truncated.slice(0, maxLen);
   }
 
   return truncated;
@@ -778,7 +787,8 @@ export function formatRoommatePost(profile: Profile | Record<string, any>): stri
   let rawBio = p.roommate_traits || p.lifestyle_bio || p.bio || '';
   let cleanBio = extractUserDescription(rawBio);
   if (!cleanBio || cleanBio === cleanDetails) {
-    cleanBio = p.full_name || p.user_name || 'Seeking compatible roommate in Addis Ababa. / ተስማሚ የቤት ጓደኛ ፈላጊ።';
+    // Strictly never leak p.full_name or p.user_name onto the public channel
+    cleanBio = 'Seeking compatible roommate in Addis Ababa. / ተስማሚ የቤት ጓደኛ ፈላጊ።';
   }
   if (cleanBio.length > 300) {
     cleanBio = cleanBio.slice(0, 295).trimEnd() + '…';
@@ -796,20 +806,20 @@ export function formatRoommatePost(profile: Profile | Record<string, any>): stri
   return `
 <b>SpaceMatch Addis / ስፔስማች አዲስ</b> · <b>#${cleanCode}</b>
 <b>LOOKING FOR A ROOM · ${escapeHtml(locationDisplay)}</b>
-Budget: ${budgetDisplay} · Move in: ${moveInDisplay}
+Budget: ${escapeHtml(budgetDisplay)} · Move in: ${escapeHtml(moveInDisplay)}
 
 <b>WHAT I'M LOOKING FOR / የምፈልገው</b>
 ${escapeHtml(spaceTypeDisplay)}
 
 <b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
-Roommate: ${prefSexDisplay}${prefAgeStr}
-House rules: ${houseRulesDisplay}
+Roommate: ${escapeHtml(prefSexDisplay)}${escapeHtml(prefAgeStr)}
+House rules: ${escapeHtml(houseRulesDisplay)}
 
 <b>DETAILS / ዝርዝር</b>
 <blockquote>${escapeHtml(cleanDetails)}</blockquote>
 
 <b>ABOUT ME / ስለ እኔ</b>
-Posted by: ${sexDisplay}${ageDisplay}
+Posted by: ${escapeHtml(sexDisplay)}${escapeHtml(ageDisplay)}
 <blockquote>${escapeHtml(cleanBio)}</blockquote>
 
 SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
@@ -917,21 +927,21 @@ export function formatSpacePost(space: Record<string, any>): string {
   return `
 <b>SpaceMatch Addis / ስፔስማች አዲስ</b> · <b>#${cleanCode}</b>
 <b>ROOM AVAILABLE · ${escapeHtml(locationDisplay)}</b>
-Rent: ${rentDisplay} · Move in: ${moveInDisplay}
+Rent: ${escapeHtml(rentDisplay)} · Move in: ${escapeHtml(moveInDisplay)}
 
 <b>SPACE DETAILS / የቤቱ ዝርዝር</b>
 ${escapeHtml(spaceTypeDisplay)}
 Amenities: ${escapeHtml(amenitiesDisplay)}
 
 <b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
-Roommate: ${prefSexDisplay}
-House rules: ${houseRulesDisplay}
+Roommate: ${escapeHtml(prefSexDisplay)}
+House rules: ${escapeHtml(houseRulesDisplay)}
 
 <b>DETAILS / ዝርዝር</b>
 <blockquote>${escapeHtml(detailsText)}</blockquote>
 
 <b>ABOUT ME / ስለ እኔ</b>
-Posted by: ${hostSexDisplay} (Space Host / አከራይ)
+Posted by: ${escapeHtml(hostSexDisplay)} (Space Host / አከራይ)
 <blockquote>${escapeHtml(cleanBio)}</blockquote>
 
 SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
@@ -1006,13 +1016,15 @@ export async function updateChannelPostAsMatched(
   let baseContent = existingContent?.trim() || '';
 
   // If no existing content provided, attempt to retrieve listing from DB
+  const safeCodeForFilter = displayCode.replace(/[,()*%\\]/g, '').trim();
   if (!baseContent) {
     try {
       let p: any = null;
       const { data: pFromProfiles } = await supabaseAdmin
         .from('profiles')
         .select('*')
-        .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`)
+        .or(`display_code.ilike.${safeCodeForFilter},channel_message_id.eq.${channelMessageId}`)
+        .limit(1)
         .maybeSingle();
 
       if (pFromProfiles) {
@@ -1021,20 +1033,16 @@ export async function updateChannelPostAsMatched(
         const { data: pFromRoommates } = await supabaseAdmin
           .from('roommate_profiles')
           .select('*')
-          .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`)
+          .eq('channel_message_id', channelMessageId)
+          .limit(1)
           .maybeSingle();
         if (pFromRoommates) {
           p = {
-            display_code: pFromRoommates.display_code,
+            display_code: displayCode,
             gender: pFromRoommates.my_gender,
             locations: pFromRoommates.preferred_subcity,
             budget_max: pFromRoommates.budget_max,
             roommate_traits: pFromRoommates.lifestyle_bio,
-            listing_category: pFromRoommates.listing_category,
-            space_type: pFromRoommates.space_type,
-            space_rent: pFromRoommates.space_rent,
-            space_share: pFromRoommates.space_share,
-            space_amenities: pFromRoommates.space_amenities,
           };
         }
       }
@@ -1050,11 +1058,12 @@ export async function updateChannelPostAsMatched(
 
   const closedHeader = `━━━━━━━━━━━━━━━━━━━━━━\n       <b>CLOSED / የተዘጋ</b>\nThis listing is officially closed &amp; matched! / ይህ ማስታወቂያ ተዘግቷል!\n━━━━━━━━━━━━━━━━━━━━━━`;
 
-  const closedText = baseContent
+  const closedRaw = baseContent
     ? `${closedHeader}\n\n${baseContent}\n\nListing closed. Browse active verified roommates below: / ማስታወቂያው ተዘግቷል። ሌሎች ክፍት የሆኑ የተረጋገጡ የቤት አጋሮችን ከታች ይመልከቱ:`
     : `${closedHeader}\n\n<b>Roommate #${escapeHtml(displayCode)} has found a match / የቤት አጋር ተገኝቷል</b>\n\n<blockquote>This listing is officially closed. No further connection requests are accepted. / ይህ ማስታወቂያ ተዘግቷል። ተጨማሪ ጥያቄዎች አይቀበሉም።</blockquote>`;
 
-  const safeCaption = truncateTelegramHtml(closedText, 1024);
+  const closedText = truncateTelegramHtml(closedRaw, 4096);
+  const safeCaption = truncateTelegramHtml(closedRaw, 1024);
 
   const closedMarkup: InlineKeyboard = {
     inline_keyboard: [
@@ -1064,11 +1073,11 @@ export async function updateChannelPostAsMatched(
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
-      // [{ text: 'Post Profile / መረጃዬን ልለጥፍ >', url: `https://t.me/${botUsername}?start=post_profile` }],
     ],
   };
 
   try {
+    let editOk = false;
     const res = await callTelegram('editMessageText', {
       chat_id: channelId,
       message_id: channelMessageId,
@@ -1076,31 +1085,36 @@ export async function updateChannelPostAsMatched(
       parse_mode: 'HTML',
       reply_markup: closedMarkup,
     });
+    editOk = Boolean(res.ok || (res.description && res.description.includes('message is not modified')));
 
-    if (!res.ok) {
-      // If original channel post was a photo, edit the caption instead
-      await callTelegram('editMessageCaption', {
+    if (!editOk) {
+      const capRes = await callTelegram('editMessageCaption', {
         chat_id: channelId,
         message_id: channelMessageId,
         caption: safeCaption,
         parse_mode: 'HTML',
         reply_markup: closedMarkup,
       });
+      editOk = Boolean(capRes.ok || (capRes.description && capRes.description.includes('message is not modified')));
     }
 
-    // Also update profiles and roommate_profiles status in DB
+    // Also update profiles, roommate_profiles, and pending_roommate_drafts with valid enum statuses
     try {
       await supabaseAdmin
         .from('profiles')
-        .update({ status: 'closed', updated_at: new Date().toISOString() })
-        .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`);
+        .update({ status: 'matched' })
+        .or(`display_code.ilike.${safeCodeForFilter},channel_message_id.eq.${channelMessageId}`);
       await supabaseAdmin
         .from('roommate_profiles')
-        .update({ status: 'closed', updated_at: new Date().toISOString() })
-        .or(`display_code.ilike.${displayCode},channel_message_id.eq.${channelMessageId}`);
+        .update({ status: 'archived', updated_at: new Date().toISOString() })
+        .eq('channel_message_id', channelMessageId);
+      await supabaseAdmin
+        .from('pending_roommate_drafts')
+        .update({ status: 'archived', updated_at: new Date().toISOString() })
+        .ilike('id', safeCodeForFilter);
     } catch {}
 
-    return true;
+    return editOk;
   } catch (err) {
     console.error('Failed to update channel post as matched:', err);
     return false;

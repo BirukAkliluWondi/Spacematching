@@ -3,15 +3,13 @@ import { createClient } from '@supabase/supabase-js';
 // ---------------------------------------------------------------------------
 // Supabase client (service role — safe for server-side only)
 // ---------------------------------------------------------------------------
-const supabaseUrl = (
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://plusmfmlzzumzsqtlixb.supabase.co'
-).trim();
-const supabaseServiceRoleKey = (
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsdXNtZm1senp1bXpzcXRsaXhiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTk1OTM1NiwiZXhwIjoyMTA3NTM1MzU2fQ.1nXAUO7usoDst_maNIE252DHyK-NtHPazQY0ats7qVE'
-).trim();
+const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+const supabaseServiceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 
-const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseServiceRoleKey || 'missing-service-role-key'
+);
 
 // ---------------------------------------------------------------------------
 // Process Crash Guard & Lifecycle Management
@@ -231,37 +229,131 @@ const _updateIdCache = new BoundedLRUCache<number, boolean>(10000, 10 * 60 * 100
 // In-flight action lock cache to prevent concurrent double-clicks and race conditions (TTL 5s)
 const _actionLockCache = new BoundedLRUCache<string, boolean>(10000, 5 * 1000);
 
+function hashLockKeyToNegativeId(lockKey: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < lockKey.length; i++) {
+    h ^= lockKey.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const unsigned = h >>> 0;
+  return -(4000000000 + (unsigned % 900000000));
+}
+
 /**
- * Deduplicates Telegram updates within a sliding window.
+ * Distributed-safe Telegram update deduplication across Vercel Lambdas.
+ * Uses process LRU cache + atomic Postgres row insert on sentinel negative IDs.
  * Returns true if update is new; false if already processed.
  */
-export function deduplicateUpdate(updateId: number): boolean {
+export async function deduplicateUpdate(updateId: number): Promise<boolean> {
   if (!updateId) return true;
   if (_updateIdCache.has(updateId)) {
     return false;
   }
   _updateIdCache.set(updateId, true);
+
+  try {
+    const sentinelId = -(3000000000 + (Math.abs(Math.floor(updateId)) % 900000000));
+    const { error } = await supabase.from('bot_sessions').insert({
+      telegram_id: String(sentinelId),
+      step: 'dedup_update',
+      draft_data: { update_id: updateId, ts: Date.now() },
+      updated_at: new Date().toISOString(),
+    });
+    if (error && error.code === '23505') {
+      // Check if it was the exact same update_id or a very old recycled slot (> 10 min)
+      const { data: existing } = await supabase
+        .from('bot_sessions')
+        .select('draft_data')
+        .eq('telegram_id', String(sentinelId))
+        .maybeSingle();
+      if (existing?.draft_data?.update_id === updateId) {
+        return false;
+      }
+      if (!existing?.draft_data?.ts || Date.now() - Number(existing.draft_data.ts) > 10 * 60 * 1000) {
+        await supabase.from('bot_sessions').upsert(
+          {
+            telegram_id: String(sentinelId),
+            step: 'dedup_update',
+            draft_data: { update_id: updateId, ts: Date.now() },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'telegram_id' }
+        );
+      }
+    }
+  } catch {
+    // Non-fatal: allow execution on transient DB error
+  }
   return true;
 }
 
 /**
- * Acquires an in-flight action lock for a specific user and action key.
- * Prevents rapid double-clicks on critical actions (matches, payments, unlocks).
+ * Acquires a distributed in-flight action lock via Postgres sentinel row + process LRU.
+ * Prevents concurrent double-clicks or parallel payment verification across Vercel Lambdas.
  */
-export function acquireActionLock(lockKey: string, ttlMs = 5000): boolean {
+export async function acquireActionLock(lockKey: string, ttlMs = 5000): Promise<boolean> {
   if (!lockKey) return true;
   if (_actionLockCache.has(lockKey)) {
-    return false; // Lock already held
+    return false;
   }
   _actionLockCache.set(lockKey, true, ttlMs);
+
+  const sentinelId = String(hashLockKeyToNegativeId(lockKey));
+  const now = Date.now();
+  const expiresAt = now + ttlMs;
+
+  try {
+    const { error } = await supabase.from('bot_sessions').insert({
+      telegram_id: sentinelId,
+      step: 'action_lock',
+      draft_data: { key: lockKey, expires_at: expiresAt },
+      updated_at: new Date().toISOString(),
+    });
+    if (!error) {
+      return true;
+    }
+    if (error.code === '23505') {
+      const { data: existing } = await supabase
+        .from('bot_sessions')
+        .select('draft_data')
+        .eq('telegram_id', sentinelId)
+        .maybeSingle();
+      const prevExp = Number(existing?.draft_data?.expires_at || 0);
+      if (prevExp > now && existing?.draft_data?.key === lockKey) {
+        _actionLockCache.set(lockKey, true, Math.max(500, prevExp - now));
+        return false;
+      }
+      // Take over expired lock (or rare hash slot reuse) with compare-and-swap on updated/expires_at
+      const { data: stolen } = await supabase
+        .from('bot_sessions')
+        .update({
+          draft_data: { key: lockKey, expires_at: expiresAt },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('telegram_id', sentinelId)
+        .filter('draft_data->>expires_at', 'eq', String(existing?.draft_data?.expires_at ?? prevExp))
+        .select('telegram_id')
+        .maybeSingle();
+      if (!stolen) {
+        return false;
+      }
+    }
+  } catch {
+    // Non-fatal fallback to process lock
+  }
   return true;
 }
 
 /**
  * Releases an in-flight action lock early upon completion.
  */
-export function releaseActionLock(lockKey: string): void {
-  if (lockKey) _actionLockCache.delete(lockKey);
+export async function releaseActionLock(lockKey: string): Promise<void> {
+  if (!lockKey) return;
+  _actionLockCache.delete(lockKey);
+  try {
+    const sentinelId = String(hashLockKeyToNegativeId(lockKey));
+    await supabase.from('bot_sessions').delete().eq('telegram_id', sentinelId);
+  } catch {}
 }
 
 export function getUserLanguage(telegramId: number): 'am' | 'en' | undefined {
@@ -284,9 +376,6 @@ export function setUserLanguage(telegramId: number, lang: 'am' | 'en'): void {
 // Session CRUD — stored in `bot_sessions` Supabase table
 // ---------------------------------------------------------------------------
 export function getSession(telegramId: number): BotSession {
-  // NOTE: Supabase JS v2 requires async, but the old code was sync.
-  // We keep the sync interface here and use a module-level in-memory cache
-  // that is populated by the async preload below. Call preloadSession() first.
   const sess = _sessionCache.get(String(telegramId)) ?? emptySession(telegramId);
   const userLang = _userLanguageCache.get(String(telegramId));
   if (userLang && !sess.draft_data?.lang) {
@@ -295,17 +384,8 @@ export function getSession(telegramId: number): BotSession {
   return sess;
 }
 
-/** Call this at the top of the webhook handler BEFORE calling getSession(). */
+/** Always loads fresh session state from Supabase at the start of a request to prevent cross-Lambda staleness. */
 export async function preloadSession(telegramId: number): Promise<BotSession> {
-  const cached = _sessionCache.get(String(telegramId));
-  if (cached) {
-    if (cached.draft_data?.lang) {
-      _userLanguageCache.set(String(telegramId), cached.draft_data.lang);
-    } else if (_userLanguageCache.get(String(telegramId))) {
-      cached.draft_data.lang = _userLanguageCache.get(String(telegramId));
-    }
-    return cached;
-  }
   try {
     const { data } = await supabase
       .from('bot_sessions')
@@ -340,7 +420,7 @@ export async function preloadSession(telegramId: number): Promise<BotSession> {
 // Per-user write queue to guarantee database persistence ordering without blocking webhook responses
 const _sessionWriteQueues: Record<string, Promise<any>> = {};
 
-export async function saveSession(session: BotSession, awaitDb = true): Promise<void> {
+export async function saveSession(session: BotSession, _awaitDb = true): Promise<void> {
   // Ensure draft_data is an object and retains language
   session.draft_data = session.draft_data ?? {};
   const activeLang = session.draft_data.lang || _userLanguageCache.get(String(session.telegram_id));
@@ -349,10 +429,8 @@ export async function saveSession(session: BotSession, awaitDb = true): Promise<
     _userLanguageCache.set(String(session.telegram_id), activeLang);
   }
 
-  // 1. In-memory cache is updated IMMEDIATELY (0ms latency for subsequent gets)
   _sessionCache.set(String(session.telegram_id), session);
 
-  // 2. Database write is queued in background to avoid blocking the webhook lifecycle
   const persistTask = async () => {
     try {
       const { error } = await supabase
@@ -381,9 +459,8 @@ export async function saveSession(session: BotSession, awaitDb = true): Promise<
   });
   _sessionWriteQueues[idStr] = next;
 
-  if (awaitDb) {
-    await next;
-  }
+  // Always await persistence on serverless so Vercel does not freeze the Lambda early
+  await next;
 }
 
 export async function clearSession(telegramId: number): Promise<void> {
@@ -449,30 +526,13 @@ export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<vo
   const cleanId = (draft.id || '').trim();
   const cleanCode = (draft.display_code || cleanId).trim();
 
-  // 1. In-memory cache for ultra-fast zero-fail retrieval
   if (cleanId) _roommateDraftsCache.set(cleanId.toLowerCase(), draft);
   if (cleanCode) _roommateDraftsCache.set(cleanCode.toLowerCase(), draft);
   if (draft.user_telegram_id) {
     _roommateDraftsCache.set(String(draft.user_telegram_id), draft);
   }
 
-  // 2. Persist to bot_sessions draft_data so photos and space metadata survive restarts
-  if (draft.user_telegram_id) {
-    try {
-      const session = getSession(draft.user_telegram_id);
-      session.draft_data = {
-        ...(session.draft_data || {}),
-        ...draft,
-        display_code: cleanCode,
-      };
-      await saveSession(session);
-    } catch (sErr) {
-      console.warn('[saveRoommateDraft] bot_sessions update error:', sErr);
-    }
-  }
-
-  // 3. Upsert into pending_roommate_drafts with ONLY valid DB columns to prevent PostgreSQL schema cache errors
-  // Encode non-column space/contact metadata safely inside fayda_document_url JSON so Space listings survive lambda restarts
+  // Persist into pending_roommate_drafts ONLY (never overwrite another user's live bot_sessions row)
   try {
     const serializedMeta = JSON.stringify({
       display_code: cleanCode,
@@ -482,7 +542,9 @@ export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<vo
       space_share: draft.space_share,
       space_amenities: draft.space_amenities,
       space_photos: draft.space_photos,
-      phone_number: draft.phone_number,
+      phone_number: draft.phone_number || draft.contact_phone,
+      contact_phone: draft.contact_phone || draft.phone_number,
+      channel_message_id: draft.channel_message_id,
       age: draft.age,
       job: draft.job,
       religion: draft.religion,
@@ -533,7 +595,9 @@ function hydrateDbDraft(dbDraft: any): RoommateProfileDraft | null {
     space_share: parsedMeta.space_share ? Number(parsedMeta.space_share) : undefined,
     space_amenities: Array.isArray(parsedMeta.space_amenities) ? parsedMeta.space_amenities : undefined,
     space_photos: Array.isArray(parsedMeta.space_photos) ? parsedMeta.space_photos : undefined,
-    phone_number: parsedMeta.phone_number || dbDraft.phone_number,
+    phone_number: parsedMeta.phone_number || parsedMeta.contact_phone || dbDraft.phone_number,
+    contact_phone: parsedMeta.contact_phone || parsedMeta.phone_number || dbDraft.contact_phone,
+    channel_message_id: parsedMeta.channel_message_id || dbDraft.channel_message_id,
     age: parsedMeta.age || dbDraft.age,
     job: parsedMeta.job || dbDraft.job,
     religion: parsedMeta.religion || dbDraft.religion,
@@ -544,12 +608,7 @@ function hydrateDbDraft(dbDraft: any): RoommateProfileDraft | null {
 export async function getRoommateDraft(draftId: string): Promise<RoommateProfileDraft | null> {
   const cleanId = (draftId || '').trim().toLowerCase();
 
-  // 1. Check in-memory cache first
-  if (_roommateDraftsCache.has(cleanId)) {
-    return _roommateDraftsCache.get(cleanId)!;
-  }
-
-  // 2. Try pending_roommate_drafts table
+  // 1. Try pending_roommate_drafts table (authoritative persistent status & metadata)
   let dbDraft: any = null;
   try {
     const { data } = await supabase
@@ -557,31 +616,32 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
       .select('*')
       .ilike('id', draftId.trim())
       .maybeSingle();
-    if (data) dbDraft = hydrateDbDraft(data);
+    if (data) {
+      dbDraft = hydrateDbDraft(data);
+      _roommateDraftsCache.set(cleanId, dbDraft);
+      return dbDraft;
+    }
   } catch {}
 
-  // 3. Check in-memory session cache first, then single-row DB fallback
+  if (_roommateDraftsCache.has(cleanId)) {
+    return _roommateDraftsCache.get(cleanId)!;
+  }
+
+  // 2. Active session fallback when draft not yet persisted in pending_roommate_drafts
   try {
     const last4 = cleanId.replace(/^rm/i, '');
     let match: any = null;
 
-    // Fast check inside in-memory _sessionCache (0ms)
     for (const s of _sessionCache.values()) {
       const d = s.draft_data || {};
       const code = (d.display_code || '').toLowerCase();
       const tgStr = String(s.telegram_id || '');
-      if (
-        code === cleanId ||
-        code === `rm${last4}` ||
-        tgStr === cleanId ||
-        (last4.length >= 3 && tgStr.endsWith(last4))
-      ) {
+      if (code === cleanId || code === `rm${last4}` || tgStr === cleanId) {
         match = s;
         break;
       }
     }
 
-    // Targeted single-row lookup instead of full table scan
     if (!match) {
       const tgNum = Number(cleanId);
       if (!isNaN(tgNum) && tgNum > 0) {
@@ -606,20 +666,22 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
     if (match && match.draft_data) {
       const d = match.draft_data;
       const mergedDraft: RoommateProfileDraft = {
-        id: d.display_code || dbDraft?.id || draftId,
-        display_code: d.display_code || dbDraft?.id || draftId,
-        user_telegram_id: Number(match.telegram_id || dbDraft?.user_telegram_id),
-        user_name: d.user_name || dbDraft?.user_name || 'Verified Member',
-        username: d.username || dbDraft?.username || null,
+        id: d.display_code || draftId,
+        display_code: d.display_code || draftId,
+        user_telegram_id: Number(match.telegram_id),
+        user_name: d.user_name || 'Verified Member',
+        username: d.username || null,
+        contact_phone: d.contact_phone || d.phone_number,
+        phone_number: d.phone_number || d.contact_phone,
         age: d.age || 24,
-        job: d.job || dbDraft?.job,
-        religion: d.religion || dbDraft?.religion,
-        my_gender: d.gender || d.my_gender || dbDraft?.my_gender || 'Member',
-        preferred_gender: d.preferred_gender || dbDraft?.preferred_gender || 'Any',
-        preferred_subcity: d.preferred_subcity || dbDraft?.preferred_subcity || [d.location || 'Addis Ababa'],
-        budget_min: Number(d.space_share || d.budget_min || dbDraft?.budget_min || 0),
-        budget_max: Number(d.space_rent || d.budget_max || dbDraft?.budget_max || 10000),
-        lifestyle_bio: d.roommate_traits || d.lifestyle_bio || dbDraft?.lifestyle_bio || 'Roommate listing in Addis Ababa.',
+        job: d.job,
+        religion: d.religion,
+        my_gender: d.gender || d.my_gender || 'Member',
+        preferred_gender: d.preferred_gender || 'Any',
+        preferred_subcity: d.preferred_subcity || [d.location || 'Addis Ababa'],
+        budget_min: Number(d.space_share || d.budget_min || 0),
+        budget_max: Number(d.space_rent || d.budget_max || 10000),
+        lifestyle_bio: d.roommate_traits || d.lifestyle_bio || 'Roommate listing in Addis Ababa.',
         listing_category: d.listing_category || (d.space_rent ? 'space_available' : 'seeker'),
         space_type: d.space_type || 'Private Bedroom in Shared Flat',
         space_rent: d.space_rent ? Number(d.space_rent) : undefined,
@@ -628,8 +690,8 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
         space_photos: d.space_photos || [],
         unlock_fee: 100,
         fayda_status: 'verified',
-        status: 'pending_approval',
-        created_at: dbDraft?.created_at || new Date().toISOString(),
+        status: d.status || 'pending_approval',
+        created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
 
@@ -638,11 +700,6 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
     }
   } catch (err) {
     console.warn('[getRoommateDraft] bot_sessions fallback error:', err);
-  }
-
-  if (dbDraft) {
-    _roommateDraftsCache.set(cleanId, dbDraft);
-    return dbDraft;
   }
 
   return null;
@@ -797,25 +854,35 @@ export async function getNextSpmarbrCode(category: 'seeker' | 'space_available' 
   const catKey = category === 'space_available' ? 'space_available' : 'seeker';
 
   try {
-    const { data } = await supabase
-      .from('profiles')
-      .select('display_code')
-      .ilike('display_code', `${prefix}%`)
-      .order('created_at', { ascending: false })
-      .limit(100);
+    const [{ data: profileCodes }, { data: draftIds }] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('display_code')
+        .ilike('display_code', `%${prefix}%`)
+        .order('created_at', { ascending: false })
+        .limit(200),
+      supabase
+        .from('pending_roommate_drafts')
+        .select('id')
+        .ilike('id', `${prefix}%`)
+        .order('created_at', { ascending: false })
+        .limit(200),
+    ]);
 
     let dbMax = 0;
-    if (data && Array.isArray(data)) {
-      for (const row of data) {
-        const raw = (row.display_code || '').toUpperCase().replace(/^#/, '').trim();
-        if (raw.startsWith(prefix)) {
-          const numPart = raw.replace(prefix, '');
-          if (numPart === '') {
-            dbMax = Math.max(dbMax, 1);
-          } else {
-            const parsed = parseInt(numPart, 10);
-            if (!isNaN(parsed)) dbMax = Math.max(dbMax, parsed);
-          }
+    const scanCodes = [
+      ...(profileCodes || []).map((r: any) => r.display_code),
+      ...(draftIds || []).map((r: any) => r.id),
+    ];
+    for (const code of scanCodes) {
+      const raw = String(code || '').toUpperCase().replace(/^#/, '').trim();
+      if (raw.startsWith(prefix)) {
+        const numPart = raw.replace(prefix, '');
+        if (numPart === '') {
+          dbMax = Math.max(dbMax, 1);
+        } else {
+          const parsed = parseInt(numPart, 10);
+          if (!isNaN(parsed)) dbMax = Math.max(dbMax, parsed);
         }
       }
     }
@@ -845,7 +912,7 @@ export interface MembershipStatus {
 }
 
 const membershipCache = new Map<number, { status: MembershipStatus; cachedAt: number }>();
-const MEMBERSHIP_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+const MEMBERSHIP_CACHE_TTL_MS = 5 * 1000; // Short 5s cache; errors never cached
 
 export function invalidateMembershipCache(telegramId?: number): void {
   if (telegramId) {
@@ -857,7 +924,7 @@ export function invalidateMembershipCache(telegramId?: number): void {
 
 /**
  * Checks whether a user has an active 3-month (90-day) all-access membership pass.
- * Valid if they have a completed order of >= 100 ETB verified within the last 90 days.
+ * Valid if they have a completed order of >= 100 ETB verified/created within the last 90 days.
  */
 export async function getUserMembershipStatus(telegramId: number): Promise<MembershipStatus> {
   const cached = membershipCache.get(telegramId);
@@ -868,16 +935,21 @@ export async function getUserMembershipStatus(telegramId: number): Promise<Membe
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
   try {
-    const { data: order } = await supabase
+    const { data: order, error } = await supabase
       .from('orders')
       .select('id, verified_at, created_at, transaction_reference, amount')
       .or(`buyer_telegram_id.eq.${telegramId},renter_telegram_id.eq.${telegramId}`)
       .eq('payment_status', 'completed')
       .or(`verified_at.gte.${ninetyDaysAgo},created_at.gte.${ninetyDaysAgo}`)
       .gte('amount', 100)
-      .order('verified_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (error) {
+      console.error('[getUserMembershipStatus] Supabase query error (not caching):', error.message);
+      return { isActive: false, expiresAt: null, daysRemaining: 0 };
+    }
 
     if (!order) {
       const res: MembershipStatus = { isActive: false, expiresAt: null, daysRemaining: 0 };
@@ -923,6 +995,7 @@ export function invalidateAdminIdsCache(): void {
 
 /**
  * Shared authoritative list of Admin Telegram IDs across webhook and admin web/API auth.
+ * Strictly ignores unverified external channel creators (closes my_chat_member privilege escalation).
  */
 export async function getAdminTelegramIds(): Promise<number[]> {
   const now = Date.now();
@@ -939,21 +1012,12 @@ export async function getAdminTelegramIds(): Promise<number[]> {
   const adminSet = new Set<number>([...defaultAdminIds, ...envAdmins]);
 
   try {
-    const [usersRes, channels] = await Promise.all([
-      supabase.from('users').select('telegram_id').eq('role', 'admin'),
-      getManagedChannels(),
-    ]);
+    const usersRes = await supabase.from('users').select('telegram_id').eq('role', 'admin');
 
     if (usersRes?.data) {
       for (const u of usersRes.data) {
         const id = Number(u.telegram_id);
-        if (id) adminSet.add(id);
-      }
-    }
-
-    for (const ch of channels) {
-      if (ch.is_active && ch.added_by && Number(ch.added_by) > 0) {
-        adminSet.add(Number(ch.added_by));
+        if (id > 0) adminSet.add(id);
       }
     }
   } catch (err) {
@@ -961,7 +1025,7 @@ export async function getAdminTelegramIds(): Promise<number[]> {
   }
 
   const result = Array.from(adminSet);
-  _adminIdsCache = { ids: result, expiresAt: now + 5 * 60 * 1000 };
+  _adminIdsCache = { ids: result, expiresAt: now + 60 * 1000 };
   return result;
 }
 

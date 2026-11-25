@@ -140,6 +140,11 @@ export function FeedView({
       list = list.filter((item) => savedIds.includes(item.id));
     }
 
+    if (selectedSubcityFilter !== 'All') {
+      const subLower = selectedSubcityFilter.toLowerCase();
+      list = list.filter((item) => (item.neighborhood || '').toLowerCase().includes(subLower));
+    }
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       list = list.filter(
@@ -159,7 +164,7 @@ export function FeedView({
     }
 
     return list;
-  }, [spaces, searchQuery, sortOrder, activeTab, savedIds]);
+  }, [spaces, searchQuery, selectedSubcityFilter, sortOrder, activeTab, savedIds]);
 
   const cleanBotUrl = `https://t.me/${botUsername.replace('@', '')}`;
 
@@ -246,25 +251,37 @@ export function FeedView({
           />
         </div>
 
-        {/* Sub-city Quick Filter Chips */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-1 pb-1">
-          {['All', 'Bole', 'Kazanchis', 'CMC', 'Sarbet', 'Piassa', '4 Kilo'].map((sub) => {
-            const isActive = selectedSubcityFilter === sub;
-            return (
-              <button
-                key={sub}
-                onClick={() => setSelectedSubcityFilter(sub)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1 ${
-                  isActive
-                    ? 'bg-gradient-to-r from-[#0088CC] to-[#00A3FF] text-white shadow-md shadow-[#0088CC]/30 font-bold'
-                    : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] border border-white/[0.06]'
-                }`}
-              >
-                <MapPin className="w-3 h-3" />
-                <span>{sub}</span>
-              </button>
-            );
-          })}
+        {/* Sub-city Quick Filter Chips & Sort Control */}
+        <div className="flex items-center gap-2 pt-1 pb-1">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar flex-1">
+            {['All', 'Bole', 'Kazanchis', 'CMC', 'Sarbet', 'Piassa', '4 Kilo'].map((sub) => {
+              const isActive = selectedSubcityFilter === sub;
+              return (
+                <button
+                  key={sub}
+                  onClick={() => setSelectedSubcityFilter(sub)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1 ${
+                    isActive
+                      ? 'bg-gradient-to-r from-[#0088CC] to-[#00A3FF] text-white shadow-md shadow-[#0088CC]/30 font-bold'
+                      : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] border border-white/[0.06]'
+                  }`}
+                >
+                  <MapPin className="w-3 h-3" />
+                  <span>{sub}</span>
+                </button>
+              );
+            })}
+          </div>
+          <select
+            aria-label="Sort listings"
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value as 'newest' | 'price_asc' | 'price_desc')}
+            className="shrink-0 bg-white/[0.06] border border-white/15 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0088CC]/60"
+          >
+            <option value="newest" className="bg-[#0D1424] text-white">Newest</option>
+            <option value="price_asc" className="bg-[#0D1424] text-white">Lowest Price</option>
+            <option value="price_desc" className="bg-[#0D1424] text-white">Highest Price</option>
+          </select>
         </div>
       </header>
 
@@ -501,9 +518,15 @@ export function FeedView({
       </main>
 
       {/* Bottom Floating Navigation Dock */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 luxury-dock px-6 py-3 flex items-center justify-around border-t border-[#0088CC]/20 bg-[#080D1A]/95 backdrop-blur-2xl">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 luxury-dock border-t border-[#0088CC]/20 bg-[#080D1A]/95 backdrop-blur-2xl">
+        <div className="max-w-2xl mx-auto px-6 py-3 flex items-center justify-around">
         <button
-          onClick={() => setActiveTab('home')}
+          onClick={() => {
+            setActiveTab('home');
+            setSelectedSubcityFilter('All');
+            setSearchQuery('');
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
           className={`flex flex-col items-center gap-1 transition-all ${
             activeTab === 'home' ? 'text-[#0088CC] font-bold scale-105' : 'text-slate-400 hover:text-slate-200'
           }`}
@@ -547,6 +570,7 @@ export function FeedView({
           <Unlock className="w-5 h-5" />
           <span className="text-[10px]">Unlocked</span>
         </a>
+        </div>
       </nav>
     </div>
   );
