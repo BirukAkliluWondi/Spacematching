@@ -250,12 +250,16 @@ function mapVerifyError(
   const lower = (upstreamText || '').toLowerCase();
   const bankName = bank ? bank.toUpperCase() : 'ባንክ';
 
-  // 1. Auth/Config errors
+  // 1. Auth/Config/Quota errors (never burn credits retrying on 401/402/403)
   if (
     statusCode === 401 ||
+    statusCode === 402 ||
     statusCode === 403 ||
     lower.includes('unauthorized') ||
-    lower.includes('api key')
+    lower.includes('api key') ||
+    lower.includes('insufficient credits') ||
+    lower.includes('insufficient_credits') ||
+    lower.includes('purchase more credits')
   ) {
     return {
       message: 'The bank verification system is undergoing maintenance. Please try again in a few minutes.',
@@ -291,6 +295,8 @@ function mapVerifyError(
   if (
     statusCode === 404 ||
     lower.includes('not found') ||
+    lower.includes('not_found') ||
+    /no\s+[a-z\s]*\bfound\b/i.test(lower) ||
     lower.includes('no record') ||
     lower.includes('does not exist') ||
     lower.includes('cannot find') ||
@@ -496,12 +502,10 @@ export async function verifyTelebirrPayment(
     lastRawResponse: null,
   };
 
-  // Generate bounded OCR ambiguity variants (0<->O, Q->0/O, 1<->I, L->1/I, 8<->B) ONLY for non-URL codes when initial lookup returns NOT_FOUND
+  // Generate bounded OCR ambiguity variants (split-glyph 11->10 collapse + 0<->O, Q->0/O, 1<->I, L->1/I, 8<->B) ONLY for non-URL codes when initial lookup fails
   const buildOcrAmbiguityVariants = (baseRef: string): string[] => {
     if (/^https?:\/\//i.test(baseRef)) return [];
     const upper = baseRef.toUpperCase();
-    // Preserve standard 2-letter prefixes (DK/DL/DT/DM/FT/TX/CJ/EA) or 3-letter DTS prefix; prioritize suffix (>=3) positions first
-    const startIdx = upper.startsWith('DTS') ? 3 : /^(?:DK|DL|DT|DM|FT|TX|CJ|EA)/.test(upper) ? 2 : 0;
     const CONFUSIONS: Record<string, string[]> = {
       '0': ['O'],
       'O': ['0'],
@@ -513,84 +517,122 @@ export async function verifyTelebirrPayment(
       'B': ['8'],
     };
 
-    const ge3: number[] = [];
-    const prefix2: number[] = [];
-    for (let i = startIdx; i < upper.length; i++) {
-      if (CONFUSIONS[upper[i]]) {
-        if (i >= 3) ge3.push(i);
-        else prefix2.push(i);
-      }
-    }
-    const positions = [...ge3, ...prefix2];
-    if (positions.length === 0) return [];
-
     const seen = new Set<string>([upper]);
     const out: string[] = [];
-    const maxVariants = 24;
-    const addVariant = (chars: string[]) => {
+    const maxVariants = 16;
+    const addVariant = (s: string) => {
       if (out.length >= maxVariants) return;
-      const s = chars.join('');
       if (!seen.has(s) && /\d/.test(s)) {
         seen.add(s);
         out.push(s);
       }
     };
 
-    // 1. Single-character swaps first (ge3 positions then prefix2)
-    for (const pos of positions) {
-      for (const rep of CONFUSIONS[upper[pos]]) {
-        const arr = upper.split('');
-        arr[pos] = rep;
-        addVariant(arr);
-      }
-    }
-
-    // 2. Pairwise swaps strictly on suffix (>=3) positions first
-    for (let a = 0; a < ge3.length && out.length < maxVariants; a++) {
-      for (let b = a + 1; b < ge3.length && out.length < maxVariants; b++) {
-        for (const repA of CONFUSIONS[upper[ge3[a]]]) {
-          for (const repB of CONFUSIONS[upper[ge3[b]]]) {
-            const arr = upper.split('');
-            arr[ge3[a]] = repA;
-            arr[ge3[b]] = repB;
-            addVariant(arr);
-          }
+    // 0. If OCR split a single Telebirr glyph into two adjacent characters (11-char Telebirr token -> 10-char ID, e.g. DKQ1OR1EQOP -> DKQ1OR1E0P)
+    const collapsedBases: string[] = [];
+    if (/^(?:DK|DL|DT|DM|CJ|EA)[A-Z0-9]{9}$/.test(upper)) {
+      for (let i = 2; i < upper.length - 1; i++) {
+        const a = upper[i];
+        const b = upper[i + 1];
+        const replacements: string[] = [];
+        if ('0OQ'.includes(a) && '0OQ'.includes(b)) {
+          replacements.push('0', 'O');
+        } else if ('1IL'.includes(a) && '1IL'.includes(b)) {
+          replacements.push('1', 'I');
+        } else if (a === b) {
+          replacements.push(a);
+        }
+        for (const rep of replacements) {
+          const collapsed = upper.slice(0, i) + rep + upper.slice(i + 2);
+          // Prefer exact 10-char collapse candidate before expanding suffix permutations
+          addVariant(collapsed);
+          if (!collapsedBases.includes(collapsed)) collapsedBases.push(collapsed);
         }
       }
     }
 
-    // 3. Bounded triple swaps strictly on suffix (>=3) positions (catches 3-char confusions like DKQ10RIEQP -> DKQ1OR1E0P)
-    for (let a = 0; a < ge3.length && out.length < maxVariants; a++) {
-      for (let b = a + 1; b < ge3.length && out.length < maxVariants; b++) {
-        for (let c = b + 1; c < ge3.length && out.length < maxVariants; c++) {
-          for (const repA of CONFUSIONS[upper[ge3[a]]]) {
-            for (const repB of CONFUSIONS[upper[ge3[b]]]) {
-              for (const repC of CONFUSIONS[upper[ge3[c]]]) {
-                const arr = upper.split('');
-                arr[ge3[a]] = repA;
-                arr[ge3[b]] = repB;
-                arr[ge3[c]] = repC;
-                addVariant(arr);
+    const expandSubstitutions = (seed: string) => {
+      const startIdx = seed.startsWith('DTS') ? 3 : /^(?:DK|DL|DT|DM|FT|TX|CJ|EA)/.test(seed) ? 2 : 0;
+      const ge3Primary: number[] = [];
+      const ge3Secondary: number[] = [];
+      const prefix2: number[] = [];
+      for (let i = startIdx; i < seed.length; i++) {
+        if (CONFUSIONS[seed[i]]) {
+          if (i >= 3) {
+            if ('0OQIL'.includes(seed[i])) ge3Primary.push(i);
+            else ge3Secondary.push(i);
+          } else {
+            prefix2.push(i);
+          }
+        }
+      }
+      const ge3 = [...ge3Primary, ...ge3Secondary];
+      const positions = [...ge3, ...prefix2];
+      if (positions.length === 0) return;
+
+      // 1. Single-character swaps first (ge3 positions then prefix2)
+      for (const pos of positions) {
+        if (out.length >= maxVariants) return;
+        for (const rep of CONFUSIONS[seed[pos]]) {
+          const arr = seed.split('');
+          arr[pos] = rep;
+          addVariant(arr.join(''));
+        }
+      }
+
+      // 2. Pairwise swaps strictly on suffix (>=3) positions first
+      for (let a = 0; a < ge3.length && out.length < maxVariants; a++) {
+        for (let b = a + 1; b < ge3.length && out.length < maxVariants; b++) {
+          for (const repA of CONFUSIONS[seed[ge3[a]]]) {
+            for (const repB of CONFUSIONS[seed[ge3[b]]]) {
+              const arr = seed.split('');
+              arr[ge3[a]] = repA;
+              arr[ge3[b]] = repB;
+              addVariant(arr.join(''));
+            }
+          }
+        }
+      }
+
+      // 3. Bounded triple swaps strictly on suffix (>=3) positions
+      for (let a = 0; a < ge3.length && out.length < maxVariants; a++) {
+        for (let b = a + 1; b < ge3.length && out.length < maxVariants; b++) {
+          for (let c = b + 1; c < ge3.length && out.length < maxVariants; c++) {
+            for (const repA of CONFUSIONS[seed[ge3[a]]]) {
+              for (const repB of CONFUSIONS[seed[ge3[b]]]) {
+                for (const repC of CONFUSIONS[seed[ge3[c]]]) {
+                  const arr = seed.split('');
+                  arr[ge3[a]] = repA;
+                  arr[ge3[b]] = repB;
+                  arr[ge3[c]] = repC;
+                  addVariant(arr.join(''));
+                }
               }
             }
           }
         }
       }
-    }
 
-    // 4. Pairwise swaps involving prefix2 only if slots remain
-    for (const p2 of prefix2) {
-      for (const p3 of ge3) {
-        if (out.length >= maxVariants) break;
-        for (const rep2 of CONFUSIONS[upper[p2]]) {
-          for (const rep3 of CONFUSIONS[upper[p3]]) {
-            const arr = upper.split('');
-            arr[p2] = rep2;
-            arr[p3] = rep3;
-            addVariant(arr);
+      // 4. Pairwise swaps involving prefix2 only if slots remain
+      for (const p2 of prefix2) {
+        for (const p3 of ge3) {
+          if (out.length >= maxVariants) break;
+          for (const rep2 of CONFUSIONS[seed[p2]]) {
+            for (const rep3 of CONFUSIONS[seed[p3]]) {
+              const arr = seed.split('');
+              arr[p2] = rep2;
+              arr[p3] = rep3;
+              addVariant(arr.join(''));
+            }
           }
         }
       }
+    };
+
+    expandSubstitutions(upper);
+    for (const cBase of collapsedBases) {
+      if (out.length >= maxVariants) break;
+      expandSubstitutions(cBase);
     }
 
     return out.slice(0, maxVariants);
@@ -911,7 +953,7 @@ export async function verifyTelebirrPayment(
     state.lastFailure.errorCode === 'VERIFICATION_FAILED';
   if (canRetryOcrSwaps) {
     const ocrVariants = buildOcrAmbiguityVariants(cleanRef);
-    const BATCH_SIZE = 8;
+    const BATCH_SIZE = 4;
     for (let i = 0; i < ocrVariants.length; i += BATCH_SIZE) {
       const batch = ocrVariants.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.all(
@@ -929,7 +971,9 @@ export async function verifyTelebirrPayment(
       if (terminalHit) return terminalHit;
       if (
         state.lastFailure &&
-        (state.lastFailure.errorCode === 'ACCOUNT_MISMATCH' || state.lastFailure.errorCode === 'INSUFFICIENT_AMOUNT')
+        ['ACCOUNT_MISMATCH', 'INSUFFICIENT_AMOUNT', 'SERVICE_MAINTENANCE', 'SERVICE_BUSY', 'CONFIG_ERROR'].includes(
+          state.lastFailure.errorCode
+        )
       ) {
         break;
       }
