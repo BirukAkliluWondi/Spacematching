@@ -496,43 +496,104 @@ export async function verifyTelebirrPayment(
     lastRawResponse: null,
   };
 
-  // Generate bounded OCR ambiguity variants (O<->0, I<->1) ONLY for non-URL codes if initial lookup returns NOT_FOUND
+  // Generate bounded OCR ambiguity variants (0<->O, Q->0/O, 1<->I, L->1/I, 8<->B) ONLY for non-URL codes when initial lookup returns NOT_FOUND
   const buildOcrAmbiguityVariants = (baseRef: string): string[] => {
     if (/^https?:\/\//i.test(baseRef)) return [];
     const upper = baseRef.toUpperCase();
-    // Preserve standard 2-letter prefixes (DK/DL/DT/DM/FT/TX) or 3-letter DTS prefix when swapping
+    // Preserve standard 2-letter prefixes (DK/DL/DT/DM/FT/TX/CJ/EA) or 3-letter DTS prefix; prioritize suffix (>=3) positions first
     const startIdx = upper.startsWith('DTS') ? 3 : /^(?:DK|DL|DT|DM|FT|TX|CJ|EA)/.test(upper) ? 2 : 0;
-    const positions: number[] = [];
+    const CONFUSIONS: Record<string, string[]> = {
+      '0': ['O'],
+      'O': ['0'],
+      'Q': ['0', 'O'],
+      '1': ['I'],
+      'I': ['1'],
+      'L': ['1', 'I'],
+      '8': ['B'],
+      'B': ['8'],
+    };
+
+    const ge3: number[] = [];
+    const prefix2: number[] = [];
     for (let i = startIdx; i < upper.length; i++) {
-      if ('0O1I'.includes(upper[i])) positions.push(i);
+      if (CONFUSIONS[upper[i]]) {
+        if (i >= 3) ge3.push(i);
+        else prefix2.push(i);
+      }
     }
+    const positions = [...ge3, ...prefix2];
     if (positions.length === 0) return [];
-    const flipChar = (ch: string) => (ch === '0' ? 'O' : ch === 'O' ? '0' : ch === '1' ? 'I' : '1');
+
     const seen = new Set<string>([upper]);
     const out: string[] = [];
+    const maxVariants = 24;
     const addVariant = (chars: string[]) => {
+      if (out.length >= maxVariants) return;
       const s = chars.join('');
       if (!seen.has(s) && /\d/.test(s)) {
         seen.add(s);
         out.push(s);
       }
     };
-    // 1. Single-character swaps first
+
+    // 1. Single-character swaps first (ge3 positions then prefix2)
     for (const pos of positions) {
-      const arr = upper.split('');
-      arr[pos] = flipChar(arr[pos]);
-      addVariant(arr);
-    }
-    // 2. Pairwise swaps (catches 2-character swaps like DKQ10R1EOP -> DKQ1OR1E0P)
-    for (let a = 0; a < positions.length && out.length < 10; a++) {
-      for (let b = a + 1; b < positions.length && out.length < 10; b++) {
+      for (const rep of CONFUSIONS[upper[pos]]) {
         const arr = upper.split('');
-        arr[positions[a]] = flipChar(arr[positions[a]]);
-        arr[positions[b]] = flipChar(arr[positions[b]]);
+        arr[pos] = rep;
         addVariant(arr);
       }
     }
-    return out.slice(0, 10);
+
+    // 2. Pairwise swaps strictly on suffix (>=3) positions first
+    for (let a = 0; a < ge3.length && out.length < maxVariants; a++) {
+      for (let b = a + 1; b < ge3.length && out.length < maxVariants; b++) {
+        for (const repA of CONFUSIONS[upper[ge3[a]]]) {
+          for (const repB of CONFUSIONS[upper[ge3[b]]]) {
+            const arr = upper.split('');
+            arr[ge3[a]] = repA;
+            arr[ge3[b]] = repB;
+            addVariant(arr);
+          }
+        }
+      }
+    }
+
+    // 3. Bounded triple swaps strictly on suffix (>=3) positions (catches 3-char confusions like DKQ10RIEQP -> DKQ1OR1E0P)
+    for (let a = 0; a < ge3.length && out.length < maxVariants; a++) {
+      for (let b = a + 1; b < ge3.length && out.length < maxVariants; b++) {
+        for (let c = b + 1; c < ge3.length && out.length < maxVariants; c++) {
+          for (const repA of CONFUSIONS[upper[ge3[a]]]) {
+            for (const repB of CONFUSIONS[upper[ge3[b]]]) {
+              for (const repC of CONFUSIONS[upper[ge3[c]]]) {
+                const arr = upper.split('');
+                arr[ge3[a]] = repA;
+                arr[ge3[b]] = repB;
+                arr[ge3[c]] = repC;
+                addVariant(arr);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 4. Pairwise swaps involving prefix2 only if slots remain
+    for (const p2 of prefix2) {
+      for (const p3 of ge3) {
+        if (out.length >= maxVariants) break;
+        for (const rep2 of CONFUSIONS[upper[p2]]) {
+          for (const rep3 of CONFUSIONS[upper[p3]]) {
+            const arr = upper.split('');
+            arr[p2] = rep2;
+            arr[p3] = rep3;
+            addVariant(arr);
+          }
+        }
+      }
+    }
+
+    return out.slice(0, maxVariants);
   };
 
   const evaluateBankConfig = async (
@@ -843,18 +904,29 @@ export async function verifyTelebirrPayment(
     if (res) return res;
   }
 
-  // If primary code was not found on Telebirr/alphanumeric lookup, retry bounded O<->0 and I<->1 OCR swaps
+  // If primary code was not found on Telebirr/alphanumeric lookup, retry bounded OCR ambiguity swaps in parallel batches
   const canRetryOcrSwaps =
     !state.lastFailure ||
     state.lastFailure.errorCode === 'NOT_FOUND' ||
     state.lastFailure.errorCode === 'VERIFICATION_FAILED';
   if (canRetryOcrSwaps) {
     const ocrVariants = buildOcrAmbiguityVariants(cleanRef);
-    for (const variantRef of ocrVariants) {
-      for (const config of bankConfigs) {
-        const res = await evaluateBankConfig(config, variantRef);
-        if (res) return res;
-      }
+    const BATCH_SIZE = 8;
+    for (let i = 0; i < ocrVariants.length; i += BATCH_SIZE) {
+      const batch = ocrVariants.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (variantRef) => {
+          for (const config of bankConfigs) {
+            const res = await evaluateBankConfig(config, variantRef);
+            if (res) return res;
+          }
+          return null;
+        })
+      );
+      const verifiedHit = batchResults.find((r) => r && r.success);
+      if (verifiedHit) return verifiedHit;
+      const terminalHit = batchResults.find((r) => r !== null);
+      if (terminalHit) return terminalHit;
       if (
         state.lastFailure &&
         (state.lastFailure.errorCode === 'ACCOUNT_MISMATCH' || state.lastFailure.errorCode === 'INSUFFICIENT_AMOUNT')
