@@ -169,6 +169,7 @@ export interface RoommateProfileDraft {
   budget_max: number;
   lifestyle_bio: string;
   preferred_roommate?: string;
+  house_rules?: string;
   fayda_status: 'unverified' | 'pending' | 'verified' | 'rejected';
   fayda_document_url?: string | null;
   unlock_fee: number;
@@ -548,6 +549,7 @@ export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<vo
       age: draft.age,
       job: draft.job,
       religion: draft.religion,
+      house_rules: draft.house_rules,
       source_doc: draft.fayda_document_url && !draft.fayda_document_url.startsWith('{') ? draft.fayda_document_url : undefined,
     });
 
@@ -601,6 +603,7 @@ function hydrateDbDraft(dbDraft: any): RoommateProfileDraft | null {
     age: parsedMeta.age || dbDraft.age,
     job: parsedMeta.job || dbDraft.job,
     religion: parsedMeta.religion || dbDraft.religion,
+    house_rules: parsedMeta.house_rules || dbDraft.house_rules,
     unlock_fee: Number(dbDraft.unlock_fee || 100),
   };
 }

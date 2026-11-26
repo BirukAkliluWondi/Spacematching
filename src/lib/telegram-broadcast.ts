@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { getRoommateDraft, getDraft, getAllRoommateDrafts, getManagedChannels } from '@/lib/bot-session-store';
-import { formatRoommatePost, formatSpacePost, truncateTelegramHtml, extractUserDescription, escapeHtml } from '@/lib/telegram';
+import { formatRoommatePost, formatSpacePost, truncateTelegramHtml, extractUserDescription, extractHouseRulesFromTraits, escapeHtml } from '@/lib/telegram';
 
 export { extractUserDescription };
 
@@ -83,6 +83,7 @@ export async function broadcastRoommateProfileToChannel(
       let extractedJob = pFromProfiles.job;
       let extractedReligion = pFromProfiles.religion;
       let extractedPrefGender = pFromProfiles.preferred_gender || 'Any';
+      const extractedHouseRules = pFromProfiles.house_rules || extractHouseRulesFromTraits(pFromProfiles.roommate_traits);
 
       if (!extractedJob && pFromProfiles.roommate_traits) {
         const jm = pFromProfiles.roommate_traits.match(/Job[:\s]+([^|;\n]+)/i);
@@ -109,6 +110,7 @@ export async function broadcastRoommateProfileToChannel(
         preferred_subcity: Array.isArray(pFromProfiles.locations) ? pFromProfiles.locations : [],
         budget_min: pFromProfiles.budget_min || 0,
         budget_max: pFromProfiles.budget_max || 10000,
+        house_rules: extractedHouseRules || undefined,
         lifestyle_bio: pFromProfiles.roommate_traits || 'Seeking compatible roommate in Addis Ababa.',
         listing_category: pFromProfiles.listing_category || 'seeker',
         space_type: pFromProfiles.space_type,
@@ -151,6 +153,7 @@ export async function broadcastRoommateProfileToChannel(
             preferred_subcity: Array.isArray(dRow.preferred_subcity) ? dRow.preferred_subcity : [],
             budget_min: dRow.budget_min || 0,
             budget_max: dRow.budget_max || 10000,
+            house_rules: meta.house_rules || extractHouseRulesFromTraits(dRow.lifestyle_bio) || undefined,
             lifestyle_bio: dRow.lifestyle_bio || 'Seeking compatible roommate in Addis Ababa.',
             listing_category: meta.listing_category || (meta.space_rent ? 'space_available' : 'seeker'),
             space_type: meta.space_type,
@@ -260,6 +263,7 @@ export async function broadcastRoommateProfileToChannel(
         preferred_gender: extractedPrefGender,
         budget_min: dbProfile.budget_min || 0,
         budget_max: dbProfile.budget_max || 10000,
+        house_rules: dbProfile.house_rules || extractHouseRulesFromTraits(dbProfile.lifestyle_bio) || undefined,
         lifestyle_bio: dbProfile.lifestyle_bio || 'Seeking compatible roommate in Addis Ababa.',
         listing_category: dbProfile.listing_category || 'seeker',
         space_type: dbProfile.space_type,
@@ -508,6 +512,12 @@ export async function broadcastRoommateProfileToChannel(
             url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
+        [
+          {
+            text: 'Post My Profile / መረጃዬን ልለጥፍ >',
+            url: `https://t.me/${botUsername}?start=post_profile`,
+          },
+        ],
       ],
     };
 
@@ -729,6 +739,12 @@ export async function broadcastListingToChannel(
             url: `https://t.me/${botUsername}?start=search_roommate`,
           },
         ],
+        [
+          {
+            text: 'Post My Profile / መረጃዬን ልለጥፍ >',
+            url: `https://t.me/${botUsername}?start=post_profile`,
+          },
+        ],
       ],
     };
 
@@ -851,6 +867,9 @@ export async function postCustomToChannel(
       ],
       [
         { text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >', url: `https://t.me/${botUsername}?start=search_roommate` },
+      ],
+      [
+        { text: 'Post My Profile / መረጃዬን ልለጥፍ >', url: `https://t.me/${botUsername}?start=post_profile` },
       ],
     ],
   };
@@ -994,12 +1013,12 @@ export async function closeChannelPost(
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
-      // [
-      //   {
-      //     text: 'Post Profile / መረጃዬን ልለጥፍ >',
-      //     url: `https://t.me/${botUsername}?start=post_profile`,
-      //   },
-      // ],
+      [
+        {
+          text: 'Post My Profile / መረጃዬን ልለጥፍ >',
+          url: `https://t.me/${botUsername}?start=post_profile`,
+        },
+      ],
     ],
   };
 

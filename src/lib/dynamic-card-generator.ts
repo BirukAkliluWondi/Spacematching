@@ -684,7 +684,7 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
         React.createElement(
           'span',
           { style: { fontSize: '14px', color: '#94a3b8', letterSpacing: '0.4px' } },
-          'SpaceMatch Addis Ababa · Developed by @birukadiyee'
+          'SpaceMatch Addis Ababa · Verified Roommate Network'
         )
       )
     )

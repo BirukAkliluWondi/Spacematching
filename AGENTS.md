@@ -33,6 +33,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   - **Strategy C (OCR Fallback):** High-speed in-memory OCR extraction of human-readable FIN/FAN numbers directly from the physical card text (`extractFaydaCardViaOcr`), validating Verhoeff check digits when QR codes suffer from camera blur or Telegram photo compression.
 - Never require secondary selfies, video notes, or facial biometrics to compare against low-resolution ID thumbnails.
 - Never place Fayda verification into a manual admin approval queue or waiting status; immediately persist verified status to Supabase upon successful verification.
+- Always deliver a visible, persistent confirmation message showing whether Fayda verification succeeded or failed before advancing to subsequent paywall or questionnaire cards (never silently overwrite the Fayda upload prompt card in-place with a payment paywall card).
 
 ## 5. Simultaneous Bilingual Parity & Native Telegram Visual Styling
 - All user-facing bot prompts, questions, options, error messages, and buttons must present both English and Amharic simultaneously (`English Text / የአማርኛ ጽሁፍ`).
@@ -43,11 +44,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   - Details: `<b>DETAILS / ዝርዝር</b>` wrapped in `<blockquote>`
   - About: `<b>ABOUT ME / ስለ እኔ</b>` with user bio wrapped in `<blockquote>`
 
-## 6. Channel Post Action Buttons & Admin Concierge Invariant
-- Channel posts must strictly maintain only 2 inline action buttons:
+## 6. Channel Post Layout, Action Buttons & Admin Concierge Invariant
+- Channel posts must maintain 3 inline action buttons:
   1. `Connect with this roommate / ከዚህ አጋር ጋር ተገናኝ >`
   2. `Search Roommate for Me / የቤት አጋር ፈልግልኝ >`
-- The "Post My Profile" button is deprecated and removed from channel posts to prevent self-service spam and route users directly to the verified coordinator.
+  3. `Post My Profile / መረጃዬን ልለጥፍ >` (`?start=post_profile`)
+- Under `Post My Profile`, present 2 options: **Need Roommate (Look Together)** (full Seeker workflow -> admin review) and **Have a Room & Need Roommate** (zero questionnaire prompts; immediately present Admin Wahid `@WWEHID` / `https://t.me/WWEHID` direct contact card).
+- Public channel posts must omit candidate Age (revealing Age only inside connect/match requests), place `ABOUT ME / ስለ እኔ` between `WHAT I'M LOOKING FOR` and `ROOMMATE PREFERENCES`, and include user-submitted `House Rules`.
+- Never display developer credit (`@birukadiyee`) inside user-facing bot menus, image footers, or error messages.
 - All channel posts must feature the bilingual footer note directing users to the SpaceMatch Coordinator:
   `📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ`
 
@@ -70,6 +74,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - `extractTransactionReference()` must return `''` when no bank URL or Telebirr/CBE/BoA/Dashen reference token matches; never fall back to returning raw prose or OCR text dumps as a transaction code.
 - Always enforce explicit minimum amount (`paidAmount >= expectedFee`); treat missing, zero, or non-numeric `amount` values as verification failure (`INSUFFICIENT_AMOUNT`), never defaulting to `expectedFee`.
 - Check duplicate `transaction_reference` against `orders` (`payment_status = 'completed'`) **before** calling Verify.ET, and always check `error` on `orders.insert()` / `orders.update()`. Never grant pass activation, listing submission, or contact reveals if a DB write fails (e.g., `23505`).
+- On OCR-extracted Telebirr/alphanumeric references where initial Verify.ET lookup returns `NOT_FOUND` / `VERIFICATION_FAILED`, retry bounded `O`↔`0` and `I`↔`1` ambiguity variants and enforce `orders` anti-replay on the resolved canonical `transactionNumber` returned by Verify.ET.
 
 ## 11. Fayda Physical FIN vs. Signature & OCR Safety
 - Cryptographic signature verification (`verifySignature` in `fayda-decoder` and `/api/user/verify-fayda-qr`) must never be bypassed when a signature is present and fails verification.

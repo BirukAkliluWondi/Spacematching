@@ -50,6 +50,7 @@ import {
  parseNumericInput,
  parseBudgetRangeInput,
  formatBudgetRangeLabel,
+ extractHouseRulesFromTraits,
  escapeHtml,
  setChatMenuButton,
  deleteMessage,
@@ -1487,6 +1488,15 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
  setFaydaStatusCache(chatId, true);
 
+ // Always deliver an explicit visible confirmation that Fayda verification succeeded before continuing
+ if (originStep !== 'universal_photo' && originStep !== 'idle') {
+ const maskedFaydaFan = cleanFan.length >= 4 ? `•••• •••• ${cleanFan.slice(-4)}` : 'Verified';
+ await tgSend(
+ chatId,
+ `✅ <b>Fayda Verification Successful! / የፋይዳ መታወቂያዎ በተሳካ ሁኔታ ተረጋግጧል!</b>\n\n<blockquote>• <b>Status / ሁኔታ:</b> Verified Resident / የተረጋገጠ ነዋሪ${fullName ? `\n• <b>Name / ስም:</b> ${escapeHtml(fullName)}` : ''}\n• <b>ID / መለያ:</b> <code>${escapeHtml(maskedFaydaFan)}</code></blockquote>`
+ );
+ }
+
  const targetMatchId = extraParams.target_match_id || currentDraft.target_match_id || currentDraft.match_id;
  if (targetMatchId) {
  await clearSession(chatId);
@@ -1962,6 +1972,44 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
  };
 
+ // Step 7b: House Rules (Quick Tap or Custom Text Input)
+ const sendDynamicCardStepHouseRules = async (
+    chatId: number,
+    draft: Record<string, any>,
+    messageIdToEdit?: number,
+    errorMsg?: string
+  ) => {
+    const activeMsgId = messageIdToEdit || draft.card_msg_id;
+    const lang = getLanguage(draft, chatId);
+
+    await saveSession({
+      telegram_id: chatId,
+      step: 'dyn_card_house_rules',
+      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+      updated_at: new Date().toISOString(),
+    });
+
+    const promptText = '<b>House Rules / የቤት ህጎች</b>\n\n<blockquote>Tap a common house rule below or type your own (e.g. Clean, no smoking, quiet after 10 PM, no guests):\nየቤት ህጎችዎን ከታች ይምረጡ ወይም ይጻፉ (ምሳሌ: ንጹህ፣ ሲጋራ አይፈቀድም፣ ከምሽቱ 4 ሰዓት በኋላ ጸጥታ):</blockquote>';
+    const errBlock = errorMsg ? (/</.test(errorMsg) ? errorMsg : `<b>${escapeHtml(errorMsg)}</b>`) : '';
+    const text = `${errBlock ? `${errBlock}\n\n` : ''}${promptText}`.trim();
+
+ const inlineKeyboard = [
+ [
+ { text: 'Clean & Quiet / ንጹህና ጸጥተኛ', callback_data: 'dyn_house_rules:Clean, quiet & respectful' },
+ { text: 'No Smoking / ሲጋራ ክልክል', callback_data: 'dyn_house_rules:No smoking, clean & tidy' },
+ ],
+ [
+ { text: 'No Parties / ጫጫታ የሌለበት', callback_data: 'dyn_house_rules:Quiet hours after 10 PM, no parties' },
+ ],
+ [
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_traits' },
+ { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
+ ],
+ ];
+
+ await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ };
+
  // Step 8: Sub-cities Multi-Select Grid
  const sendDynamicCardStep8Subcities = async (
     chatId: number,
@@ -2014,7 +2062,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       { text: 'Proceed / ቀጥል >', callback_data: 'dyn_sub_proceed' },
     ]);
     gridRows.push([
-      { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_traits' },
+      { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_house_rules' },
       { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
     ]);
 
@@ -2042,9 +2090,10 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const header = '<b>Preferences Saved / ምርጫዎችዎ ተመዝግበዋል</b>';
     const budgetSummaryStr = formatBudgetRangeLabel(draft.budget_min, draft.budget_max, 'Not set / አልተገለጸም');
     const prefG = draft.preferred_gender || 'Any / ማንኛውም';
+    const houseRulesPreview = draft.house_rules || extractHouseRulesFromTraits(draft.roommate_traits) || 'Clean, quiet & respectful';
     const subs = Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity.join(', ') : (draft.preferred_subcity || 'Addis Ababa / አዲስ አበባ');
 
-    const summary = `<blockquote>• <b>Budget / በጀት:</b> <b>${escapeHtml(budgetSummaryStr)}</b>\n• <b>Gender / ጾታ:</b> <b>${prefG}</b>\n• <b>Areas / አካባቢ:</b> <b>${subs}</b></blockquote>`;
+    const summary = `<blockquote>• <b>Budget / በጀት:</b> <b>${escapeHtml(budgetSummaryStr)}</b>\n• <b>Gender / ጾታ:</b> <b>${prefG}</b>\n• <b>House Rules / የቤት ህጎች:</b> ${escapeHtml(houseRulesPreview)}\n• <b>Areas / አካባቢ:</b> <b>${subs}</b></blockquote>`;
     const prompt = 'Tap below to continue / ለመቀጠል ከታች ይጫኑ:';
 
     const isVerified = await isUserFaydaVerified(chatId);
@@ -2150,26 +2199,29 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const myGenderDisplay = myGender === 'Female' ? 'Female / ሴት' : myGender === 'Male' ? 'Male / ወንድ' : myGender;
     const prefGender = profileData.preferred_gender || 'Any';
     const prefGenderDisplay = prefGender === 'Female' ? 'Female Only / ሴት ብቻ' : prefGender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
-    const userAge = profileData.age ? `, Age ${profileData.age}` : '';
     const religionLine = profileData.religion ? `\n• <b>Religion / እምነት:</b> ${escapeHtml(String(profileData.religion))}` : '';
     const jobLine = profileData.job ? `\n• <b>Occupation / ሙያ:</b> ${escapeHtml(String(profileData.job))}` : '';
     const rawTraits = profileData.details || profileData.lifestyle_bio || profileData.description || profileData.roommate_traits || '';
     const extractedBio = rawTraits ? (extractUserDescription(String(rawTraits)) || String(rawTraits)) : '';
     const userBio = (extractedBio || 'Compatible roommate looking for a room in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const houseRulesPreview = profileData.house_rules || extractHouseRulesFromTraits(String(rawTraits)) || 'Clean, quiet & respectful';
 
     const text = `<b>SpaceMatch Profile Review / የመረጃ ክለሳ</b>
 <code>${codeDisplay}</code> · <b>Ready to Submit / ለግምገማ ዝግጁ</b>
 
 <blockquote>• <b>Target Areas / አካባቢ:</b> <b>${escapeHtml(areasDisplay)}</b>
 • <b>Budget Cap / በጀት:</b> <b>${escapeHtml(budgetDisplay)}</b>
-• <b>Candidate / ተፈላጊ:</b> ${escapeHtml(myGenderDisplay)}${escapeHtml(userAge)}${religionLine}${jobLine}
-• <b>Looking For / የሚፈልጉት:</b> ${escapeHtml(prefGenderDisplay)}</blockquote>
+• <b>Candidate / ተፈላጊ:</b> ${escapeHtml(myGenderDisplay)}${religionLine}${jobLine}</blockquote>
 
 <b>ABOUT ME / ስለ እኔ</b>
 <blockquote>${userBio}</blockquote>
 
-<blockquote>🔒 <b>Privacy Shield / ሚስጥራዊነት:</b> Contacts remain strictly protected under double-blind privacy shield.
-ስልክ እና አድራሻዎ በጋራ ፈቃድ ብቻ ሚስጥራዊ ሆነው ይገለጣሉ።</blockquote>
+<b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
+<blockquote>• <b>Looking For / የሚፈልጉት:</b> ${escapeHtml(prefGenderDisplay)}
+• <b>House Rules / የቤት ህጎች:</b> ${escapeHtml(String(houseRulesPreview))}</blockquote>
+
+<blockquote>🔒 <b>Privacy Shield / ሚስጥራዊነት:</b> Age stays hidden on channel posts and reveals only upon connection requests. Contacts reveal strictly under double-blind consent.
+ዕድሜ በቻናሉ ላይ አይታይም፤ ስልክ እና አድራሻዎም በጋራ ፈቃድ ብቻ ይገለጣሉ።</blockquote>
     `.trim();
 
     const inlineKeyboard = [
@@ -2240,10 +2292,12 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  const userBudgetMin = Number(draft.budget_min || 0);
  const userBudgetMax = Number(draft.budget_max || 10000);
  const userTraits = draft.description || draft.details || draft.roommate_traits || draft.lifestyle_bio || 'Seeking compatible housemate in Addis Ababa.';
+ const userHouseRules = (draft.house_rules || extractHouseRulesFromTraits(userTraits) || 'Clean, quiet & respectful').trim();
  const targetId = draft.target_id;
  const targetCode = draft.target_code;
 
- const formattedTraits = `Job: ${userJob} | Religion: ${userReligion} | Prefers: ${userPrefGender} | ${userTraits}`;
+ const cleanUserTraits = extractUserDescription(userTraits) || userTraits;
+ const formattedTraits = `Job: ${userJob} | Religion: ${userReligion} | Prefers: ${userPrefGender} | Rules: ${userHouseRules} | ${cleanUserTraits}`;
  const tgFullName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || 'Verified Member';
  const resolvedProfileFullName = (draft.full_name || '').trim() || tgFullName;
 
@@ -2381,6 +2435,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  preferred_gender: userPrefGender,
  budget_min: userBudgetMin,
  budget_max: userBudgetMax,
+ house_rules: userHouseRules,
  lifestyle_bio: formattedTraits,
  unlock_fee: 100,
  fayda_status: 'verified',
@@ -2602,6 +2657,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  budget_min: userBudgetMin,
  budget_max: userBudgetMax,
  locations: preferredSubs,
+ house_rules: userHouseRules,
  roommate_traits: userTraits,
  };
 
@@ -2629,6 +2685,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  ? draft.match_subcities
  : undefined,
  roommate_traits: draft.roommate_traits || draft.traits || draft.description || draft.lifestyle_bio || draft.preferred_roommate,
+ house_rules: draft.house_rules || extractHouseRulesFromTraits(draft.roommate_traits || draft.lifestyle_bio),
  budget_max: draft.budget_max !== undefined ? draft.budget_max : draft.budget,
  };
 
@@ -2641,6 +2698,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  normalizedDraft.budget_max !== undefined &&
  normalizedDraft.preferred_gender &&
  normalizedDraft.roommate_traits &&
+ normalizedDraft.house_rules &&
  Array.isArray(normalizedDraft.preferred_subcity) &&
  normalizedDraft.preferred_subcity.length > 0 &&
  isVerified
@@ -2681,6 +2739,10 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  await sendDynamicCardStep7Traits(chatId, normalizedDraft, activeMsgId);
  return;
  }
+ if (!normalizedDraft.house_rules) {
+ await sendDynamicCardStepHouseRules(chatId, normalizedDraft, activeMsgId);
+ return;
+ }
  if (!normalizedDraft.preferred_subcity || (Array.isArray(normalizedDraft.preferred_subcity) && normalizedDraft.preferred_subcity.length === 0)) {
  await sendDynamicCardStep8Subcities(chatId, normalizedDraft, activeMsgId);
  return;
@@ -2712,21 +2774,21 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       updated_at: new Date().toISOString(),
     });
 
-    const text = '<b>Post Profile / መረጃ መለጠፊያ</b>\n\n<blockquote>Select your situation:\nሁኔታዎን ይምረጡ:</blockquote>';
+    const text = '<b>Post Profile / መረጃ መለጠፊያ</b>\n\n<blockquote>Select your situation / ሁኔታዎን ይምረጡ:\n\n• <b>Need Roommate (Look Together):</b> Complete your profile & find someone to search a room with together.\n• <b>Have a Room & Need Roommate:</b> Connect directly with Admin Wahid (@WWEHID) to finish & post your room.</blockquote>';
 
     // Strict Grid Symmetry: Hero CTA on Top + 2-Column Action Grid
     const inlineKeyboard = [
-      // Hero CTA on Top: Roommate seeker (look together)
+      // Option 1: Need roommate and we will look for a room together
       [
         {
-          text: 'Need Roommate (Look Together) / አብረን ቤት እንፈልጋለን',
+          text: 'Need Roommate (Look Together) / አብረን ቤት እንፈልግ',
           callback_data: 'post_branch_seeker',
         },
       ],
-      // 2-Column Action Grid: Space host + navigation
+      // Option 2: Have a room -> directly handled by Admin Wahid (@WWEHID)
       [
         {
-          text: 'Have Space / ክፍል አለኝ',
+          text: 'Have a Room & Need Roommate / ክፍል አለኝ',
           callback_data: 'post_branch_space',
         },
         {
@@ -2770,6 +2832,28 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     }
 
     return activeId;
+  };
+
+  // Direct Admin Concierge Card for Space Owners ("Have a Room & Need Roommate" — Zero Questions)
+  const sendHaveRoomAdminDirectCard = async (
+    chatId: number,
+    messageIdToEdit?: number
+  ) => {
+    await clearSession(chatId);
+    const text = `<b>Have a Room &amp; Need a Roommate? / ክፍል አለዎት እና የቤት አጋር ይፈልጋሉ?</b>
+
+<blockquote>Room/space listings are handled directly with Admin Wahid so your space details and photos can be reviewed and posted quickly.
+
+የክፍል ወይም የቤት ማስታወቂያዎች በቀጥታ ከአድሚን ዋሂድ (@WWEHID) ጋር በመነጋገር ይጠናቀቃሉ። እባክዎ ከታች ያለውን ቁልፍ ተጭነው @WWEHID በቀጥታ ያነጋግሩ!</blockquote>
+
+<b>Admin / አድሚን:</b> @WWEHID`;
+
+    const inlineKeyboard = [
+      [{ text: 'Contact Admin Wahid (@WWEHID) / አድሚን ዋሂድን ያናግሩ >', url: 'https://t.me/WWEHID' }],
+      [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+    ];
+
+    await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
   };
 
  // ── Branch A: Space Owner Questionnaire Helpers ─────────────────────────
@@ -3404,6 +3488,33 @@ Please reply with the description, perks, or notes for this channel post.
  await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
  };
 
+ const sendAdminPostHouseRulesStep = async (
+ chatId: number,
+ draft: Record<string, any>,
+ messageIdToEdit?: number
+ ) => {
+ const activeMsgId = messageIdToEdit || draft.card_msg_id;
+ await saveSession({
+ telegram_id: chatId,
+ step: 'admin_post_house_rules',
+ draft_data: { ...draft, card_msg_id: activeMsgId },
+ updated_at: new Date().toISOString(),
+ });
+
+ const text = `<b>SpaceMatch Admin · Step 6b: House Rules</b>
+
+Please reply with the house rules for this post (e.g. <code>Clean, no smoking, quiet after 10 PM</code>) or tap a quick option below:
+ `.trim();
+
+ const inlineKeyboard = [
+ [{ text: 'Clean, Quiet & No Smoking', callback_data: 'admin_post_house_rules:Clean, quiet & no smoking' }],
+ [{ text: 'Back to Description', callback_data: 'admin_post_back_to_bio' }],
+ [{ text: 'Cancel', callback_data: 'nav_start' }],
+ ];
+
+ await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ };
+
  const sendAdminPostContactStep = async (
  chatId: number,
  draft: Record<string, any>,
@@ -3797,7 +3908,9 @@ ${postPreview}
  const prefGenderFormatted = prefGenderStr === 'Female' ? 'Female Only' : prefGenderStr === 'Male' ? 'Male Only' : 'Any Gender';
  const userAge = metadata?.userAge || draft.age || prof?.age || 24;
  const rawBio = metadata?.bioStr || draft.description || draft.details || prof?.roommate_traits || draft.roommate_traits || draft.lifestyle_bio || '';
- const bioStr = extractUserDescription(rawBio) || rawBio || `Age ${userAge} · Seeking roommate in ${subcitiesStr}.`;
+ const bioStr = extractUserDescription(rawBio) || rawBio || `Seeking roommate in ${subcitiesStr}.`;
+ const houseRulesStr = (metadata?.houseRules || draft.house_rules || extractHouseRulesFromTraits(rawBio) || 'Clean, quiet & respectful').trim();
+ const traitsWithRules = `Prefers: ${prefGenderFormatted} | Rules: ${houseRulesStr} | ${bioStr}`;
  const ageStr = `${userAge} yrs`;
 
  const { error: profUpsertErr } = await supabaseAdmin.from('profiles').upsert({
@@ -3807,7 +3920,7 @@ ${postPreview}
  locations: Array.isArray(subcities) ? subcities : [subcities],
  budget_min: budgetMin,
  budget_max: budgetNum,
- roommate_traits: bioStr,
+ roommate_traits: traitsWithRules,
  kyc_status: 'verified',
  status: 'paused',
  onboarding_step: 'pending_approval',
@@ -3837,7 +3950,8 @@ ${postPreview}
  preferred_gender: prefGenderStr,
  budget_min: budgetMin,
  budget_max: budgetNum,
- lifestyle_bio: bioStr,
+ house_rules: houseRulesStr,
+ lifestyle_bio: traitsWithRules,
  unlock_fee: 100,
  fayda_status: 'verified',
  status: 'pending_approval',
@@ -3855,6 +3969,7 @@ ${postPreview}
 <blockquote>• <b>Listing Code / መለያ ኮድ:</b> <code>#${displayCode}</code>
 • <b>Target Areas / አካባቢዎች:</b> <code>${subcitiesStr}</code>
 • <b>Budget Range / በጀት:</b> <code>${escapeHtml(budgetLabel)}</code>
+• <b>House Rules / የቤት ህጎች:</b> ${escapeHtml(houseRulesStr)}
 • <b>Status / ሁኔታ:</b> <b>Pending Admin Review / በግምገማ ላይ</b>
 • <b>Target Channel / ዒላማ ቻናል:</b> <code>${targetChannel}</code></blockquote>
 
@@ -3907,6 +4022,7 @@ A user has requested to post their profile to the channel <code>${targetChannel}
 • <b>Age:</b> ${ageStr}
 • <b>Budget Range:</b> <code>${escapeHtml(budgetLabel)}</code>
 • <b>Target Areas:</b> <code>${subcitiesStr}</code>
+• <b>House Rules:</b> ${escapeHtml(houseRulesStr)}
 • <b>Description:</b> ${bioStr}
 • <b>Pass Status:</b> 3-Month Pass Active 
 • <b>Fayda Status:</b> Verified Resident 
@@ -4437,11 +4553,9 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  ? `${bMin.toLocaleString()} – ${bMax.toLocaleString()} ETB / month`
  : `Up to ${bMax.toLocaleString()} ETB / month`;
 
- let cleanTraits = requesterProfile.roommate_traits || '';
- if (cleanTraits.includes(' | ')) {
- const parts = cleanTraits.split(' | ');
- cleanTraits = parts[parts.length - 1];
- }
+ const cleanTraitsForMatch = extractUserDescription(requesterProfile.roommate_traits) || '';
+ const reqHouseRules = requesterProfile.house_rules || extractHouseRulesFromTraits(requesterProfile.roommate_traits);
+ const reqHouseRulesLine = reqHouseRules ? `\n• <b>House Rules / የቤት ህጎች:</b> ${escapeHtml(reqHouseRules)}` : '';
 
  const notifyText = `<b>SpaceMatch Addis · New Connection Request! / አዲስ የግንኙነት ጥያቄ!</b>
 
@@ -4450,9 +4564,9 @@ A verified roommate saw your listing and wants to connect!
 
 • <b>Profile / መገለጫ:</b> ${requesterProfile.gender || 'Member'} / ${requesterProfile.gender === 'Female' ? 'ሴት' : requesterProfile.gender === 'Male' ? 'ወንድ' : requesterProfile.gender || 'አባል'} (${reqAge} yrs / ዓመት)
 • <b>Budget / በጀት:</b> <code>${requesterBudgetStr}</code>
-• <b>Target Areas / አካባቢዎች:</b> <code>${escapeHtml(requesterLocations)}</code>
+• <b>Target Areas / አካባቢዎች:</b> <code>${escapeHtml(requesterLocations)}</code>${reqHouseRulesLine}
 • <b>Status / ሁኔታ:</b> <b>Fayda Verified / ፋይዳ የተረጋገጠ</b>
-${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''}
+${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blockquote>\n` : ''}
 <blockquote>Personal contact details are protected until you accept. / ስልክና አድራሻዎ ጥያቄውን እስኪቀበሉ ድረስ በሚስጥር የተጠበቀ ነው።</blockquote>
  `.trim();
 
@@ -4496,7 +4610,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
       ? `Active (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining} ቀናት)`
       : `Inactive / የለም (100 ETB / 3 Months)`;
 
-    const welcomeText = `<b>SpaceMatch Addis / ስፔስማች አዲስ</b>\n\n<blockquote>Verified Roommate Network · Addis Ababa\nየተረጋገጡ የቤት አጋሮች መፈለጊያ</blockquote>\n\n<b>Pass / አባልነት:</b> ${memBadge}\n\nDeveloped by @birukadiyee`;
+    const welcomeText = `<b>SpaceMatch Addis / ስፔስማች አዲስ</b>\n\n<blockquote>Verified Roommate Network · Addis Ababa\nየተረጋገጡ የቤት አጋሮች መፈለጊያ</blockquote>\n\n<b>Pass / አባልነት:</b> ${memBadge}`;
 
     const inlineKeyboard = [
       // Hero CTA on Top: Keep single most important action full-width at top
@@ -5056,6 +5170,43 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  });
  };
 
+ // Matchmaker Step 8b: House Rules (Completed BEFORE showing roommate matches)
+ const sendMatchmakerHouseRulesStep = async (
+    chatId: number,
+    currentDraft: Record<string, any> = {},
+    messageIdToEdit?: number,
+    errorMessage?: string
+  ) => {
+    const lang = getLanguage(currentDraft, chatId);
+    const header = errorMessage ? `<b>${errorMessage}</b>\n\n` : '';
+    const text = `${header}<b>House Rules / የቤት ህጎች</b>\n\n<blockquote>Tap your preferred house rules or type your own (e.g. No smoking, quiet after 10 PM) to see your matches:\nየሚፈልጉትን የቤት ህግ ከታች ይምረጡ ወይም ይጻፉ (ምሳሌ: ሲጋራ ክልክል፣ ከምሽቱ 4 ሰዓት በኋላ ጸጥታ):</blockquote>`;
+
+ const keyboard = [
+ [
+ { text: 'Clean & Quiet / ንጹህና ጸጥተኛ', callback_data: 'match_set_house_rules:Clean, quiet & respectful' },
+ { text: 'No Smoking / ሲጋራ ክልክል', callback_data: 'match_set_house_rules:No smoking, clean & tidy' },
+ ],
+ [
+ { text: 'No Parties / ጫጫታ የሌለበት', callback_data: 'match_set_house_rules:Quiet hours after 10 PM, no parties' },
+ ],
+ [
+ { text: 'Back / ወደ ኋላ', callback_data: 'match_goto_traits' },
+ { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+ ],
+ ];
+
+ const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
+ const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+ if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
+
+ await saveSession({
+ telegram_id: chatId,
+ step: 'awaiting_match_house_rules',
+ draft_data: { ...currentDraft, lang },
+ updated_at: new Date().toISOString(),
+ });
+ };
+
  // =========================================================================
  // SEEKER PROFILE CREATION WIZARD STEPS
  // =========================================================================
@@ -5425,16 +5576,19 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
    const parts = String(rawBio || '').split('|').map((s) => s.trim()).filter(Boolean);
    let parsedJob = '';
    let parsedReligion = '';
+   let parsedRules = '';
    const bioParts: string[] = [];
    for (const part of parts) {
      if (/^Job:/i.test(part)) parsedJob = part.replace(/^Job:\s*/i, '').trim();
      else if (/^Religion:/i.test(part)) parsedReligion = part.replace(/^Religion:\s*/i, '').trim();
+     else if (/^(?:House\s*)?Rules:/i.test(part)) parsedRules = part.replace(/^(?:House\s*)?Rules:\s*/i, '').trim();
      else if (/^Prefers?:/i.test(part)) continue;
      else bioParts.push(part);
    }
    return {
      job: parsedJob,
      religion: parsedReligion,
+     house_rules: parsedRules,
      cleanBio: bioParts.join(' · ') || 'Seeking a compatible roommate in Addis Ababa.',
    };
  };
@@ -5502,6 +5656,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  age: p.age || undefined,
  religion: p.religion || meta.religion || undefined,
  job: p.job || meta.job || undefined,
+ house_rules: meta.house_rules || undefined,
  preferred_subcity: p.locations || ['Addis Ababa'],
  my_gender: p.gender || 'Female',
  preferred_gender: p.preferred_gender || 'Any',
@@ -5527,6 +5682,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  age: p.age || p.users?.age || undefined,
  religion: p.religion || meta.religion || undefined,
  job: p.job || meta.job || undefined,
+ house_rules: p.house_rules || meta.house_rules || undefined,
  preferred_subcity: p.preferred_subcity || ['Addis Ababa'],
  my_gender: p.my_gender || 'Female',
  preferred_gender: p.preferred_gender || 'Any',
@@ -5553,6 +5709,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  age: d.age,
  religion: d.religion || meta.religion || undefined,
  job: d.job || meta.job || undefined,
+ house_rules: d.house_rules || meta.house_rules || undefined,
  preferred_subcity: d.preferred_subcity || ['Bole'],
  my_gender: d.my_gender || 'Female',
  preferred_gender: d.preferred_gender || 'Any',
@@ -5713,7 +5870,11 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  ? 'Verified / የተረጋገጠ'
  : 'Pending Review / በግምገማ ላይ';
  const ageDisplay = match.age ? `, Age ${match.age}` : '';
- const bioContent = (match.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa. / በአዲስ አበባ ውስጥ ተስማሚ የቤት ጓደኛ እፈልጋለሁ።').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+ const rawBioStr = match.lifestyle_bio || 'Seeking a compatible roommate in Addis Ababa. / በአዲስ አበባ ውስጥ ተስማሚ የቤት ጓደኛ እፈልጋለሁ።';
+ const cleanMatchBio = extractUserDescription(rawBioStr) || rawBioStr;
+ const bioContent = cleanMatchBio.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+ const matchHouseRules = match.house_rules || extractHouseRulesFromTraits(rawBioStr);
+ const houseRulesLine = matchHouseRules ? `\n• <b>House Rules / የቤት ህጎች:</b> ${escapeHtml(String(matchHouseRules))}` : '';
  const genderDisplay = match.my_gender === 'Female' ? 'Female / ሴት' : match.my_gender === 'Male' ? 'Male / ወንድ' : match.my_gender;
  const prefGenderDisplay = match.preferred_gender === 'Female' ? 'Female Only / ሴት ብቻ' : match.preferred_gender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
  const matchDisplayCode = match.display_code ? `#${match.display_code.replace(/^#/, '')}` : `#${safeIndex + 1}`;
@@ -5727,7 +5888,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 <blockquote>• <b>Preferred Areas / አካባቢ:</b> <b>${escapeHtml(subcitiesStr)}</b>
 • <b>Candidate / ተፈላጊ:</b> ${escapeHtml(genderDisplay)}${escapeHtml(ageDisplay)}${religionLine}${jobLine}
 • <b>Looking For / የሚፈልጉት:</b> ${escapeHtml(prefGenderDisplay)}
-• <b>Monthly Budget / በጀት:</b> <b>${escapeHtml(budgetDisplay)}</b>
+• <b>Monthly Budget / በጀት:</b> <b>${escapeHtml(budgetDisplay)}</b>${houseRulesLine}
 • <b>Status / ሁኔታ:</b> <b>${escapeHtml(badge)}</b></blockquote>
 
 <b>ABOUT ME / ስለ እኔ</b>
@@ -6292,6 +6453,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  const newButtons = [
  [{ text: buttonTitle, url: `https://t.me/${botUsername}?start=${connectPayload}` }],
  [{ text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >', url: `https://t.me/${botUsername}?start=search_roommate` }],
+ [{ text: 'Post My Profile / መረጃዬን ልለጥፍ >', url: `https://t.me/${botUsername}?start=post_profile` }],
  ];
 
  const updatedInlineKeyboard = existingKb && existingKb.length > 0
@@ -6525,24 +6687,32 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  return NextResponse.json({ ok: true });
  }
 
- if (callbackData === 'admin_post_use_default_bio') {
- const session = getSession(chatId);
- const updatedDraft = {
- ...session.draft_data,
- details: 'Seeking compatible roommate in Addis Ababa.',
- description: 'Seeking compatible roommate in Addis Ababa.',
- lifestyle_bio: 'Seeking compatible roommate in Addis Ababa.',
- roommate_traits: 'Seeking compatible roommate in Addis Ababa.',
- };
- await saveSession({
- telegram_id: chatId,
- step: 'admin_post_contact',
- draft_data: { ...updatedDraft, card_msg_id: msgId },
- updated_at: new Date().toISOString(),
- });
- await sendAdminPostContactStep(chatId, updatedDraft, msgId);
- return NextResponse.json({ ok: true });
- }
+  if (callbackData === 'admin_post_use_default_bio') {
+  const session = getSession(chatId);
+  const updatedDraft = {
+  ...session.draft_data,
+  details: 'Seeking compatible roommate in Addis Ababa.',
+  description: 'Seeking compatible roommate in Addis Ababa.',
+  lifestyle_bio: 'Seeking compatible roommate in Addis Ababa.',
+  roommate_traits: 'Seeking compatible roommate in Addis Ababa.',
+  };
+  await sendAdminPostHouseRulesStep(chatId, updatedDraft, msgId);
+  return NextResponse.json({ ok: true });
+  }
+
+  if (callbackData.startsWith('admin_post_house_rules:')) {
+  const rulesVal = callbackData.split(':').slice(1).join(':');
+  const session = getSession(chatId);
+  const updatedDraft = { ...session.draft_data, house_rules: rulesVal };
+  await sendAdminPostContactStep(chatId, updatedDraft, msgId);
+  return NextResponse.json({ ok: true });
+  }
+
+  if (callbackData === 'admin_post_back_to_house_rules') {
+  const session = getSession(chatId);
+  await sendAdminPostHouseRulesStep(chatId, session.draft_data, msgId);
+  return NextResponse.json({ ok: true });
+  }
 
  if (callbackData === 'admin_post_confirm') {
  const session = getSession(chatId);
@@ -6572,8 +6742,9 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  const prefGenderWord = isPrefFemale ? 'female' : isPrefMale ? 'male' : 'compatible';
 
  const rawBio = (draft.details || draft.description || draft.roommate_traits || draft.lifestyle_bio || '').trim() || 'Seeking compatible roommate in Addis Ababa.';
- const cleanBio = rawBio.trim();
- const bioStr = `Prefers: ${prefGenderFormatted} | ${rawBio}`;
+ const cleanBio = extractUserDescription(rawBio) || rawBio.trim();
+ const cleanHouseRules = (draft.house_rules || extractHouseRulesFromTraits(rawBio) || 'Clean, quiet & no smoking').trim();
+ const bioStr = `Prefers: ${prefGenderFormatted} | Rules: ${cleanHouseRules} | ${cleanBio}`;
 
  let adminUsername = 'WWEHID';
  try {
@@ -6634,6 +6805,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  preferred_subcity: subcities,
  budget_min: budgetMin,
  budget_max: budgetNum,
+ house_rules: cleanHouseRules,
  lifestyle_bio: bioStr,
  preferred_roommate: 'Clean, respectful, and compatible housemate.',
  listing_category: isSpace ? 'space_available' : 'seeker',
@@ -6653,6 +6825,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  locations: subcities,
  budget_min: budgetMin,
  budget_max: budgetNum,
+ house_rules: cleanHouseRules,
  space_rent: isSpace ? budgetNum : undefined,
  space_type: isSpace ? (draft.space_type || 'Private Bedroom in Shared Flat') : undefined,
  lifestyle_bio: cleanBio,
@@ -6673,6 +6846,10 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  [{
  text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >',
  url: `https://t.me/${botUsername}?start=search_roommate`,
+ }],
+ [{
+ text: 'Post My Profile / መረጃዬን ልለጥፍ >',
+ url: `https://t.me/${botUsername}?start=post_profile`,
  }],
  ],
  };
@@ -6762,12 +6939,7 @@ ${res.message}
  }
 
  if (callbackData === 'post_branch_space') {
- if (!(await isUserFaydaVerified(chatId))) {
- await sendFaydaGateCard(chatId, 'post your room / space listing', msgId, { return_flow: 'post_space' });
- return NextResponse.json({ ok: true });
- }
- const session = getSession(chatId);
- await sendSpaceStep1Type(chatId, buildCleanFlowDraft(chatId, session.draft_data, { mode: 'post_space', card_msg_id: msgId }), msgId);
+ await sendHaveRoomAdminDirectCard(chatId, msgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -7408,6 +7580,9 @@ ${res.message}
      ],
      [
        { text: 'Habits / መግለጫ', callback_data: 'dyn_edit_field:traits' },
+       { text: 'House Rules / የቤት ህጎች', callback_data: 'dyn_edit_field:house_rules' },
+     ],
+     [
        { text: 'Areas / አካባቢዎች', callback_data: 'dyn_edit_field:subcities' },
      ],
      [{ text: 'Back to Review / ወደ ክለሳ ተመለስ', callback_data: 'dyn_pref_to_next' }],
@@ -7428,6 +7603,7 @@ ${res.message}
  else if (field === 'budget') await sendDynamicCardStep5Budget(chatId, editDraft, msgId);
  else if (field === 'pref_gender') await sendDynamicCardStep6PrefGender(chatId, editDraft, msgId);
  else if (field === 'traits') await sendDynamicCardStep7Traits(chatId, editDraft, msgId);
+ else if (field === 'house_rules') await sendDynamicCardStepHouseRules(chatId, editDraft, msgId);
  else if (field === 'subcities') await sendDynamicCardStep8Subcities(chatId, editDraft, msgId);
  return NextResponse.json({ ok: true });
  }
@@ -7500,6 +7676,20 @@ ${res.message}
  if (callbackData === 'dyn_back_to_traits') {
  const session = getSession(chatId);
  await sendDynamicCardStep7Traits(chatId, session.draft_data, msgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData === 'dyn_back_to_house_rules') {
+ const session = getSession(chatId);
+ await sendDynamicCardStepHouseRules(chatId, session.draft_data, msgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData.startsWith('dyn_house_rules:')) {
+ const houseRules = callbackData.split(':').slice(1).join(':');
+ const session = getSession(chatId);
+ const updatedDraft = { ...session.draft_data, house_rules: houseRules };
+ await routeNextMissingSeekerStep(chatId, updatedDraft, msgId, callback.from);
  return NextResponse.json({ ok: true });
  }
 
@@ -8387,6 +8577,28 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  roommate_traits: traitsVal,
  lifestyle_bio: traitsVal,
  description: traitsVal,
+ };
+ await sendMatchmakerHouseRulesStep(chatId, updatedDraft, msgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData === 'match_goto_traits') {
+ const session = getSession(chatId);
+ await sendMatchmakerTraitsStep(chatId, session.draft_data, msgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData.startsWith('match_set_house_rules:')) {
+ const houseRulesVal = callbackData.split(':').slice(1).join(':');
+ const session = getSession(chatId);
+ const rawTraitsOnly = extractUserDescription(session.draft_data?.roommate_traits || session.draft_data?.lifestyle_bio) || session.draft_data?.roommate_traits || 'Clean & respectful';
+ const packedTraits = `Job: ${session.draft_data?.job || 'Member'} | Religion: ${session.draft_data?.religion || 'Any'} | Prefers: ${session.draft_data?.preferred_gender || 'Any'} | Rules: ${houseRulesVal} | ${rawTraitsOnly}`;
+ const updatedDraft = {
+ ...session.draft_data,
+ house_rules: houseRulesVal,
+ roommate_traits: packedTraits,
+ lifestyle_bio: packedTraits,
+ description: rawTraitsOnly,
  gender: session.draft_data?.my_gender || session.draft_data?.gender,
  preferred_subcity: session.draft_data?.match_subcities || session.draft_data?.preferred_subcity || [...ALL_SUBCITIES],
  interstitial_seen: true,
@@ -8718,34 +8930,9 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  return NextResponse.json({ ok: true });
  }
 
- // Secondary Homeowner Space Callbacks
- if (callbackData === 'property_type') {
- await sendPropertyTypePrompt(chatId, msgId);
- return NextResponse.json({ ok: true });
- }
-
- if (callbackData.startsWith('prop_type:')) {
- const propType = callbackData.split(':')[1];
- const propLabelMap: Record<string, string> = {
- shared: 'Shared Room / የጋራ መኖሪያ ክፍል',
- entire: 'Entire House / Apartment / ሙሉ ቤት ወይም አፓርታማ',
- office: 'Office / Commercial Space / ቢሮ',
- shop: 'Shop / Commercial Venue / ሱቅ ወይም ንግድ ቦታ',
- };
- const resolvedSpaceType = propLabelMap[propType] || propType;
- if (!(await isUserFaydaVerified(chatId))) {
- await sendFaydaGateCard(chatId, 'post your room / space listing', msgId, {
-   return_flow: 'prop_type',
-   return_meta: { propType, resolvedSpaceType },
- });
- return NextResponse.json({ ok: true });
- }
- const session = getSession(chatId);
- await sendSpaceStep2Location(
- chatId,
- buildCleanFlowDraft(chatId, session.draft_data, { mode: 'post_space', property_type: propType, space_type: resolvedSpaceType, card_msg_id: msgId }),
- msgId
- );
+ // Secondary Homeowner Space Callbacks -> Direct to Admin Wahid (@WWEHID)
+ if (callbackData === 'property_type' || callbackData.startsWith('prop_type:')) {
+ await sendHaveRoomAdminDirectCard(chatId, msgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -9907,10 +10094,13 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  const myAgeStr = myProfile.age ? (reqIsAm ? `፣ ${myProfile.age} ዓመት` : `, ${myProfile.age} yrs`) : '';
 
  const cleanTargetCode = (targetProfile.display_code || lookupCode || '').toUpperCase().replace(/^#/, '');
+ const targetAgeConnectStr = targetProfile.age ? ` · Age ${targetProfile.age}` : '';
+ const targetRulesConnect = targetProfile.house_rules || extractHouseRulesFromTraits(targetProfile.roommate_traits);
+ const targetRulesConnectLine = targetRulesConnect ? `\n• <b>Target House Rules / የቤት ህጎች:</b> ${escapeHtml(String(targetRulesConnect))}` : '';
 
  const inspectionCard = `<b>Connect with Roommate #${cleanTargetCode} / ከቤት አጋር ጋር ይገናኙ</b>
 
-• <b>Target / ተፈላጊ:</b> #${cleanTargetCode} ( <code>${targetLocations}</code>)
+• <b>Target / ተፈላጊ:</b> #${cleanTargetCode}${escapeHtml(targetAgeConnectStr)} ( <code>${targetLocations}</code>)${targetRulesConnectLine}
 • <b>Your Profile / የእርስዎ መገለጫ:</b> #${myCode} (${myProfile.gender || 'Member'} / ${myGenderStr}${myAgeStr})
 • <b>Occupation / ስራ:</b> ${escapeHtml(myProfile.job || 'Professional / ሙያተኛ')}
 • <b>Religion / ሃይማኖት:</b> ${escapeHtml(myProfile.religion || 'Any / ማንኛውም')}
@@ -10003,12 +10193,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  }
 
  if (text === '/start property_type') {
- if (!(await isUserFaydaVerified(chatId))) {
- await sendFaydaGateCard(chatId, 'post your room / space listing', undefined, { return_flow: 'post_space' });
- return NextResponse.json({ ok: true });
- }
- const session = getSession(chatId);
- await sendSpaceStep1Type(chatId, buildCleanFlowDraft(chatId, session.draft_data, { mode: 'post_space' }));
+ await sendHaveRoomAdminDirectCard(chatId);
  return NextResponse.json({ ok: true });
  }
 
@@ -10136,8 +10321,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  }
 
  if (text === '/property_type' || (text === '/post' && !(await getAdminIds()).includes(chatId))) {
- await clearSession(chatId);
- await sendPropertyTypePrompt(chatId);
+ await sendHaveRoomAdminDirectCard(chatId);
  return NextResponse.json({ ok: true });
  }
 
@@ -11069,8 +11253,7 @@ All administrators of this channel can now use bot admin features, and approved 
  }
 
  if (text === ' Share Space to Rent' || text === ' Share Space / Room for Rent') {
- await clearSession(chatId);
- await sendPropertyTypePrompt(chatId);
+ await sendHaveRoomAdminDirectCard(chatId);
  return NextResponse.json({ ok: true });
  }
 
@@ -11734,12 +11917,23 @@ All administrators of this channel can now use bot admin features, and approved 
  lifestyle_bio: bioText,
  roommate_traits: bioText,
  };
- await saveSession({
- telegram_id: chatId,
- step: 'admin_post_contact',
- draft_data: { ...updatedDraft, card_msg_id: activeMsgId },
- updated_at: new Date().toISOString(),
- });
+ await sendAdminPostHouseRulesStep(chatId, updatedDraft, activeMsgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ // Admin Post Wizard: House Rules Text Input
+ if (session.step === 'admin_post_house_rules') {
+ if (update.message?.message_id) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+ }
+ const activeMsgId = session.draft_data?.card_msg_id;
+ const rulesText = text.toLowerCase() === 'default' || text.toLowerCase() === 'skip'
+ ? 'Clean, quiet & no smoking'
+ : text.trim();
+ const updatedDraft = {
+ ...session.draft_data,
+ house_rules: rulesText,
+ };
  await sendAdminPostContactStep(chatId, updatedDraft, activeMsgId);
  return NextResponse.json({ ok: true });
  }
@@ -11974,6 +12168,32 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
 
+ // Step 7b Text Input: House Rules
+ if (session.step === 'dyn_card_house_rules') {
+ if (update.message?.message_id) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+ }
+ const activeMsgId = session.draft_data?.card_msg_id;
+ const lang = getLanguage(session.draft_data, chatId);
+ const rulesVal = text.trim();
+ if (!rulesVal || rulesVal.length < 3 || rulesVal.length > 300) {
+ await sendDynamicCardStepHouseRules(
+ chatId,
+ session.draft_data,
+ activeMsgId,
+ 'Please enter valid house rules (e.g. Clean, no smoking, quiet after 10 PM) / እባክዎ የቤት ህጎችን በአጭሩ ያስገቡ:'
+ );
+ return NextResponse.json({ ok: true });
+ }
+ const updatedDraft = {
+ ...session.draft_data,
+ house_rules: rulesVal,
+ lang,
+ };
+ await routeNextMissingSeekerStep(chatId, updatedDraft, activeMsgId, update.message?.from);
+ return NextResponse.json({ ok: true });
+ }
+
  // Step 9 Text Input: Fayda FAN Verification
  if (session.step === 'dyn_card_fayda_fan') {
  if (update.message?.message_id) {
@@ -12179,7 +12399,7 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
 
- // Matchmaker Wizard: Lifestyle / Habits Text Input (Final prompt before showing matches)
+ // Matchmaker Wizard: Lifestyle / Habits Text Input (proceeds to House Rules before matches)
  if (session.step === 'awaiting_match_traits') {
  if (update.message?.message_id) {
  sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
@@ -12202,6 +12422,38 @@ All administrators of this channel can now use bot admin features, and approved 
  roommate_traits: traitsVal,
  lifestyle_bio: traitsVal,
  description: traitsVal,
+ lang,
+ };
+ await sendMatchmakerHouseRulesStep(chatId, updatedDraft, targetMsgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ // Matchmaker Wizard: House Rules Text Input (Final prompt before showing matches)
+ if (session.step === 'awaiting_match_house_rules') {
+ if (update.message?.message_id) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+ }
+ const targetMsgId = session.draft_data.card_msg_id;
+ const lang = getLanguage(session.draft_data, chatId);
+ const rulesVal = text.trim();
+ if (!rulesVal || rulesVal.length < 3 || rulesVal.length > 300) {
+ await sendMatchmakerHouseRulesStep(
+ chatId,
+ session.draft_data,
+ targetMsgId,
+ '<b>Please enter valid house rules (e.g. No smoking, quiet after 10 PM): / እባክዎ ትክክለኛ የቤት ህጎችን ያስገቡ:</b>'
+ );
+ return NextResponse.json({ ok: true });
+ }
+
+ const rawTraitsOnly = extractUserDescription(session.draft_data?.roommate_traits || session.draft_data?.lifestyle_bio) || session.draft_data?.roommate_traits || 'Clean & respectful';
+ const packedTraits = `Job: ${session.draft_data?.job || 'Member'} | Religion: ${session.draft_data?.religion || 'Any'} | Prefers: ${session.draft_data?.preferred_gender || 'Any'} | Rules: ${rulesVal} | ${rawTraitsOnly}`;
+ const updatedDraft = {
+ ...session.draft_data,
+ house_rules: rulesVal,
+ roommate_traits: packedTraits,
+ lifestyle_bio: packedTraits,
+ description: rawTraitsOnly,
  gender: session.draft_data?.my_gender || session.draft_data?.gender,
  preferred_subcity: session.draft_data?.match_subcities || session.draft_data?.preferred_subcity || [...ALL_SUBCITIES],
  interstitial_seen: true,
@@ -12496,12 +12748,38 @@ All administrators of this channel can now use bot admin features, and approved 
  const failMsg = !verifyRes.success
  ? ((verifyRes.messageAm && verifyRes.message) ? `${verifyRes.message}\n\n${verifyRes.messageAm}` : (verifyRes.message || 'Verification failed'))
  : `Paid amount (${Number(verifyRes.paidAmount ?? 0).toFixed(2)} ETB) is below the required 100 ETB 3-Month Pass fee.\n\nየተከፈለው መጠን (${Number(verifyRes.paidAmount ?? 0).toFixed(2)} ETB) ከሚያስፈልገው 100 ETB ያነሰ ነው።`;
+ const retryHint = verifyRes.errorCode === 'CONFIG_ERROR' || verifyRes.errorCode === 'SERVICE_MAINTENANCE'
+ ? `Please try again shortly or contact Admin @WWEHID if the issue persists.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ ወይም @WWEHID ያነጋግሩ።`
+ : `Please double-check your transaction reference code (e.g. <code>FT...</code> or <code>TX...</code>) and try again.\nእባክዎ የደረሰኝ ቁጥርዎን ደግመው ያረጋግጡና እንደገና ይላኩ።`;
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `<b>Verification Failed / ክፍያው አልተረጋገጠም</b>\n\n<blockquote>${failMsg}\n\nPlease double-check your transaction reference code (e.g. <code>FT...</code> or <code>TX...</code>) and try again.\nእባክዎ የደረሰኝ ቁጥርዎን ደግመው ያረጋግጡና እንደገና ይላኩ።</blockquote>`,
+ text: `<b>Verification Failed / ክፍያው አልተረጋገጠም</b>\n\n<blockquote>${failMsg}\n\n${retryHint}</blockquote>`,
  parse_mode: 'HTML',
  });
  return NextResponse.json({ ok: true });
+ }
+
+ // Re-verify canonical anti-replay if OCR ambiguity resolution returned a normalized/corrected transaction ID
+ const canonicalVerifiedRef = (
+ normalizeCanonicalTransactionRef(verifyRes.transactionNumber || txRef) || txRef
+ ).toUpperCase();
+ if (canonicalVerifiedRef !== txRef.toUpperCase()) {
+ const escapedCanon = canonicalVerifiedRef.replace(/[%_\\]/g, '\\$&');
+ const { data: canonExistingOrder } = await supabaseAdmin
+ .from('orders')
+ .select('id')
+ .ilike('transaction_reference', escapedCanon)
+ .eq('payment_status', 'completed')
+ .limit(1)
+ .maybeSingle();
+ if (canonExistingOrder) {
+ await sendTelegram('sendMessage', {
+ chat_id: chatId,
+ text: `<b>Reference Already Used! / ይህ የደረሰኝ ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል!</b>\n\n<blockquote>This verified transaction reference (<code>${escapeHtml(canonicalVerifiedRef)}</code>) has already been redeemed.\nይህ የግብይት ቁጥር ቀደም ሲል ተመዝግቧል።</blockquote>`,
+ parse_mode: 'HTML',
+ });
+ return NextResponse.json({ ok: true });
+ }
  }
 
  let orderId = `ord_mem_${Date.now()}`;
@@ -12523,7 +12801,7 @@ All administrators of this channel can now use bot admin features, and approved 
  target_type: 'membership_90d',
  target_id: 'pass_90d',
  amount: verifyRes.paidAmount ?? 100.0,
- transaction_reference: txRef,
+ transaction_reference: canonicalVerifiedRef,
  payment_status: 'completed',
  verified_at: new Date().toISOString(),
  })
@@ -12552,7 +12830,7 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
 
- await activateUserMembership(chatId, orderId, txRef);
+ await activateUserMembership(chatId, orderId, canonicalVerifiedRef);
 
  const purpose = session.draft_data?.membership_purpose;
  const metadata = session.draft_data?.membership_metadata || {};
@@ -12567,7 +12845,7 @@ All administrators of this channel can now use bot admin features, and approved 
 <blockquote>• <b>Bank / ባንክ:</b> <code>${bankFormatted}</code>
 • <b>Amount Paid / የተከፈለ መጠን:</b> <code>${paidAmt.toFixed(2)} ETB</code>
 • <b>Payer Name / የከፋይ ስም:</b> <code>${escapeHtml(payerName)}</code>
-• <b>Transaction Ref / የግብይት ቁጥር:</b> <code>${escapeHtml(txRef)}</code>
+• <b>Transaction Ref / የግብይት ቁጥር:</b> <code>${escapeHtml(canonicalVerifiedRef)}</code>
 • <b>Pass Status / የአባልነት ሁኔታ:</b> <b>Active (90 Days) / የሚሰራ (90 ቀናት)</b></blockquote>
 
 🎉 <b>Congratulations! Your 3-Month All-Access Pass is Active! / እንኳን ደስ አላችሁ! የ3 ወር ሙሉ አባልነት ፓስዎ ተከፍቷል!</b>

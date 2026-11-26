@@ -431,15 +431,21 @@ export async function getFile(fileId: string): Promise<Buffer> {
 /**
  * Safely extracts user-entered bio or descriptions, stripping internal metadata prefixes.
  */
+export function extractHouseRulesFromTraits(rawText?: string | null): string {
+  if (!rawText) return '';
+  const match = String(rawText).match(/(?:^|\|)\s*(?:House\s*Rules?|Rules?)[:\s]+([^|\n]+)/i);
+  return match?.[1]?.trim() || '';
+}
+
 export function extractUserDescription(rawText?: string | null): string {
   if (!rawText) return '';
   let cleaned = String(rawText).trim();
 
-  // If separated by pipes: Job: ... | Religion: ... | Prefers: ... | <user_description>
+  // If separated by pipes: Job: ... | Religion: ... | Prefers: ... | Rules: ... | <user_description>
   if (cleaned.includes(' | ')) {
     const parts = cleaned.split(' | ');
     const nonMetaParts = parts.filter(
-      (p) => !/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]/i.test(p.trim())
+      (p) => !/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender|House\s*Rules?|Rules?)[:\s]/i.test(p.trim())
     );
     if (nonMetaParts.length > 0) {
       cleaned = nonMetaParts.join(' | ').trim();
@@ -449,7 +455,7 @@ export function extractUserDescription(rawText?: string | null): string {
   }
 
   // Remove any remaining leading metadata prefix
-  cleaned = cleaned.replace(/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender)[:\s]+[^|;\n]+(\||\n|$)/i, '').trim();
+  cleaned = cleaned.replace(/^(Job|Religion|Prefers?|Age|Budget|Sex|Gender|House\s*Rules?|Rules?)[:\s]+[^|;\n]+(\||\n|$)/i, '').trim();
 
   return cleaned;
 }
@@ -789,13 +795,7 @@ export function formatRoommatePost(profile: Profile | Record<string, any>): stri
   const isMale = rawGender.includes('male') || rawGender.includes('ወንድ') || rawGender === 'm';
   const sexDisplay = isFemale ? 'Female / ሴት' : isMale ? 'Male / ወንድ' : (p.gender || p.my_gender || 'Any / ማንኛውም');
 
-  let userAge = p.age ? Number(p.age) : null;
-  if (!userAge && p.roommate_traits) {
-    const m = String(p.roommate_traits).match(/Age[:\s]+(\d+)/i);
-    if (m) userAge = parseInt(m[1], 10);
-  }
-  const ageDisplay = userAge ? `, Age ${userAge}` : '';
-
+  // Do NOT show user age in public channel posts (revealed only on connect / match requests)
   let rawPrefGender = (p.preferred_gender || '').toLowerCase();
   if ((!rawPrefGender || rawPrefGender === 'any') && (p.roommate_traits || p.lifestyle_bio)) {
     const pgm = String(p.roommate_traits || p.lifestyle_bio || '').match(/Prefers?[:\s]+(Male|Female|Any)/i);
@@ -805,13 +805,9 @@ export function formatRoommatePost(profile: Profile | Record<string, any>): stri
   const isPrefMale = rawPrefGender.includes('male') || rawPrefGender.includes('ወንድ');
   const prefSexDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
 
-  let prefAgeStr = '';
-  const ageMatch = String(p.preferred_roommate || p.roommate_traits || '').match(/(?:age[:\s]+)?(\d{2}\s*[-–—]\s*\d{2})/i);
-  if (ageMatch) {
-    prefAgeStr = `, ${ageMatch[1]}`;
-  }
-
-  const rawHouseRules = p.house_rules;
+  const rawHouseRules =
+    p.house_rules ||
+    extractHouseRulesFromTraits(p.roommate_traits || p.lifestyle_bio || p.preferred_roommate);
   const houseRulesDisplay = rawHouseRules
     ? String(rawHouseRules).trim()
     : 'Clean, respectful, no smoking / ጽዱ፣ ጨዋ፣ ሲጋራ የማያጨስ';
@@ -852,16 +848,16 @@ Budget: ${escapeHtml(budgetDisplay)} · Move in: ${escapeHtml(moveInDisplay)}
 <b>WHAT I'M LOOKING FOR / የምፈልገው</b>
 ${escapeHtml(spaceTypeDisplay)}
 
+<b>ABOUT ME / ስለ እኔ</b>
+Posted by: ${escapeHtml(sexDisplay)}
+<blockquote>${escapeHtml(cleanBio)}</blockquote>
+
 <b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
-Roommate: ${escapeHtml(prefSexDisplay)}${escapeHtml(prefAgeStr)}
+Roommate: ${escapeHtml(prefSexDisplay)}
 House rules: ${escapeHtml(houseRulesDisplay)}
 
 <b>DETAILS / ዝርዝር</b>
 <blockquote>${escapeHtml(cleanDetails)}</blockquote>
-
-<b>ABOUT ME / ስለ እኔ</b>
-Posted by: ${escapeHtml(sexDisplay)}${escapeHtml(ageDisplay)}
-<blockquote>${escapeHtml(cleanBio)}</blockquote>
 
 SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
 
@@ -932,7 +928,9 @@ export function formatSpacePost(space: Record<string, any>): string {
   const isPrefMale = rawPrefGender.includes('male') || rawPrefGender.includes('ወንድ');
   const prefSexDisplay = isPrefFemale ? 'Female Only (ሴት ብቻ)' : isPrefMale ? 'Male Only (ወንድ ብቻ)' : 'Any Gender (ማንኛውም ጾታ)';
 
-  const rawHouseRules = space.house_rules;
+  const rawHouseRules =
+    space.house_rules ||
+    extractHouseRulesFromTraits(space.lifestyle_bio || space.roommate_traits || space.preferred_roommate);
   const houseRulesDisplay = rawHouseRules
     ? String(rawHouseRules).trim()
     : 'Clean, respectful, quiet hours / ጽዱ፣ ጨዋ፣ የጋራ ሰላም የሚጠብቅ';
@@ -980,16 +978,16 @@ Rent: ${escapeHtml(rentDisplay)} · Move in: ${escapeHtml(moveInDisplay)}
 ${escapeHtml(spaceTypeDisplay)}
 Amenities: ${escapeHtml(amen)}
 
+<b>ABOUT ME / ስለ እኔ</b>
+Posted by: ${escapeHtml(hostSexDisplay)} (Space Host / አከራይ)
+<blockquote>${escapeHtml(bio)}</blockquote>
+
 <b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
 Roommate: ${escapeHtml(prefSexDisplay)}
 House rules: ${escapeHtml(rules)}
 
 <b>DETAILS / ዝርዝር</b>
 <blockquote>${escapeHtml(det)}</blockquote>
-
-<b>ABOUT ME / ስለ እኔ</b>
-Posted by: ${escapeHtml(hostSexDisplay)} (Space Host / አከራይ)
-<blockquote>${escapeHtml(bio)}</blockquote>
 
 ${slogan}
 
@@ -1041,6 +1039,12 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
         {
           text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >',
           url: `https://t.me/${botUsername}?start=search_roommate`,
+        },
+      ],
+      [
+        {
+          text: 'Post My Profile / መረጃዬን ልለጥፍ >',
+          url: `https://t.me/${botUsername}?start=post_profile`,
         },
       ],
     ],

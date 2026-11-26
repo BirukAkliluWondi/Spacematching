@@ -109,9 +109,9 @@ async function preprocessReceiptImage(buffer: Buffer, darkMode = false): Promise
     const width = meta.width || 0;
     const pipeline = sharp(rotatedBuf);
     if (width > 0 && width < 1000) {
-      pipeline.resize({ width: 1400, withoutEnlargement: false });
+      pipeline.resize({ width: 1600, withoutEnlargement: false });
     } else {
-      pipeline.resize({ width: 1400, withoutEnlargement: true });
+      pipeline.resize({ width: 1600, withoutEnlargement: true });
     }
     pipeline.grayscale();
     if (darkMode) pipeline.negate({ alpha: false });

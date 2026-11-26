@@ -485,17 +485,62 @@ export async function verifyTelebirrPayment(
     if (code === 'RATE_LIMITED' || code === 'NETWORK_ERROR' || code === 'CONFIG_ERROR') return 2;
     return 1;
   };
+  type VerifyFailureInfo = { message: string; messageAm: string; errorCode: string };
   const updateFailure = (
-    current: { message: string; messageAm: string; errorCode: string } | null,
-    next: { message: string; messageAm: string; errorCode: string }
-  ) => (!current || priorityRank(next.errorCode) >= priorityRank(current.errorCode) ? next : current);
+    current: VerifyFailureInfo | null,
+    next: VerifyFailureInfo
+  ): VerifyFailureInfo => (!current || priorityRank(next.errorCode) >= priorityRank(current.errorCode) ? next : current);
 
-  let lastFailure: { message: string; messageAm: string; errorCode: string } | null = null;
-  let lastRawResponse: unknown = null;
+  const state: { lastFailure: VerifyFailureInfo | null; lastRawResponse: unknown } = {
+    lastFailure: null,
+    lastRawResponse: null,
+  };
 
-  for (const config of bankConfigs) {
+  // Generate bounded OCR ambiguity variants (O<->0, I<->1) ONLY for non-URL codes if initial lookup returns NOT_FOUND
+  const buildOcrAmbiguityVariants = (baseRef: string): string[] => {
+    if (/^https?:\/\//i.test(baseRef)) return [];
+    const upper = baseRef.toUpperCase();
+    // Preserve standard 2-letter prefixes (DK/DL/DT/DM/FT/TX) or 3-letter DTS prefix when swapping
+    const startIdx = upper.startsWith('DTS') ? 3 : /^(?:DK|DL|DT|DM|FT|TX|CJ|EA)/.test(upper) ? 2 : 0;
+    const positions: number[] = [];
+    for (let i = startIdx; i < upper.length; i++) {
+      if ('0O1I'.includes(upper[i])) positions.push(i);
+    }
+    if (positions.length === 0) return [];
+    const flipChar = (ch: string) => (ch === '0' ? 'O' : ch === 'O' ? '0' : ch === '1' ? 'I' : '1');
+    const seen = new Set<string>([upper]);
+    const out: string[] = [];
+    const addVariant = (chars: string[]) => {
+      const s = chars.join('');
+      if (!seen.has(s) && /\d/.test(s)) {
+        seen.add(s);
+        out.push(s);
+      }
+    };
+    // 1. Single-character swaps first
+    for (const pos of positions) {
+      const arr = upper.split('');
+      arr[pos] = flipChar(arr[pos]);
+      addVariant(arr);
+    }
+    // 2. Pairwise swaps (catches 2-character swaps like DKQ10R1EOP -> DKQ1OR1E0P)
+    for (let a = 0; a < positions.length && out.length < 10; a++) {
+      for (let b = a + 1; b < positions.length && out.length < 10; b++) {
+        const arr = upper.split('');
+        arr[positions[a]] = flipChar(arr[positions[a]]);
+        arr[positions[b]] = flipChar(arr[positions[b]]);
+        addVariant(arr);
+      }
+    }
+    return out.slice(0, 10);
+  };
+
+  const evaluateBankConfig = async (
+    config: { bank: string; settlementAccount: string },
+    candidateRef: string
+  ): Promise<VerifyEtResult | null> => {
     try {
-      const payload = buildVerifyPayload(config.bank, cleanRef, config.settlementAccount);
+      const payload = buildVerifyPayload(config.bank, candidateRef, config.settlementAccount);
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -523,13 +568,13 @@ export async function verifyTelebirrPayment(
           rawErrorText || response.statusText
         );
 
-        lastFailure = updateFailure(lastFailure, mapVerifyError(extractedMsg || rawErrorText, response.status, config.bank));
-        lastRawResponse = rawErrorText;
-        continue;
+        state.lastFailure = updateFailure(state.lastFailure, mapVerifyError(extractedMsg || rawErrorText, response.status, config.bank));
+        state.lastRawResponse = rawErrorText;
+        return null;
       }
 
       let data = await response.json();
-      lastRawResponse = data;
+      state.lastRawResponse = data;
 
       // If Verify.ET queued or marked the request pending, poll the status URL
       const pollUrlPath =
@@ -563,7 +608,7 @@ export async function verifyTelebirrPayment(
             });
             if (!pollRes.ok) continue;
             const pollData = await pollRes.json();
-            lastRawResponse = pollData;
+            state.lastRawResponse = pollData;
 
             const pRootStatus = String(pollData.status || '').toLowerCase();
             const pVerStatus = String(pollData.verification?.status || '').toLowerCase();
@@ -658,8 +703,8 @@ export async function verifyTelebirrPayment(
 
         console.warn(`[verify-et] Payment not verified for ${config.bank}:`, upstreamMsg || data);
 
-        lastFailure = updateFailure(lastFailure, mapVerifyError(upstreamMsg, response.status, config.bank));
-        continue;
+        state.lastFailure = updateFailure(state.lastFailure, mapVerifyError(upstreamMsg, response.status, config.bank));
+        return null;
       }
 
       // 2. Confirm settlement account matching if present (handles masked values like 0987****78)
@@ -712,14 +757,14 @@ export async function verifyTelebirrPayment(
           console.warn(
             `[verify-et] Settlement account mismatch for ${config.bank}: expected ${config.settlementAccount}, got ${returnedSettlementAccount}`
           );
-          lastFailure = updateFailure(lastFailure, {
+          state.lastFailure = updateFailure(state.lastFailure, {
             message:
               'Payment was sent to a different account number. Please ensure payment was transferred to our designated account.',
             messageAm:
               'ክፍያው የተላከው ወደ ሌላ የባንክ/ቴሌብር ሂሳብ ነው። እባክዎ ክፍያው ወደ ተሰጠው ትክክለኛ የሂሳብ ቁጥር መላኩን ያረጋግጡ።',
             errorCode: 'ACCOUNT_MISMATCH',
           });
-          continue;
+          return null;
         }
       }
 
@@ -769,7 +814,7 @@ export async function verifyTelebirrPayment(
       const senderName =
         record?.senderName || record?.payerName || data.senderName || data.payerName || 'Verified Payer';
       const txNum =
-        record?.referenceNumber || record?.transactionNumber || data.transactionNumber || cleanRef;
+        record?.referenceNumber || record?.transactionNumber || data.transactionNumber || candidateRef;
 
       return {
         success: true,
@@ -784,24 +829,51 @@ export async function verifyTelebirrPayment(
     } catch (error: unknown) {
       const errMessage = error instanceof Error ? error.message : String(error);
       console.warn(`[verify-et] Connection error during verification (${config.bank}):`, errMessage);
-      lastFailure = {
+      state.lastFailure = updateFailure(state.lastFailure, {
         message: 'Network connection error while contacting verification service. Please try again.',
         messageAm: 'የመረብ ግንኙነት ችግር አጋጥሟል። እባክዎ ጥቂት ደቂቃዎች ቆይተው እንደገና ይሞክሩ።',
         errorCode: 'NETWORK_ERROR',
-      };
+      });
+      return null;
+    }
+  };
+
+  for (const config of bankConfigs) {
+    const res = await evaluateBankConfig(config, cleanRef);
+    if (res) return res;
+  }
+
+  // If primary code was not found on Telebirr/alphanumeric lookup, retry bounded O<->0 and I<->1 OCR swaps
+  const canRetryOcrSwaps =
+    !state.lastFailure ||
+    state.lastFailure.errorCode === 'NOT_FOUND' ||
+    state.lastFailure.errorCode === 'VERIFICATION_FAILED';
+  if (canRetryOcrSwaps) {
+    const ocrVariants = buildOcrAmbiguityVariants(cleanRef);
+    for (const variantRef of ocrVariants) {
+      for (const config of bankConfigs) {
+        const res = await evaluateBankConfig(config, variantRef);
+        if (res) return res;
+      }
+      if (
+        state.lastFailure &&
+        (state.lastFailure.errorCode === 'ACCOUNT_MISMATCH' || state.lastFailure.errorCode === 'INSUFFICIENT_AMOUNT')
+      ) {
+        break;
+      }
     }
   }
 
   return {
     success: false,
     message:
-      lastFailure?.message ||
+      state.lastFailure?.message ||
       'Payment transaction status could not be verified. Please check your reference code and try again.',
     messageAm:
-      lastFailure?.messageAm ||
+      state.lastFailure?.messageAm ||
       'የክፍያ ግብይቱ ሊረጋገጥ አልቻለም። እባክዎ የደረሰኝ ቁጥርዎን አረጋግጠው እንደገና ይሞክሩ።',
-    errorCode: lastFailure?.errorCode || 'VERIFICATION_FAILED',
-    rawResponse: lastRawResponse,
+    errorCode: state.lastFailure?.errorCode || 'VERIFICATION_FAILED',
+    rawResponse: state.lastRawResponse,
   };
 }
 

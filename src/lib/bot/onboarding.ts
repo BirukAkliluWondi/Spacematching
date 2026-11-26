@@ -730,6 +730,13 @@ export async function handleOnboardingMessage(
       // 3. Persist verified status across users, profiles, roommate_profiles
       await applyVerifiedFayda(chatId, verifyResult, message.from);
 
+      const maskedFan = verifyResult.fan.length >= 4 ? `•••• •••• ${verifyResult.fan.slice(-4)}` : 'Verified';
+      const verifiedNameLine = verifyResult.fullName ? `\n• <b>Name / ስም:</b> ${escapeHtml(verifyResult.fullName)}` : '';
+      await sendMessage(
+        chatId,
+        `✅ <b>Fayda Verification Successful! / የፋይዳ መታወቂያዎ በተሳካ ሁኔታ ተረጋግጧል!</b>\n\n<blockquote>• <b>Status / ሁኔታ:</b> Verified Resident / የተረጋገጠ ነዋሪ${verifiedNameLine}\n• <b>ID / መለያ:</b> <code>${escapeHtml(maskedFan)}</code></blockquote>`
+      );
+
       // 4. Generate display code and finalize profile
       const { data: codeRow } = await supabaseAdmin.rpc('generate_display_code');
       const displayCode: string = codeRow || `RM${Date.now()}`;
