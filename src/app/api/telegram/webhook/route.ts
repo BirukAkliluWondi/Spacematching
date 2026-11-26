@@ -382,8 +382,10 @@ export async function POST(request: Request) {
  targetPrefAm: string,
  reqGender: string
  ) => {
- const reqGenderEn = /female|ሴት/i.test(reqGender) ? 'Female' : 'Male';
- const reqGenderAm = /female|ሴት/i.test(reqGender) ? 'ሴት' : 'ወንድ';
+ const isFemale = /female|ሴት/i.test(reqGender);
+ const isMale = /\bmale\b|ወንድ/i.test(reqGender);
+ const reqGenderEn = isFemale ? 'Female' : isMale ? 'Male' : (reqGender || 'Member');
+ const reqGenderAm = isFemale ? 'ሴት' : isMale ? 'ወንድ' : 'አባል';
 
  const text = `<b>Gender Preference Mismatch / የተመራጭ ጾታ አለመጣጣም</b>\n\nRoommate <b>#${targetCode}</b> has specified a preference for <b>${targetPrefEn} (${targetPrefAm})</b> roommates.\nየክፍል ጓደኛ <b>#${targetCode}</b> የመረጡት <b>${targetPrefAm} (${targetPrefEn})</b> የቤት ጓደኛ ነው።\n\nSince your profile is registered as <b>${reqGenderEn} / ${reqGenderAm}</b>, this listing cannot accept connection requests.\nየእርስዎ መገለጫ የተመዘገበው <b>${reqGenderAm} / ${reqGenderEn}</b> ስለሆነ፣ ይህ ማስታወቂያ ጥያቄ መቀበል አይችልም።\n\n<blockquote>You can discover other compatible roommates in Addis Ababa below:\nከእርስዎ ጋር የሚስማሙ ሌሎች የተረጋገጡ የቤት ጓደኞችን ከታች ማግኘት ይችላሉ:</blockquote>`;
 
@@ -522,7 +524,15 @@ export async function POST(request: Request) {
  status: 'archived',
  updated_at: new Date().toISOString(),
  })
- .ilike('id', safeCode);
+ .or(`id.ilike.${safeCode},display_code.ilike.${safeCode},channel_message_id.eq.${channelMsgId}`);
+ } else if (channelMsgId) {
+ await supabaseAdmin
+ .from('pending_roommate_drafts')
+ .update({
+ status: 'archived',
+ updated_at: new Date().toISOString(),
+ })
+ .eq('channel_message_id', channelMsgId);
  }
  } catch (dbErr) {
  console.error('Error updating profile status to closed in DB:', dbErr);
@@ -1160,21 +1170,44 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  return false;
  };
 
+ // Helper: Sanitized Draft Builder (Prevents stale target_id / foreign flow fields leaking across workflows)
+  const buildCleanFlowDraft = (
+    chatId: number,
+    existingDraft: Record<string, any> = {},
+    extra: Record<string, any> = {}
+  ): Record<string, any> => {
+    const lang = getLanguage(existingDraft, chatId);
+    return {
+      lang,
+      ...(existingDraft.full_name ? { full_name: existingDraft.full_name } : {}),
+      ...(existingDraft.card_msg_id ? { card_msg_id: existingDraft.card_msg_id } : {}),
+      ...extra,
+    };
+  };
+
  // Helper: Universal Fayda Gate Card
   const sendFaydaGateCard = async (
     chatId: number,
     targetAction: string,
-    messageIdToEdit?: number
+    messageIdToEdit?: number,
+    contextOverride?: Record<string, any>
   ): Promise<number | undefined> => {
     const session = getSession(chatId);
     const lang = getLanguage(session.draft_data, chatId);
+    const mergedDraft: Record<string, any> = {
+      ...(session.draft_data || {}),
+      ...(contextOverride || {}),
+      card_msg_id: messageIdToEdit || session.draft_data?.card_msg_id,
+      target_action: targetAction,
+      why_fayda_return: 'standalone_gate',
+    };
 
     await saveSession({
       telegram_id: chatId,
       step: 'awaiting_standalone_fayda_fan',
-      draft_data: { ...session.draft_data, card_msg_id: messageIdToEdit, target_action: targetAction },
+      draft_data: mergedDraft,
       updated_at: new Date().toISOString(),
-    });
+    }, true);
 
     const gateText = `<b>Upload Back of Fayda ID / የፋይዳ ካርድዎን ጀርባ ይላኩ</b>\n\n<blockquote>Like shown in the sample photo above, please upload a clear photo of the BACK of your Fayda card showing the official QR code.\n\nከላይ በምስሉ ላይ እንደሚታየው፣ ይፋዊው የQR ኮድ የሚገኝበትን የፋይዳ ካርድዎን ጀርባ ፎቶ አንስተው ይላኩ።</blockquote>\n\n⚡ <b>Verified instantly via QR · Zero documents stored</b>\n⚡ <b>በQR ወዲያው ይረጋገጣል · ምንም አይነት ፎቶ በሲስተሙ አይቀመጥም</b>`;
 
@@ -1212,9 +1245,9 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_standalone_fayda_fan',
-        draft_data: { ...session.draft_data, card_msg_id: activeId, target_action: targetAction },
+        draft_data: { ...mergedDraft, card_msg_id: activeId },
         updated_at: new Date().toISOString(),
-      });
+      }, true);
     }
 
     return activeId;
@@ -1333,13 +1366,17 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  const inlineKeyboard = [
  [
  {
- text: 'Continue Profile Setup / ቀጥል >',
- callback_data: 'matchmaker_start',
+ text: 'Search Roommates / የቤት አጋር ፈልግ >',
+ callback_data: 'search_roommate_start',
  },
  ],
  [
  {
- text: 'Why Fayda ID? / ለምን ፋይዳ አስፈለገ?',
+ text: 'Post Profile / መረጃ ልለጥፍ',
+ callback_data: 'post_profile_start',
+ },
+ {
+ text: 'Why Fayda ID? / ለምን ፋይዳ?',
  callback_data: 'why_fayda_id',
  },
  ],
@@ -1510,26 +1547,101 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  return await completeSeekerOnboarding(chatId, updatedSeekerDraft, activeMsgId, fromUser);
  }
 
+ const returnFlow = extraParams.return_flow || currentDraft.return_flow;
+ const returnMeta = extraParams.return_meta || currentDraft.return_meta || {};
+
+ if (returnFlow === 'post_seeker') {
+   const cleanSeekerDraft = buildCleanFlowDraft(chatId, currentDraft, {
+     mode: 'post_to_channel',
+     listing_category: 'seeker',
+     full_name: fullName || currentDraft.full_name,
+     fayda_number: cleanFan,
+     fayda_status: 'verified',
+   });
+   await sendDynamicCardStep1Age(chatId, cleanSeekerDraft, activeMsgId);
+   return activeMsgId;
+ }
+ if (returnFlow === 'req_connect' && returnMeta.targetId) {
+   const { data: myP } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
+   const seededReqDraft = {
+     ...(myP || {}),
+     target_id: returnMeta.targetId,
+     target_code: returnMeta.targetCode,
+     target_locations: returnMeta.targetLocations,
+     target_budget: returnMeta.targetBudgetStr,
+     lang,
+     full_name: fullName || myP?.full_name || currentDraft.full_name,
+     fayda_number: cleanFan,
+     fayda_status: 'verified',
+   };
+   await routeNextMissingSeekerStep(chatId, seededReqDraft, activeMsgId, fromUser);
+   return activeMsgId;
+ }
+ if (returnFlow === 'post_space') {
+   const cleanSpaceDraft = buildCleanFlowDraft(chatId, currentDraft, { mode: 'post_space', full_name: fullName || currentDraft.full_name });
+   await sendSpaceStep1Type(chatId, cleanSpaceDraft, activeMsgId);
+   return activeMsgId;
+ }
+ if (returnFlow === 'post_space_prop') {
+   await sendPropertyTypePrompt(chatId, activeMsgId);
+   return activeMsgId;
+ }
+ if (returnFlow === 'prop_type' && returnMeta.resolvedSpaceType) {
+   const cleanSpaceDraft = buildCleanFlowDraft(chatId, currentDraft, {
+     mode: 'post_space',
+     property_type: returnMeta.propType,
+     space_type: returnMeta.resolvedSpaceType,
+     full_name: fullName || currentDraft.full_name,
+   });
+   await sendSpaceStep2Location(chatId, cleanSpaceDraft, activeMsgId);
+   return activeMsgId;
+ }
+ if (returnFlow === 'unlock_contact' && returnMeta.targetId) {
+   await clearSession(chatId);
+   await sendUnlockPaywallCard(chatId, returnMeta.targetId, returnMeta.targetType === 'space_listing' ? 'space_listing' : 'roommate_profile', activeMsgId);
+   return activeMsgId;
+ }
+ if (returnFlow === 'search_unlock_contact' && returnMeta.targetProfileId) {
+   await routeNextMissingSeekerStep(chatId, { ...currentDraft, target_id: returnMeta.targetProfileId }, activeMsgId, fromUser);
+   return activeMsgId;
+ }
+ if (returnFlow === 'confirm_match' && returnMeta.targetProfileId) {
+   await clearSession(chatId);
+   const pass = await getUserMembershipStatus(chatId);
+   if (!pass.isActive) {
+     await sendMembershipPaywallCard(chatId, 'connect_request', { targetProfileId: returnMeta.targetProfileId, targetDisplayCode: returnMeta.targetDisplayCode }, activeMsgId);
+   } else {
+     await executeDirectMatchRequest(chatId, returnMeta.targetProfileId, activeMsgId);
+   }
+   return activeMsgId;
+ }
+
  // Resume pending paid action (when an unverified user paid 100 ETB pass first and just completed Fayda verification)
  const pendingPurpose = currentDraft.membership_purpose;
  const pendingMeta = currentDraft.membership_metadata || {};
  if (pendingPurpose) {
  const activePass = await getUserMembershipStatus(chatId);
- await clearSession(chatId);
  if (activePass.isActive) {
  if (pendingPurpose === 'post_channel') {
  if (pendingMeta.category === 'space_available' || pendingMeta.isSpace) {
- await submitSpaceListingToAdmin(chatId, { ...pendingMeta, full_name: fullName || pendingMeta.full_name });
+ await submitSpaceListingToAdmin(chatId, { ...pendingMeta, full_name: fullName || pendingMeta.full_name }, activeMsgId, fromUser);
  } else {
- await submitSeekerListingToAdmin(chatId, { ...pendingMeta, full_name: fullName || pendingMeta.full_name });
+ await submitSeekerListingToAdmin(chatId, { ...pendingMeta, full_name: fullName || pendingMeta.full_name }, activeMsgId, fromUser);
  }
  return activeMsgId;
  }
  const targetId = pendingMeta.targetProfileId || pendingMeta.target_id;
  if (pendingPurpose === 'connect_request' && targetId) {
+ await clearSession(chatId);
  await executeDirectMatchRequest(chatId, targetId, activeMsgId);
  return activeMsgId;
  }
+ } else if (returnFlow === 'submit_space') {
+   await sendMembershipPaywallCard(chatId, 'post_channel', { ...pendingMeta, category: 'space_available', isSpace: true }, activeMsgId);
+   return activeMsgId;
+ } else if (returnFlow === 'submit_seeker') {
+   await sendMembershipPaywallCard(chatId, 'post_channel', { ...pendingMeta, category: 'seeker' }, activeMsgId);
+   return activeMsgId;
  }
  }
 
@@ -1735,12 +1847,15 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
  const inlineKeyboard = [
  [
- { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_job' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_interstitial' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
 
- await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ const newMsgId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ if (newMsgId && newMsgId !== activeMsgId) {
+   await saveSession({ telegram_id: chatId, step: 'dyn_card_budget', draft_data: { ...draft, lang, card_msg_id: newMsgId }, updated_at: new Date().toISOString() });
+ }
  };
 
  // Step 6: Preferred Sex (Gender)
@@ -1815,8 +1930,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
   ) => {
     const activeMsgId = messageIdToEdit || draft.card_msg_id;
     const lang = getLanguage(draft, chatId);
-    const selectedList: string[] = draft.preferred_subcity || ['Bole'];
-    const isAllSelected = ALL_SUBCITIES.every((s) => selectedList.includes(s));
+    const selectedList: string[] = Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity : [];
+    const isAllSelected = ALL_SUBCITIES.length > 0 && ALL_SUBCITIES.every((s) => selectedList.includes(s));
 
     await saveSession({
       telegram_id: chatId,
@@ -1830,7 +1945,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       {
         text: isAllSelected
           ? '✅ All Selected / ሁሉም ተመርጠዋል'
-          : 'Select All Areas / ሁሉንም ምረጥ >',
+          : 'Select All Areas / ሁሉንም ምረጥ',
         callback_data: 'dyn_sub_all',
       },
     ]);
@@ -1896,7 +2011,9 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const isVerified = await isUserFaydaVerified(chatId);
  const nextBtnText = !isVerified
       ? 'Proceed to Fayda Verification / ወደ ፋይዳ ማረጋገጫ ቀጥል >'
-      : 'View Matching Roommates / የሚስማሙ አጋሮችን ይመልከቱ >';
+      : draft.mode === 'post_to_channel'
+      ? 'Proceed to Profile Review / ወደ መረጃ ክለሳ ቀጥል >'
+      : 'Continue to Connect / ለመገናኘት ቀጥል >';
 
     const inlineKeyboard = [
       [
@@ -1927,7 +2044,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     await saveSession({
       telegram_id: chatId,
       step: 'dyn_card_fayda_fan',
-      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+      draft_data: { ...draft, lang, card_msg_id: activeMsgId, why_fayda_return: 'dyn_card_fayda_fan' },
       updated_at: new Date().toISOString(),
     });
 
@@ -1939,6 +2056,9 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const inlineKeyboard = [
       [
         { text: 'Why Fayda? / ለምን ፋይዳ?', callback_data: 'why_fayda_id' },
+        { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_subs' },
+      ],
+      [
         { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
       ],
     ];
@@ -1993,17 +2113,19 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const prefGender = profileData.preferred_gender || 'Any';
     const prefGenderDisplay = prefGender === 'Female' ? 'Female Only / ሴት ብቻ' : prefGender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
     const userAge = profileData.age ? `, Age ${profileData.age}` : '';
-    const moveInDate = profileData.move_in_date || profileData.move_in || 'Immediately / አሁኑኑ';
-    const userBio = (profileData.details || profileData.lifestyle_bio || profileData.description || 'Compatible roommate looking for a room in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const religionLine = profileData.religion ? `\n• <b>Religion / እምነት:</b> ${escapeHtml(String(profileData.religion))}` : '';
+    const jobLine = profileData.job ? `\n• <b>Occupation / ሙያ:</b> ${escapeHtml(String(profileData.job))}` : '';
+    const rawTraits = profileData.details || profileData.lifestyle_bio || profileData.description || profileData.roommate_traits || '';
+    const extractedBio = rawTraits ? (extractUserDescription(String(rawTraits)) || String(rawTraits)) : '';
+    const userBio = (extractedBio || 'Compatible roommate looking for a room in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     const text = `<b>SpaceMatch Profile Review / የመረጃ ክለሳ</b>
 <code>${codeDisplay}</code> · <b>Ready to Submit / ለግምገማ ዝግጁ</b>
 
-<blockquote>• <b>Target Areas / አካባቢ:</b> <b>${areasDisplay}</b>
-• <b>Budget Cap / በጀት:</b> <b>${budgetDisplay}</b>
-• <b>Candidate / ተፈላጊ:</b> ${myGenderDisplay}${userAge}
-• <b>Looking For / የሚፈልጉት:</b> ${prefGenderDisplay}
-• <b>Move-in / መግቢያ:</b> ${moveInDate}</blockquote>
+<blockquote>• <b>Target Areas / አካባቢ:</b> <b>${escapeHtml(areasDisplay)}</b>
+• <b>Budget Cap / በጀት:</b> <b>${escapeHtml(budgetDisplay)}</b>
+• <b>Candidate / ተፈላጊ:</b> ${escapeHtml(myGenderDisplay)}${escapeHtml(userAge)}${religionLine}${jobLine}
+• <b>Looking For / የሚፈልጉት:</b> ${escapeHtml(prefGenderDisplay)}</blockquote>
 
 <b>ABOUT ME / ስለ እኔ</b>
 <blockquote>${userBio}</blockquote>
@@ -2020,12 +2142,24 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
         },
       ],
       [
-        { text: 'Edit Profile Details / መረጃ አሻሽል', callback_data: 'post_profile_start' },
+        { text: 'Edit Details / መረጃ አሻሽል', callback_data: 'dyn_edit_menu' },
         { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
       ],
     ];
 
-    await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+    const newMsgId = await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+    const currSess = getSession(chatId);
+    await saveSession({
+      telegram_id: chatId,
+      step: 'dyn_card_preview',
+      draft_data: {
+        ...(currSess.draft_data || {}),
+        ...profileData,
+        edit_return_preview: false,
+        card_msg_id: newMsgId || messageIdToEdit || currSess.draft_data?.card_msg_id,
+      },
+      updated_at: new Date().toISOString(),
+    }, true);
   };
 
  // Helper: Complete seeker onboarding and route to Branch A (connection) or Branch B (channel post)
@@ -2036,16 +2170,26 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  fromUser?: { first_name?: string; last_name?: string; username?: string }
  ) => {
  let displayCode = draft.display_code;
- if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
+ let existingProfStatus: string | null = null;
+ let existingProfCode: string | null = null;
+ try {
  const { data: existingProf } = await supabaseAdmin
  .from('profiles')
- .select('display_code')
+ .select('display_code, status')
  .eq('telegram_id', chatId)
  .maybeSingle();
- if (existingProf?.display_code && existingProf.display_code.toUpperCase().startsWith('SPMARBR')) {
- displayCode = existingProf.display_code;
- } else {
- displayCode = await getNextSpmarbrCode('seeker');
+ existingProfStatus = existingProf?.status || null;
+ existingProfCode = existingProf?.display_code || null;
+ if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
+   if (existingProf?.display_code && existingProf.display_code.toUpperCase().startsWith('SPMARBR')) {
+     displayCode = existingProf.display_code;
+   } else {
+     displayCode = await getNextSpmarbrCode('seeker');
+   }
+ }
+ } catch {
+ if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
+   displayCode = await getNextSpmarbrCode('seeker');
  }
  }
 
@@ -2081,10 +2225,22 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  userUpsertObj.fayda_id_number = String(draft.fayda_number).replace(/\D/g, '');
  }
 
+ const isChannelDraftOnly = draft.mode === 'post_to_channel';
+ const preservedProfileCode =
+ existingProfCode && existingProfCode.toUpperCase().startsWith('SPMARWR') && isChannelDraftOnly
+ ? existingProfCode
+ : displayCode;
+ const profileStatusForSave = isChannelDraftOnly
+ ? (existingProfStatus === 'active' ? 'active' : 'paused')
+ : 'active';
+ const profileOnboardingStepForSave = isChannelDraftOnly && existingProfStatus !== 'active'
+ ? 'draft'
+ : 'completed';
+
  const profilePayload: Record<string, any> = {
  telegram_id: chatId,
- display_code: displayCode,
- onboarding_step: 'completed',
+ display_code: preservedProfileCode,
+ onboarding_step: profileOnboardingStepForSave,
  gender: userGender,
  locations: preferredSubs,
  budget_min: userBudgetMin,
@@ -2093,7 +2249,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  full_name: resolvedProfileFullName,
  telegram_username: fromUser?.username || null,
  kyc_status: 'verified',
- status: 'active',
+ status: profileStatusForSave,
  age: userAge,
  job: userJob,
  religion: userReligion,
@@ -2107,7 +2263,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  supabaseAdmin
  .from('profiles')
  .upsert(profilePayload, { onConflict: 'telegram_id' })
- .select('id, display_code, gender, locations, budget_min, budget_max, roommate_traits')
+ .select('id, display_code, age, gender, job, religion, preferred_gender, locations, budget_min, budget_max, roommate_traits')
  .single(),
  ]);
 
@@ -2134,7 +2290,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
  // 3. Upsert into roommate_profiles (no UNIQUE constraint on user_telegram_id in schema — select + update/insert)
  try {
- const normalizedMyGender = String(userGender).toLowerCase().startsWith('f') ? 'Female' : 'Male';
+ const lowerGender = String(userGender).toLowerCase();
+ const normalizedMyGender = lowerGender.startsWith('f') ? 'Female' : lowerGender.startsWith('m') ? 'Male' : 'Any';
  const normalizedPrefGender = ['Male', 'Female', 'Any'].includes(String(userPrefGender)) ? userPrefGender : 'Any';
  const rmPayload: Record<string, any> = {
  user_telegram_id: chatId,
@@ -2145,7 +2302,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  budget_max: userBudgetMax,
  lifestyle_bio: formattedTraits,
  unlock_fee: 100,
- status: draft.mode === 'post_to_channel' ? 'pending_approval' : 'draft',
+ status: 'draft',
  updated_at: new Date().toISOString(),
  };
  const { data: existingRm } = await supabaseAdmin
@@ -2171,7 +2328,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  console.warn('[completeSeekerOnboarding] roommate_profiles sync warning:', rmErr);
  }
 
- // 4. Save roommate draft cache
+ // 4. Save roommate draft cache (stays draft until explicit Submit + Pass)
  await saveRoommateDraft({
  id: displayCode,
  display_code: displayCode,
@@ -2321,6 +2478,19 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  myProfileId = myP?.id;
  }
 
+ // Closed-listing guard BEFORE 100 ETB Paywall or duplicate check
+ const targetStatusLower = String(targetProfile.status || '').toLowerCase();
+ if (['matched', 'closed', 'archived', 'rejected', 'rented'].includes(targetStatusLower)) {
+ await sendOrEditCard(
+ chatId,
+ `<b>Listing Closed / ማስታወቂያው ተዘግቷል</b>\n\n<blockquote>This listing is already closed/matched.\nይህ ማስታወቂያ ቀድሞውኑ ተዘግቷል።</blockquote>`,
+ [[{ text: 'Browse Open Matches / ሌሎችን እይ', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
+ activeMsgId
+ );
+ await clearSession(chatId);
+ return;
+ }
+
  // Check gender preference match
  const genderCheck = checkGenderPreferenceMatch(
  targetProfile.preferred_gender,
@@ -2383,7 +2553,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  }
 
  // ── Branch 2: Post to Channel flow ──
- const profileForReview = savedProfile || {
+ const profileForReview = {
+ ...(savedProfile || {}),
  display_code: displayCode,
  gender: userGender,
  age: userAge,
@@ -2423,7 +2594,24 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  budget_max: draft.budget_max !== undefined ? draft.budget_max : draft.budget,
  };
 
- if (!normalizedDraft.age || isNaN(Number(normalizedDraft.age)) || Number(normalizedDraft.age) < 18 || Number(normalizedDraft.age) > 85) {
+ if (
+ normalizedDraft.edit_return_preview &&
+ normalizedDraft.age &&
+ normalizedDraft.gender &&
+ normalizedDraft.religion &&
+ normalizedDraft.job &&
+ normalizedDraft.budget_max !== undefined &&
+ normalizedDraft.preferred_gender &&
+ normalizedDraft.roommate_traits &&
+ Array.isArray(normalizedDraft.preferred_subcity) &&
+ normalizedDraft.preferred_subcity.length > 0 &&
+ isVerified
+ ) {
+ await completeSeekerOnboarding(chatId, { ...normalizedDraft, edit_return_preview: false }, activeMsgId, fromUser);
+ return;
+ }
+
+ if (!normalizedDraft.age || isNaN(Number(normalizedDraft.age)) || Number(normalizedDraft.age) < 18 || Number(normalizedDraft.age) > 99) {
  await sendDynamicCardStep1Age(chatId, normalizedDraft, activeMsgId);
  return;
  }
@@ -2474,12 +2662,15 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     fromUser?: { first_name?: string; last_name?: string; username?: string }
   ) => {
     const session = getSession(chatId);
-    const lang = getLanguage(session.draft_data, chatId);
+    const cleanBranchDraft = buildCleanFlowDraft(chatId, session.draft_data, {
+      ...(messageIdToEdit ? { card_msg_id: messageIdToEdit } : {}),
+    });
+    const lang = cleanBranchDraft.lang;
 
     await saveSession({
       telegram_id: chatId,
       step: 'post_profile_branch_select',
-      draft_data: { ...session.draft_data, lang, card_msg_id: messageIdToEdit },
+      draft_data: cleanBranchDraft,
       updated_at: new Date().toISOString(),
     });
 
@@ -2544,6 +2735,19 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
   };
 
  // ── Branch A: Space Owner Questionnaire Helpers ─────────────────────────
+ const saveSpaceStepCardId = async (chatId: number, step: string, draft: Record<string, any>, activeMsgId: number | undefined, newMsgId: number | undefined) => {
+   const finalMsgId = newMsgId || activeMsgId;
+   if (finalMsgId && finalMsgId !== activeMsgId) {
+     await saveSession({
+       telegram_id: chatId,
+       step,
+       draft_data: { ...draft, card_msg_id: finalMsgId },
+       updated_at: new Date().toISOString(),
+     }, true);
+   }
+   return finalMsgId;
+ };
+
  const sendSpaceStep1Type = async (
     chatId: number,
     draft: Record<string, any> = {},
@@ -2552,23 +2756,63 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
   ) => {
     const activeMsgId = messageIdToEdit || draft.card_msg_id;
     const lang = getLanguage(draft, chatId);
+    const updatedDraft = { ...draft, lang, listing_category: 'space_available', card_msg_id: activeMsgId };
 
     await saveSession({
       telegram_id: chatId,
       step: 'space_input_type',
-      draft_data: { ...draft, lang, listing_category: 'space_available', card_msg_id: activeMsgId },
+      draft_data: updatedDraft,
       updated_at: new Date().toISOString(),
-    });
+    }, true);
 
     const promptText = '<b>Space Type / የክፍል አይነት</b>\n\n<blockquote>Enter space type (e.g. Master Bedroom, Studio):\nየክፍሉን አይነት ያስገቡ:</blockquote>';
- const text = `${errorMsg ? `<b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+ const text = `${errorMsg ? `<b>${escapeHtml(errorMsg)}</b>\n\n` : ''}${promptText}`.trim();
 
  const inlineKeyboard = [
  [{ text: 'Back / ተመለስ', callback_data: 'post_profile_start' }],
  [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ];
 
- return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ const newId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ return await saveSpaceStepCardId(chatId, 'space_input_type', updatedDraft, activeMsgId, newId);
+ };
+
+ const sendSpaceStep2Location = async (
+    chatId: number,
+    draft: Record<string, any>,
+    messageIdToEdit?: number
+  ) => {
+    const activeMsgId = messageIdToEdit || draft.card_msg_id;
+    const lang = getLanguage(draft, chatId);
+    const updatedDraft = { ...draft, lang, card_msg_id: activeMsgId };
+
+    await saveSession({
+      telegram_id: chatId,
+      step: 'space_subcity_select',
+      draft_data: updatedDraft,
+      updated_at: new Date().toISOString(),
+    }, true);
+
+    const gridRows: any[] = [];
+    for (let i = 0; i < ALL_SUBCITIES.length; i += 2) {
+      const row = [];
+      const item1 = ALL_SUBCITIES[i];
+      row.push({ text: item1, callback_data: `space_subcity:${item1}` });
+      if (i + 1 < ALL_SUBCITIES.length) {
+        const item2 = ALL_SUBCITIES[i + 1];
+        row.push({ text: item2, callback_data: `space_subcity:${item2}` });
+      }
+      gridRows.push(row);
+    }
+
+    gridRows.push([
+      { text: 'Back / ተመለስ', callback_data: draft.property_type ? 'property_type' : 'post_branch_space' },
+      { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
+    ]);
+
+    const text = '<b>Location / አካባቢ</b>\n\n<blockquote>Select space location:\nየክፍሉን አካባቢ ይምረጡ:</blockquote>';
+ const newId = await sendOrEditCard(chatId, text, gridRows, activeMsgId);
+ return await saveSpaceStepCardId(chatId, 'space_subcity_select', updatedDraft, activeMsgId, newId);
  };
 
  const sendSpaceStep2Rent = async (
@@ -2579,25 +2823,27 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
   ) => {
     const activeMsgId = messageIdToEdit || draft.card_msg_id;
     const lang = getLanguage(draft, chatId);
+    const updatedDraft = { ...draft, lang, card_msg_id: activeMsgId };
 
     await saveSession({
       telegram_id: chatId,
       step: 'space_input_rent',
-      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+      draft_data: updatedDraft,
       updated_at: new Date().toISOString(),
-    });
+    }, true);
 
     const promptText = '<b>Total Rent / ጠቅላላ ኪራይ</b>\n\n<blockquote>Enter total monthly rent in ETB (e.g. 12000):\nየቤቱን ጠቅላላ ወርሃዊ ኪራይ በብር ያስገቡ:</blockquote>';
- const text = `${errorMsg ? `<b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+ const text = `${errorMsg ? `<b>${escapeHtml(errorMsg)}</b>\n\n` : ''}${promptText}`.trim();
 
  const inlineKeyboard = [
  [
- { text: 'Back / ተመለስ', callback_data: 'post_branch_space' },
+ { text: 'Back / ተመለስ', callback_data: 'space_back_to_subcity' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
 
- return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ const newId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ return await saveSpaceStepCardId(chatId, 'space_input_rent', updatedDraft, activeMsgId, newId);
  };
 
  const sendSpaceStep3Share = async (
@@ -2608,19 +2854,20 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
   ) => {
     const activeMsgId = messageIdToEdit || draft.card_msg_id;
     const lang = getLanguage(draft, chatId);
+    const updatedDraft = { ...draft, lang, card_msg_id: activeMsgId };
 
     await saveSession({
       telegram_id: chatId,
       step: 'space_input_share',
-      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+      draft_data: updatedDraft,
       updated_at: new Date().toISOString(),
-    });
+    }, true);
 
     const rentNum = draft.space_rent || 10000;
     const halfRent = Math.round(rentNum / 2);
 
     const promptText = "<b>Roommate Share / የአጋር ድርሻ</b>\n\n<blockquote>Enter roommate's monthly share in ETB (e.g. 6000):\nየቤት አጋሩ የሚከፍለውን ድርሻ በብር ያስገቡ:</blockquote>";
-    const text = `${errorMsg ? `<b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+    const text = `${errorMsg ? `<b>${escapeHtml(errorMsg)}</b>\n\n` : ''}${promptText}`.trim();
 
     const splitText = `50% Split (${halfRent.toLocaleString()} ETB) / እኩል ክፍፍል`;
 
@@ -2634,7 +2881,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  ],
  ];
 
- return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ const newId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ return await saveSpaceStepCardId(chatId, 'space_input_share', updatedDraft, activeMsgId, newId);
  };
 
  const sendSpaceStep4Amenities = async (
@@ -2645,16 +2893,17 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
   ) => {
     const activeMsgId = messageIdToEdit || draft.card_msg_id;
     const lang = getLanguage(draft, chatId);
+    const updatedDraft = { ...draft, lang, card_msg_id: activeMsgId };
 
     await saveSession({
       telegram_id: chatId,
       step: 'space_input_amenities',
-      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+      draft_data: updatedDraft,
       updated_at: new Date().toISOString(),
-    });
+    }, true);
 
     const promptText = '<b>Amenities / ግልጋሎቶች</b>\n\n<blockquote>Enter included amenities (e.g. WiFi, Kitchen, Parking):\nየሚካተቱ ግልጋሎቶችን ያስገቡ:</blockquote>';
- const text = `${errorMsg ? `<b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+ const text = `${errorMsg ? `<b>${escapeHtml(errorMsg)}</b>\n\n` : ''}${promptText}`.trim();
 
  const inlineKeyboard = [
  [
@@ -2663,7 +2912,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  ],
  ];
 
- return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ const newId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ return await saveSpaceStepCardId(chatId, 'space_input_amenities', updatedDraft, activeMsgId, newId);
  };
 
  const sendSpaceStep5HostGender = async (
@@ -2673,13 +2923,14 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
   ) => {
     const activeMsgId = messageIdToEdit || draft.card_msg_id;
     const lang = getLanguage(draft, chatId);
+    const updatedDraft = { ...draft, lang, card_msg_id: activeMsgId };
 
     await saveSession({
       telegram_id: chatId,
       step: 'space_host_gender_select',
-      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+      draft_data: updatedDraft,
       updated_at: new Date().toISOString(),
-    });
+    }, true);
 
     const text = '<b>Your Gender / ጾታዎ</b>\n\n<blockquote>Select your gender:\nጾታዎን ይምረጡ:</blockquote>';
 
@@ -2694,7 +2945,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  ],
  ];
 
- return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ const newId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ return await saveSpaceStepCardId(chatId, 'space_host_gender_select', updatedDraft, activeMsgId, newId);
  };
 
  const sendSpaceStep6PrefGender = async (
@@ -2704,13 +2956,14 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
   ) => {
     const activeMsgId = messageIdToEdit || draft.card_msg_id;
     const lang = getLanguage(draft, chatId);
+    const updatedDraft = { ...draft, lang, card_msg_id: activeMsgId };
 
     await saveSession({
       telegram_id: chatId,
       step: 'space_pref_gender_select',
-      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+      draft_data: updatedDraft,
       updated_at: new Date().toISOString(),
-    });
+    }, true);
 
     const text = '<b>Preferred Roommate / የአጋር ጾታ</b>\n\n<blockquote>Select preferred roommate gender:\nየቤት አጋር ጾታ ይምረጡ:</blockquote>';
 
@@ -2728,7 +2981,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  ],
  ];
 
- return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ const newId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ return await saveSpaceStepCardId(chatId, 'space_pref_gender_select', updatedDraft, activeMsgId, newId);
  };
 
  const sendSpaceStep7PrefRoommate = async (
@@ -2739,16 +2993,17 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
   ) => {
     const activeMsgId = messageIdToEdit || draft.card_msg_id;
     const lang = getLanguage(draft, chatId);
+    const updatedDraft = { ...draft, lang, card_msg_id: activeMsgId };
 
     await saveSession({
       telegram_id: chatId,
       step: 'space_input_pref_roommate',
-      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+      draft_data: updatedDraft,
       updated_at: new Date().toISOString(),
-    });
+    }, true);
 
-    const promptText = '<b>Roommate Preferences / ተጨማሪ መስፈርቶች</b>\n\n<blockquote>Describe preferences (habits, occupation, religion):\nየሚፈልጉትን አጋር ጠባይ ወይም መስፈርት በአጭሩ ይግለጹ:</blockquote>';
- const text = `${errorMsg ? `<b>${errorMsg}</b>\n\n` : ''}${promptText}`.trim();
+    const promptText = '<b>About Space & Roommate Preferences / ስለ ክፍሉና የሚፈለጉት አጋር</b>\n\n<blockquote>Briefly describe the space & roommate preferences (e.g. sunny room near main road; clean, quiet roommate):\nስለ ክፍሉ እና ስለሚፈልጉት አጋር ጠባይ በአጭሩ ይግለጹ:</blockquote>';
+ const text = `${errorMsg ? `<b>${escapeHtml(errorMsg)}</b>\n\n` : ''}${promptText}`.trim();
 
  const inlineKeyboard = [
  [
@@ -2757,7 +3012,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  ],
  ];
 
- return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ const newId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ return await saveSpaceStepCardId(chatId, 'space_input_pref_roommate', updatedDraft, activeMsgId, newId);
  };
 
  const sendSpaceStep8Subcity = async (
@@ -2765,36 +3021,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     draft: Record<string, any>,
     messageIdToEdit?: number
   ) => {
-    const activeMsgId = messageIdToEdit || draft.card_msg_id;
-    const lang = getLanguage(draft, chatId);
-
-    await saveSession({
-      telegram_id: chatId,
-      step: 'space_subcity_select',
-      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
-      updated_at: new Date().toISOString(),
-    });
-
-    const gridRows: any[] = [];
-    for (let i = 0; i < ALL_SUBCITIES.length; i += 2) {
-      const row = [];
-      const item1 = ALL_SUBCITIES[i];
-      row.push({ text: item1, callback_data: `space_subcity:${item1}` });
-      if (i + 1 < ALL_SUBCITIES.length) {
-        const item2 = ALL_SUBCITIES[i + 1];
-        row.push({ text: item2, callback_data: `space_subcity:${item2}` });
-      }
-      gridRows.push(row);
-    }
-
-    gridRows.push([
-      { text: 'Back / ተመለስ', callback_data: 'space_back_to_pref_roommate' },
-      { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
-    ]);
-
-    const text = '<b>Location / አካባቢ</b>\n\n<blockquote>Select space location:\nየክፍሉን አካባቢ ይምረጡ:</blockquote>';
-
- return await sendOrEditCard(chatId, text, gridRows, activeMsgId);
+    return await sendSpaceStep2Location(chatId, draft, messageIdToEdit);
  };
 
  const sendSpaceStep9Photos = async (
@@ -2805,16 +3032,17 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const activeMsgId = messageIdToEdit || draft.card_msg_id;
     const photos: string[] = draft.space_photos || [];
     const lang = getLanguage(draft, chatId);
+    const updatedDraft = { ...draft, lang, space_photos: photos, card_msg_id: activeMsgId };
 
     await saveSession({
       telegram_id: chatId,
       step: 'space_input_photos',
-      draft_data: { ...draft, lang, space_photos: photos, card_msg_id: activeMsgId },
+      draft_data: updatedDraft,
       updated_at: new Date().toISOString(),
-    });
+    }, true);
 
     const uploadedNotice = photos.length > 0 ? `<b>${photos.length} photo(s) uploaded / ${photos.length} ፎቶዎች ገብተዋል</b>\n\n` : '';
-    const promptText = '<b>Space Photos / የክፍሉ ፎቶዎች</b>\n\n<blockquote>Upload photos of the space or tap Skip.\nየክፍሉን ፎቶዎች ይላኩ ወይም እለፍ የሚለውን ይጫኑ።</blockquote>';
+    const promptText = '<b>Space Photos / የክፍሉ ፎቶዎች</b>\n\n<blockquote>Upload photos of the space or tap Skip (or type "done" / "skip").\nየክፍሉን ፎቶዎች ይላኩ ወይም እለፍ የሚለውን ይጫኑ።</blockquote>';
     const text = `${uploadedNotice}${promptText}`.trim();
 
     const proceedText = `Proceed with ${photos.length} Photo(s) / ቀጥል >`;
@@ -2825,11 +3053,12 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  ? [[{ text: proceedText, callback_data: 'space_photos_done' }]]
  : []),
  [{ text: skipText, callback_data: 'space_photos_skip' }],
- [{ text: 'Back / ተመለስ', callback_data: 'space_back_to_subcity' }],
+ [{ text: 'Back / ተመለስ', callback_data: 'space_back_to_pref_roommate' }],
  [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ];
 
- return await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ const newId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ return await saveSpaceStepCardId(chatId, 'space_input_photos', updatedDraft, activeMsgId, newId);
  };
 
  const sendSpacePreviewCard = async (
@@ -2848,22 +3077,29 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const rentNum = Number(draft.space_rent || 0);
     const shareNum = Number(draft.space_share || 0);
     const spaceType = draft.space_type || 'Private Bedroom in Shared Flat';
+    const amenitiesList = Array.isArray(draft.space_amenities) && draft.space_amenities.length > 0
+      ? draft.space_amenities.join(', ')
+      : (draft.space_amenities_raw || 'Standard Utilities');
+    const hostGender = draft.owner_gender || draft.my_gender || draft.gender || 'Member';
+    const hostGenderDisplay = hostGender === 'Female' ? 'Female / ሴት' : hostGender === 'Male' ? 'Male / ወንድ' : hostGender;
     const prefGender = draft.preferred_tenant_gender || draft.preferred_gender || 'Any';
     const prefGenderDisplay = prefGender === 'Female' ? 'Female Only / ሴት ብቻ' : prefGender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
     const photosCount = Array.isArray(draft.space_photos) ? draft.space_photos.length : 0;
     const desc = (draft.description || draft.preferred_roommate || draft.roommate_traits || 'Room available for rent in Addis Ababa.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     const text = `<b>Space Listing Review / የክፍል መረጃ ክለሳ</b>
-<code>#${cleanDisplayCode}</code> · <b>Ready to Submit / ለግምገማ ዝግጁ</b>
+<code>#${escapeHtml(cleanDisplayCode)}</code> · <b>Ready to Submit / ለግምገማ ዝግጁ</b>
 
-<blockquote>• <b>Sub-City / አካባቢ:</b> <b>${subcity}</b>
-• <b>Space Type / አይነት:</b> ${spaceType}
+<blockquote>• <b>Sub-City / አካባቢ:</b> <b>${escapeHtml(subcity)}</b>
+• <b>Space Type / አይነት:</b> ${escapeHtml(spaceType)}
 • <b>Total Rent / ጠቅላላ ኪራይ:</b> <b>${rentNum > 0 ? rentNum.toLocaleString() + ' ETB/mo' : 'Contact for Rent'}</b>
 • <b>Roommate Share / ድርሻ:</b> <b>${shareNum > 0 ? shareNum.toLocaleString() + ' ETB/mo' : 'Split equally'}</b>
-• <b>Preferred Roommate / አጋር:</b> ${prefGenderDisplay}
+• <b>Amenities / ግልጋሎቶች:</b> ${escapeHtml(amenitiesList)}
+• <b>Host Gender / የባለቤቱ ጾታ:</b> ${escapeHtml(hostGenderDisplay)}
+• <b>Preferred Roommate / አጋር:</b> ${escapeHtml(prefGenderDisplay)}
 • <b>Photos Attached / ፎቶዎች:</b> ${photosCount} photo(s)</blockquote>
 
-<b>SPACE DETAILS / ስለ ክፍሉ</b>
+<b>SPACE & ROOMMATE DETAILS / ስለ ክፍሉና መስፈርቶች</b>
 <blockquote>${desc}</blockquote>
 
 <blockquote>🔒 <b>Privacy Shield / ሚስጥራዊነት:</b> Direct contacts remain strictly protected under double-blind privacy shield.
@@ -2878,12 +3114,23 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
         },
       ],
       [
-        { text: 'Edit Space Details / መረጃ አሻሽል', callback_data: 'post_branch_space' },
+        { text: 'Back to Photos / ወደ ፎቶዎች ተመለስ', callback_data: 'space_back_to_photos' },
+        { text: 'Restart Space Form / እንደገና ጀምር', callback_data: 'post_branch_space' },
+      ],
+      [
         { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
       ],
     ];
 
-    return await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
+    const activeMsgId = messageIdToEdit || draft.card_msg_id;
+    const newId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+    await saveSession({
+      telegram_id: chatId,
+      step: 'space_preview',
+      draft_data: { ...draft, display_code: cleanDisplayCode, card_msg_id: newId || activeMsgId },
+      updated_at: new Date().toISOString(),
+    }, true);
+    return newId;
   };
 
  // ── Helper: Admin Channel Post Wizard Card Helpers ─────────────────────────
@@ -3278,7 +3525,7 @@ ${postPreview}
         lang,
       },
       updated_at: new Date().toISOString(),
-    });
+    }, true);
 
  return cardMessageId;
  };
@@ -3483,7 +3730,7 @@ ${postPreview}
 
  const { error: profUpsertErr } = await supabaseAdmin.from('profiles').upsert({
  telegram_id: chatId,
- display_code: displayCode,
+ display_code: prof?.display_code && String(prof.display_code).toUpperCase().startsWith('SPMARWR') ? prof.display_code : displayCode,
  gender: genderStr,
  locations: Array.isArray(subcities) ? subcities : [subcities],
  budget_min: 0,
@@ -3496,6 +3743,12 @@ ${postPreview}
  if (profUpsertErr) {
  console.error('[submitSeekerListingToAdmin] profiles upsert error:', profUpsertErr);
  }
+ await saveSession({
+   telegram_id: chatId,
+   step: 'idle',
+   draft_data: buildCleanFlowDraft(chatId, draft),
+   updated_at: new Date().toISOString(),
+ }, true);
 
  const userName = [fromCallbackUser?.first_name, fromCallbackUser?.last_name].filter(Boolean).join(' ') || prof?.full_name || 'Roommate Seeker';
  const username = fromCallbackUser?.username || prof?.telegram_username || null;
@@ -3622,12 +3875,17 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  step: session.step || 'idle',
  draft_data: {
  ...draft,
+ return_flow: 'submit_space',
  membership_purpose: 'post_channel',
  membership_metadata: { ...(metadata || {}), isSpace: true, category: 'space_available' },
  },
  updated_at: new Date().toISOString(),
+ }, true);
+ await sendFaydaGateCard(chatId, 'verify Fayda before submitting your space listing', messageIdToEdit, {
+   return_flow: 'submit_space',
+   membership_purpose: 'post_channel',
+   membership_metadata: { ...(metadata || {}), isSpace: true, category: 'space_available' },
  });
- await sendFaydaGateCard(chatId, 'verify Fayda before submitting your space listing', messageIdToEdit);
  return;
  }
 
@@ -3647,31 +3905,40 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  const desc = metadata?.desc || draft.description || draft.preferred_roommate || draft.roommate_traits || 'Roommate available with a room in Addis Ababa.';
  const userAge = metadata?.age || draft.age || 24;
 
- session.draft_data = {
- ...draft,
- display_code: cleanCode,
- listing_category: 'space_available',
- };
- await saveSession(session);
+ const [{ data: existingSpaceProf }, { data: dbUser }] = await Promise.all([
+   supabaseAdmin.from('profiles').select('display_code').eq('telegram_id', chatId).maybeSingle(),
+   supabaseAdmin.from('users').select('first_name, last_name, username').eq('telegram_id', chatId).maybeSingle(),
+ ]);
 
- await supabaseAdmin.from('profiles').upsert({
- telegram_id: chatId,
- display_code: cleanCode,
- gender: ownerGender,
- locations: [subcity],
- budget_min: shareNum,
- budget_max: rentNum,
- roommate_traits: `Age ${userAge} · Prefers: ${prefGender} · ${desc}`,
- kyc_status: 'verified',
- status: 'paused',
- }, { onConflict: 'telegram_id' });
+ const resolvedOwnerName =
+   [fromCallbackUser?.first_name, fromCallbackUser?.last_name].filter(Boolean).join(' ') ||
+   metadata?.full_name ||
+   [dbUser?.first_name, dbUser?.last_name].filter(Boolean).join(' ') ||
+   'Verified Space Owner';
+ const resolvedOwnerUsername = fromCallbackUser?.username || dbUser?.username || null;
+
+ // Preserve user's existing SPMARBR Seeker row if they have one; only write Space to profiles if no active Seeker row exists
+ if (!existingSpaceProf?.display_code || !String(existingSpaceProf.display_code).toUpperCase().startsWith('SPMARBR')) {
+   await supabaseAdmin.from('profiles').upsert({
+     telegram_id: chatId,
+     display_code: cleanCode,
+     gender: ownerGender,
+     locations: [subcity],
+     budget_min: shareNum,
+     budget_max: rentNum,
+     roommate_traits: `Age ${userAge} · Prefers: ${prefGender} · ${desc}`,
+     kyc_status: 'verified',
+     status: 'paused',
+     onboarding_step: 'pending_approval',
+   }, { onConflict: 'telegram_id' });
+ }
 
  await saveRoommateDraft({
  id: cleanCode,
  user_telegram_id: chatId,
  display_code: cleanCode,
- user_name: 'Verified Space Owner',
- username: fromCallbackUser?.username || null,
+ user_name: resolvedOwnerName,
+ username: resolvedOwnerUsername,
  age: userAge,
  my_gender: ownerGender,
  preferred_gender: prefGender,
@@ -3693,6 +3960,13 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  updated_at: new Date().toISOString(),
  });
 
+ await saveSession({
+   telegram_id: chatId,
+   step: 'idle',
+   draft_data: buildCleanFlowDraft(chatId, draft),
+   updated_at: new Date().toISOString(),
+ }, true);
+
  const lang = getLanguage(draft, chatId);
  const isAm = lang === 'am';
  const targetChannel = await getPrimaryChannel();
@@ -3700,12 +3974,12 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  const userConfirmText = `<b>Congratulations, you have successfully registered! / እንኳን ደስ አለዎት፣ በተሳካ ሁኔታ ተመዝግበዋል!</b>
 <b>Space Listing Submitted for Activation / የክፍል መረጃዎ ለግምገማ በተሳካ ሁኔታ ደርሷል</b>
 
-<blockquote>• <b>Listing Code / መለያ ኮድ:</b> <code>#${cleanCode}</code>
-• <b>Space Type / አይነት:</b> ${spaceType}
-• <b>Total Rent / ጠቅላላ ኪራይ:</b> <code>${rentNum > 0 ? rentNum.toLocaleString() + ' ETB/mo' : 'Contact for Rent'}</code>
-• <b>Roommate Share / ድርሻ:</b> <code>${shareNum > 0 ? shareNum.toLocaleString() + ' ETB/mo' : 'Split equally'}</code>
+<blockquote>• <b>Listing Code / መለያ ኮድ:</b> <code>#${escapeHtml(cleanCode)}</code>
+• <b>Space Type / አይነት:</b> ${escapeHtml(spaceType)}
+• <b>Total Rent / ጠቅላላ ኪራይ:</b> <b>${rentNum > 0 ? rentNum.toLocaleString() + ' ETB/mo' : 'Contact for Rent'}</b>
+• <b>Roommate Share / ድርሻ:</b> <b>${shareNum > 0 ? shareNum.toLocaleString() + ' ETB/mo' : 'Split equally'}</b>
 • <b>Status / ሁኔታ:</b> <b>Pending Admin Review / በግምገማ ላይ</b>
-• <b>Target Channel / ዒላማ ቻናል:</b> <code>${targetChannel}</code></blockquote>
+• <b>Target Channel / ዒላማ ቻናል:</b> <code>${escapeHtml(targetChannel)}</code></blockquote>
 
 <blockquote><b>Privacy Shield / ሚስጥራዊነት የተጠበቀ:</b>
 Direct contact details stay protected. Once approved, your space listing will be published and you will be notified immediately!
@@ -3980,8 +4254,8 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  if (targetPref === 'male' || targetPref === 'female') {
  await sendOrEditCard(
  chatId,
- `<b>Gender Confirmation Required / የጾታ መረጃ ያስፈልጋል</b>\n\n<blockquote>This listing specifies a gender preference (<b>${escapeHtml(targetProfile.preferred_gender)}</b>). Please complete your short profile gender step first.\n\nይህ ማስታወቂያ የተወሰነ የጾታ ምርጫ ስላለው መጀመሪያ የጾታ መረጃዎን ይሙሉ።</blockquote>`,
- [[{ text: 'Set My Profile / መረጃ ሙላ >', callback_data: 'matchmaker_start' }]],
+ `<b>Gender Confirmation Required / የጾታ መረጃ ያስፈልጋል</b>\n\n<blockquote>This listing specifies a gender preference (<b>${escapeHtml(targetProfile.preferred_gender)}</b>). Please update your profile gender before connecting.\n\nይህ ማስታወቂያ የተወሰነ የጾታ ምርጫ ስላለው መጀመሪያ የጾታ መረጃዎን ያስተካክሉ።</blockquote>`,
+ [[{ text: 'Edit Profile / መረጃ አሻሽል >', callback_data: 'post_profile_start' }], [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
  messageIdToEdit
  );
  return;
@@ -4004,10 +4278,14 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  telegram_id: targetProfile.telegram_id,
  display_code: targetProfile.display_code || `RM${String(targetProfile.telegram_id).slice(-4)}`,
  gender: targetProfile.gender || targetProfile.my_gender || 'Member',
+ preferred_gender: targetProfile.preferred_gender || 'Any',
  locations: targetProfile.locations || targetProfile.preferred_subcity || ['Addis Ababa'],
  budget_min: targetProfile.budget_min || 0,
  budget_max: targetProfile.budget_max || 10000,
  roommate_traits: targetProfile.roommate_traits || targetProfile.lifestyle_bio || 'Channel Roommate Listing',
+ full_name: targetProfile.full_name || null,
+ phone_number: targetProfile.phone_number || null,
+ telegram_username: targetProfile.telegram_username || null,
  kyc_status: 'verified',
  status: 'active',
  onboarding_step: 'completed',
@@ -4218,7 +4496,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
     await saveSession({
       telegram_id: chatId,
       step: 'idle',
-      draft_data: { ...session.draft_data, lang, card_msg_id: activeId },
+      draft_data: buildCleanFlowDraft(chatId, session.draft_data, { card_msg_id: activeId }),
       updated_at: new Date().toISOString(),
     });
   };
@@ -4237,58 +4515,89 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  let count = 0;
  const seenCodes = new Set<string>();
 
+ const formatListingStatusBadge = (rawStatus?: string, rawStep?: string) => {
+   const s = String(rawStatus || '').toLowerCase();
+   const st = String(rawStep || '').toLowerCase();
+   if (st === 'rejected' || s === 'rejected') return { isClosed: true, badge: 'Rejected / ተቀባይነት አላገኘም' };
+   if (['matched', 'closed', 'archived', 'rented'].includes(s)) return { isClosed: true, badge: 'Closed / የተዘጋ' };
+   if (s === 'paused' || s === 'pending_approval' || st === 'pending_approval' || s === 'draft') {
+     return { isClosed: false, badge: 'Pending Approval / በግምገማ ላይ' };
+   }
+   return { isClosed: false, badge: 'Open / ክፍት' };
+ };
+
  try {
- const { data: profs } = await supabaseAdmin
- .from('profiles')
- .select('*')
- .eq('telegram_id', chatId)
- .limit(5);
+ const [{ data: profs }, { data: rmList }, allDrafts] = await Promise.all([
+   supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).limit(5),
+   supabaseAdmin.from('roommate_profiles').select('*').eq('user_telegram_id', chatId).limit(5),
+   getAllRoommateDrafts(),
+ ]);
 
  if (profs && profs.length > 0) {
  for (const p of profs) {
  count++;
- if (p.display_code) seenCodes.add(String(p.display_code).toUpperCase());
- const isClosed = p.status === 'matched' || p.status === 'closed';
- const statusBadge = isClosed ? 'Closed / የተዘጋ' : 'Open / ክፍት';
- text += `<b>Roommate #${p.display_code}</b> · ${statusBadge}\n• <code>${(p.locations || []).join(', ') || 'Addis Ababa'}</code>\n• <code>${Number(p.budget_max || p.budget_min || 0).toLocaleString()} ETB/month</code>\n\n`;
+ const code = String(p.display_code || `RM${String(p.id).slice(0, 6)}`).toUpperCase().replace(/^#/, '');
+ seenCodes.add(code);
+ const { isClosed, badge } = formatListingStatusBadge(p.status, p.onboarding_step);
+ const kindLabel = code.startsWith('SPMARWR') ? 'Space' : 'Roommate';
+ text += `<b>${kindLabel} #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((p.locations || []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${Number(p.budget_max || p.budget_min || 0).toLocaleString()} ETB/mo\n\n`;
  if (!isClosed) {
- buttons.push([{ text: `Mark #${p.display_code} as Closed / ማስታወቂያውን ዝጋ`, callback_data: `user_close_listing:${p.id}` }]);
+ buttons.push([
+   { text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${p.id}` },
+   { text: `Delete #${code} / አጥፋ`, callback_data: `user_delete_listing:${code}` },
+ ]);
  }
  }
  }
- } catch {}
-
- try {
- const { data: rmList } = await supabaseAdmin
- .from('roommate_profiles')
- .select('*')
- .eq('user_telegram_id', chatId)
- .limit(5);
 
  if (rmList && rmList.length > 0) {
  for (const rm of rmList) {
- const code = rm.display_code || `RM${rm.id.slice(0, 4)}`;
- if (seenCodes.has(String(code).toUpperCase())) continue;
+ const code = String(rm.display_code || `RM${rm.id.slice(0, 4)}`).toUpperCase().replace(/^#/, '');
+ if (seenCodes.has(code)) continue;
+ seenCodes.add(code);
  count++;
- const isClosed = rm.status === 'matched' || rm.status === 'closed';
- const statusBadge = isClosed ? 'Closed / የተዘጋ' : 'Open / ክፍት';
- text += `<b>Seeker Listing #${code}</b> · ${statusBadge}\n• <code>${(rm.preferred_subcity || []).join(', ')}</code>\n• <code>${Number(rm.budget_max || 0).toLocaleString()} ETB/month</code>\n\n`;
+ const { isClosed, badge } = formatListingStatusBadge(rm.status);
+ text += `<b>Seeker Listing #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((rm.preferred_subcity || []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${Number(rm.budget_max || 0).toLocaleString()} ETB/mo\n\n`;
  if (!isClosed) {
- buttons.push([{ text: `Mark #${code} as Closed / ማስታወቂያውን ዝጋ`, callback_data: `user_close_listing:${rm.id}` }]);
+ buttons.push([
+   { text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${rm.id}` },
+   { text: `Delete #${code} / አጥፋ`, callback_data: `user_delete_listing:${rm.id}` },
+ ]);
+ }
+ }
+ }
+
+ if (allDrafts) {
+ for (const d of Object.values(allDrafts) as any[]) {
+ if (!d || Number(d.user_telegram_id) !== chatId) continue;
+ const code = String(d.display_code || d.id || '').toUpperCase().replace(/^#/, '');
+ if (!code || seenCodes.has(code)) continue;
+ seenCodes.add(code);
+ count++;
+ const { isClosed, badge } = formatListingStatusBadge(d.status);
+ const kindLabel = d.listing_category === 'space_available' || code.startsWith('SPMARWR') ? 'Space Listing' : 'Seeker Draft';
+ text += `<b>${kindLabel} #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((Array.isArray(d.preferred_subcity) ? d.preferred_subcity : []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${Number(d.space_share || d.budget_max || 0).toLocaleString()} ETB/mo\n\n`;
+ if (!isClosed) {
+ buttons.push([
+   { text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${code}` },
+   { text: `Delete #${code} / አጥፋ`, callback_data: `user_delete_listing:${code}` },
+ ]);
  }
  }
  }
  } catch {}
 
  if (count === 0) {
- text += `<blockquote>You do not have any open listings yet. Post your profile to broadcast to the channel! / እስካሁን ምንም ክፍት ማስታወቂያ የለዎትም። መረጃዎን በመለጠፍ ቻናሉ ላይ ያሰራጩ!</blockquote>\n\n`;
+ text += `<blockquote>You do not have any listings yet. Post your profile or space to broadcast to the channel! / እስካሁን ምንም ማስታወቂያ የለዎትም። መረጃዎን በመለጠፍ ቻናሉ ላይ ያሰራጩ!</blockquote>\n\n`;
       // Hero CTA on Top
-      buttons.push([{ text: 'Post Seeker Profile / መረጃዬን ልለጥፍ', callback_data: 'seeker_flow' }]);
+      buttons.push([{ text: 'Post Profile or Space / መረጃ ልለጥፍ', callback_data: 'post_profile_start' }]);
     }
+
+    buttons.push([{ text: 'Unlocked Contacts / የተከፈቱ አድራሻዎች', callback_data: 'my_unlocked_contacts' }]);
 
     // Strict Grid Symmetry: 2-Column Action Grid
     buttons.push([
-      { text: 'Find Roommates / የቤት አጋር ፈልግ >', callback_data: 'matchmaker_start' },
+      { text: 'Find Roommates / የቤት አጋር ፈልግ >', callback_data: 'search_roommate_start' },
       { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
     ]);
 
@@ -4304,7 +4613,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
           isMember: mem.isActive,
           daysRemaining: mem.daysRemaining,
         });
-        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, text.trim(), buttons);
+        const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, truncateTelegramHtml(text.trim(), 1024), buttons);
         if (photoRes?.ok && photoRes.result?.message_id) {
           cardMessageId = photoRes.result.message_id;
         }
@@ -5040,6 +5349,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  for (const p of appProfiles) {
  if (p.telegram_id && String(p.telegram_id) === String(chatId)) continue;
+ if (p.display_code && String(p.display_code).toUpperCase().startsWith('SPMARWR')) continue;
  if (p.status !== 'active' || (!p.gender && !p.roommate_traits)) continue;
  if (!registerSeen(p.id, p.telegram_id, p.display_code)) continue;
  const meta = parseTraitMeta(p.roommate_traits);
@@ -5089,6 +5399,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  for (const d of localDrafts) {
  if (d.user_telegram_id && String(d.user_telegram_id) === String(chatId)) continue;
  if (d.status !== 'approved') continue;
+ if (d.listing_category === 'space_available' || (d.display_code && String(d.display_code).toUpperCase().startsWith('SPMARWR'))) continue;
  if (!registerSeen(d.id, d.user_telegram_id, d.display_code)) continue;
  const meta = parseTraitMeta(d.lifestyle_bio);
  allProfiles.push({
@@ -5112,8 +5423,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  // Check empty state
  if (allProfiles.length === 0) {
- const emptyText = `<b>No Roommate Profiles Yet / ምንም የቤት አጋር አልተገኘም</b>
-<b>ምንም የክፍል ጓደኛ አልተገኘም</b>
+ const emptyText = `<b>No Roommate Profiles Yet / ምንም የክፍል ጓደኛ አልተገኘም</b>
 <blockquote>There are currently no other open roommate listings in our database.
 በአሁኑ ሰዓት በመረጃ ቋታችን ውስጥ ምንም ክፍት የሆነ የክፍል ጓደኛ ማስታወቂያ የለም።</blockquote>
 <b>Be Featured on Our Channel / በቻናላችን ላይ ይለጠፉ</b>
@@ -5122,7 +5432,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  `.trim();
 
  const emptyKeyboardRows = [
- [{ text: 'Post My Seeker Profile / የኔን መረጃ ቻናል ላይ ልለጥፍ', callback_data: 'seeker_flow' }],
+ [{ text: 'Post My Seeker Profile / የኔን መረጃ ቻናል ላይ ልለጥፍ', callback_data: 'post_branch_seeker' }],
  [{ text: 'Try Again / እንደገና ሞክር', callback_data: 'matchmaker_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
@@ -5133,6 +5443,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  // Filter strictly compatible profiles first, then rank by Match Score
  const isBrowseAll = Boolean((criteria as any).browse_all);
+ const isAllSubcitiesSelected = ALL_SUBCITIES.length > 0 && ALL_SUBCITIES.every((s) => preferredSubs.includes(s));
  const filteredProfiles = allProfiles.filter((prof) => {
  if (!isBrowseAll) {
  if (prefGender !== 'Any' && prof.my_gender && !['member', 'any'].includes(String(prof.my_gender).toLowerCase())) {
@@ -5142,10 +5453,14 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  const gChk = checkGenderPreferenceMatch(prof.preferred_gender, prof.lifestyle_bio, myGender);
  if (!gChk.allowed) return false;
  }
- if (preferredSubs.length > 0) {
+ if (preferredSubs.length > 0 && !isAllSubcitiesSelected) {
  const profSubs: string[] = Array.isArray(prof.preferred_subcity) ? prof.preferred_subcity : [];
  const hasSubOverlap = preferredSubs.some((s) =>
- profSubs.some((ps) => ps.toLowerCase() === s.toLowerCase())
+ profSubs.some((ps) => {
+   const a = ps.trim().toLowerCase();
+   const b = s.trim().toLowerCase();
+   return a === b || a.includes(b) || b.includes(a);
+ })
  );
  if (!hasSubOverlap && !profSubs.some((ps) => ps.toLowerCase().includes('addis ababa'))) return false;
  }
@@ -5212,7 +5527,6 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  if (scoredMatches.length === 0) {
  const noMatchesText = `<b>No Exact Matches Found / ምንም ተዛማጅ አልተገኘም</b>
-<b>ምንም ተዛማጅ አልተገኘም</b>
 <blockquote>We could not find an exact match for your selected filters in those specific sub-cities right now.
 በመረጧቸው ክፍለ ከተሞች እና መስፈርቶች መሰረት በአሁኑ ሰዓት ምንም ተዛማጅ ሰው አልተገኘም።</blockquote>
 
@@ -5221,7 +5535,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  const noMatchesKeyboardRows = [
  [{ text: 'Browse All Open Seekers / ሁሉንም ክፍት ፈላጊዎች እይ', callback_data: 'match_browse_all' }],
- [{ text: 'Post My Seeker Profile / የኔን መረጃ ልለጥፍ', callback_data: 'seeker_flow' }],
+ [{ text: 'Post My Seeker Profile / የኔን መረጃ ልለጥፍ', callback_data: 'post_branch_seeker' }],
  [{ text: 'Change Filters / መስፈርቶችን ቀይር', callback_data: 'matchmaker_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
@@ -5309,7 +5623,10 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  ) => {
  // Universal Gate 1: Fayda Verification required before connecting or unlocking contact info
  if (!(await isUserFaydaVerified(chatId))) {
- await sendFaydaGateCard(chatId, 'unlock verified contact information', messageIdToEdit);
+ await sendFaydaGateCard(chatId, 'unlock verified contact information', messageIdToEdit, {
+   return_flow: 'unlock_contact',
+   return_meta: { targetId, targetType },
+ });
  return;
  }
 
@@ -5399,6 +5716,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  if (['rented', 'archived', 'closed', 'matched'].includes(String(dbSpace.status || '').toLowerCase())) {
  targetClosed = true;
  }
+ if (!targetPreferredGender && dbSpace.preferred_tenant_gender) targetPreferredGender = dbSpace.preferred_tenant_gender;
  bioInfo = dbSpace.description || '';
  hostName = dbSpace.contact_name || dbSpace.title || 'Verified Space Host';
  hostPhone = dbSpace.contact_phone || '';
@@ -5414,6 +5732,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  if (['archived', 'rejected', 'rented', 'closed'].includes(String(spaceDraft.status || '').toLowerCase())) {
  targetClosed = true;
  }
+ if (!targetPreferredGender && spaceDraft.preferred_tenant_gender) targetPreferredGender = spaceDraft.preferred_tenant_gender;
  if (!bioInfo && spaceDraft.description) bioInfo = spaceDraft.description;
  if (!hostTgId && spaceDraft.homeowner_telegram_id) hostTgId = spaceDraft.homeowner_telegram_id;
  if (!hostUsername && spaceDraft.homeowner_username) hostUsername = spaceDraft.homeowner_username;
@@ -5465,14 +5784,39 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  return;
  }
 
- // Gender preference check before sending or paying
+ if (!canonicalProfileId && !hostTgId && !codeForNotice && !bioInfo) {
+ await sendOrEditCard(
+ chatId,
+ `<b>Listing Not Found / ማስታወቂያው አልተገኘም</b>\n\n<blockquote>This listing could not be found or has been removed.\nይህ ማስታወቂያ አልተገኘም ወይም ተሰርዟል።</blockquote>`,
+ [[{ text: 'Browse Open Matches / ሌሎችን እይ', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
+ messageIdToEdit
+ );
+ return;
+ }
+
+ if (hostTgId && String(hostTgId) === String(chatId)) {
+ await sendOrEditCard(
+ chatId,
+ `<b>Own Listing / የራስዎ ማስታወቂያ</b>\n\n<blockquote>You cannot unlock or send a request to your own listing.\nለራስዎ ማስታወቂያ ጥያቄ መላክ አይችሉም።</blockquote>`,
+ [[{ text: 'My Listings / ማስታወቂያዎቼ', callback_data: 'my_listings' }], [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
+ messageIdToEdit
+ );
+ return;
+ }
+
+ // Gender preference check BEFORE sending or paying
  const { data: requesterProf } = await supabaseAdmin
  .from('profiles')
  .select('gender')
  .eq('telegram_id', chatId)
  .maybeSingle();
 
- if (requesterProf?.gender) {
+ if (!requesterProf?.gender || requesterProf.gender === 'Member') {
+ // Need a brief seeker profile before checking/unlocking (so they don't pay 100 ETB and get blocked later!)
+ await routeNextMissingSeekerStep(chatId, { target_id: canonicalProfileId || targetId, target_code: codeForNotice }, messageIdToEdit);
+ return;
+ }
+
  const genderCheck = checkGenderPreferenceMatch(
  targetPreferredGender,
  bioInfo,
@@ -5490,7 +5834,6 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  );
  await sendOrEditCard(chatId, mismatchText, mismatchKb, messageIdToEdit);
  return;
- }
  }
 
  // Universal Gate 2: Mandatory 100 ETB 3-Month Membership Pass
@@ -5535,6 +5878,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  telegram_id: hostTelegramId,
  display_code: safeDisplayCode,
  gender: 'Any',
+ preferred_gender: targetPreferredGender || 'Any',
  locations: [hostSubcity],
  budget_min: 0,
  budget_max: hostBudget,
@@ -6098,6 +6442,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  telegram_id: syntheticTgId,
  display_code: displayCode,
  gender: draft.gender || 'Any',
+ preferred_gender: prefGenderStr,
  locations: subcities,
  budget_min: 0,
  budget_max: budgetNum,
@@ -6258,17 +6603,21 @@ ${res.message}
 
  if (callbackData === 'post_branch_space') {
  if (!(await isUserFaydaVerified(chatId))) {
- await sendFaydaGateCard(chatId, 'post your room / space listing', msgId);
+ await sendFaydaGateCard(chatId, 'post your room / space listing', msgId, { return_flow: 'post_space' });
  return NextResponse.json({ ok: true });
  }
  const session = getSession(chatId);
- await sendSpaceStep1Type(chatId, { ...session.draft_data, mode: 'post_space' }, msgId);
+ await sendSpaceStep1Type(chatId, buildCleanFlowDraft(chatId, session.draft_data, { mode: 'post_space', card_msg_id: msgId }), msgId);
  return NextResponse.json({ ok: true });
  }
 
  if (callbackData === 'post_branch_seeker') {
+ if (!(await isUserFaydaVerified(chatId))) {
+ await sendFaydaGateCard(chatId, 'post your roommate seeker profile', msgId, { return_flow: 'post_seeker' });
+ return NextResponse.json({ ok: true });
+ }
  const session = getSession(chatId);
- await sendDynamicCardStep1Age(chatId, { ...session.draft_data, mode: 'post_to_channel', listing_category: 'seeker' }, msgId);
+ await sendDynamicCardStep1Age(chatId, buildCleanFlowDraft(chatId, session.draft_data, { mode: 'post_to_channel', listing_category: 'seeker', card_msg_id: msgId }), msgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -6371,13 +6720,19 @@ ${res.message}
  const subcity = callbackData.replace('space_subcity:', '');
  const session = getSession(chatId);
  const updatedDraft = { ...session.draft_data, preferred_subcity: [subcity], location: subcity };
- await sendSpaceStep9Photos(chatId, updatedDraft, msgId);
+ await sendSpaceStep2Rent(chatId, updatedDraft, msgId);
  return NextResponse.json({ ok: true });
  }
 
  if (callbackData === 'space_back_to_subcity') {
  const session = getSession(chatId);
- await sendSpaceStep8Subcity(chatId, session.draft_data, msgId);
+ await sendSpaceStep2Location(chatId, session.draft_data, msgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData === 'space_back_to_photos') {
+ const session = getSession(chatId);
+ await sendSpaceStep9Photos(chatId, session.draft_data, msgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -6399,16 +6754,12 @@ ${res.message}
  }
 
  if (callbackData.startsWith('space_submit_admin:')) {
- if (!(await isUserFaydaVerified(chatId))) {
- await sendFaydaGateCard(chatId, 'verify Fayda before submitting your space listing', msgId);
- return NextResponse.json({ ok: true });
- }
+ const session = getSession(chatId);
+ const draft = session.draft_data || {};
  let cleanCode = (callbackData.split(':')[1] || '').trim().replace(/^#/, '');
  if (!cleanCode || cleanCode.startsWith('RM') || !cleanCode.toUpperCase().startsWith('SPMARWR')) {
  cleanCode = await getNextSpmarbrCode('space_available');
  }
- const session = getSession(chatId);
- const draft = session.draft_data || {};
  const subcity = draft.preferred_subcity?.[0] || draft.location || 'Addis Ababa';
  const rentNum = Number(draft.space_rent || 0);
  const shareNum = Number(draft.space_share || 0);
@@ -6428,6 +6779,15 @@ ${res.message}
  desc: draft.preferred_roommate || draft.roommate_traits || draft.description,
  age: draft.age || 24,
  };
+
+ if (!(await isUserFaydaVerified(chatId))) {
+ await sendFaydaGateCard(chatId, 'verify Fayda before submitting your space listing', msgId, {
+   return_flow: 'submit_space',
+   membership_purpose: 'post_channel',
+   membership_metadata: { ...meta, category: 'space_available', isSpace: true },
+ });
+ return NextResponse.json({ ok: true });
+ }
 
  const userLang = getUserLanguage(chatId);
  const isAm = userLang === 'am';
@@ -6454,14 +6814,167 @@ ${res.message}
  callbackData === 'execute_matchmaking'
  ) {
  const session = getSession(chatId);
- await sendMatchmakerSubcityStep(chatId, { ...session.draft_data, mode: 'search_roommate' }, msgId);
+ const { data: savedProf } = await supabaseAdmin
+   .from('profiles')
+   .select('*')
+   .eq('telegram_id', chatId)
+   .maybeSingle();
+
+ const hasSavedCriteria = Boolean(
+   savedProf &&
+   savedProf.gender &&
+   savedProf.gender !== 'Member' &&
+   savedProf.age &&
+   savedProf.religion &&
+   savedProf.job &&
+   savedProf.preferred_gender &&
+   Array.isArray(savedProf.locations) &&
+   savedProf.locations.length > 0
+ );
+
+ if (hasSavedCriteria && savedProf) {
+   const savedDraft = buildCleanFlowDraft(chatId, session.draft_data, {
+     mode: 'search_roommate',
+     match_subcities: savedProf.locations,
+     preferred_subcity: savedProf.locations,
+     my_gender: savedProf.gender,
+     gender: savedProf.gender,
+     age: savedProf.age,
+     religion: savedProf.religion,
+     job: savedProf.job,
+     preferred_gender: savedProf.preferred_gender,
+     budget_max: savedProf.budget_max ?? 0,
+     roommate_traits: savedProf.roommate_traits,
+     lifestyle_bio: savedProf.roommate_traits,
+     interstitial_seen: true,
+     card_msg_id: msgId,
+   });
+   await saveSession({ telegram_id: chatId, step: 'matchmaker_saved_prompt', draft_data: savedDraft, updated_at: new Date().toISOString() }, true);
+   const savedAreasStr = savedProf.locations.join(', ');
+   const savedBudgetStr = Number(savedProf.budget_max || 0) > 0 ? `${Number(savedProf.budget_max).toLocaleString()} ETB/mo` : 'Any Budget';
+   await sendOrEditCard(
+     chatId,
+     `<b>Search Roommate / የቤት አጋር ፈልግ</b>\n\n<blockquote>We found your saved profile & preferences:\n• <b>Areas / አካባቢ:</b> <b>${escapeHtml(savedAreasStr)}</b>\n• <b>Budget / በጀት:</b> <b>${escapeHtml(savedBudgetStr)}</b>\n• <b>Looking For / ምርጫ:</b> <b>${escapeHtml(savedProf.preferred_gender)}</b>\n\nበተቀመጠው መረጃዎ ወዲያውኑ ይፈልጉ ወይም መስፈርቶችዎን ያሻሽሉ:</blockquote>`,
+     [
+       [{ text: 'Search with Saved Preferences / በተቀመጠው መረጃ ፈልግ >', callback_data: 'match_use_saved_profile' }],
+       [{ text: 'Edit Search Filters / መስፈርቶችን አሻሽል', callback_data: 'match_edit_filters' }],
+       [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+     ],
+     msgId
+   );
+   return NextResponse.json({ ok: true });
+ }
+
+ await sendMatchmakerSubcityStep(chatId, buildCleanFlowDraft(chatId, session.draft_data, { mode: 'search_roommate', card_msg_id: msgId }), msgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData === 'match_use_saved_profile') {
+ const session = getSession(chatId);
+ await saveSession({
+   telegram_id: chatId,
+   step: 'matchmaker_results',
+   draft_data: session.draft_data,
+   updated_at: new Date().toISOString(),
+ }, true);
+ await executeAutomatedMatchmaker(chatId, session.draft_data, msgId, 0);
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData === 'match_edit_filters') {
+ const session = getSession(chatId);
+ await sendMatchmakerSubcityStep(chatId, buildCleanFlowDraft(chatId, session.draft_data, { mode: 'search_roommate', card_msg_id: msgId }), msgId);
  return NextResponse.json({ ok: true });
  }
 
  if (callbackData.startsWith('search_unlock_contact:')) {
  const targetProfileId = callbackData.split(':')[1];
+ const session = getSession(chatId);
+ const existingDraft = session?.draft_data || {};
 
- // Mandatory 100 ETB Pass Gate (Invariant 8)
+ // Universal Eligibility & Fayda Gate BEFORE charging 100 ETB Pass (Decision #1)
+ const [isVerified, { data: myProfile }, { data: targetRow }] = await Promise.all([
+ isUserFaydaVerified(chatId),
+ supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle(),
+ /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetProfileId)
+   ? supabaseAdmin.from('profiles').select('*').eq('id', targetProfileId).maybeSingle()
+   : supabaseAdmin.from('profiles').select('*').ilike('display_code', targetProfileId.replace(/^#/, '')).maybeSingle(),
+ ]);
+
+ let resolvedTarget = targetRow;
+ if (!resolvedTarget && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetProfileId)) {
+   const { data: rmRow } = await supabaseAdmin.from('roommate_profiles').select('*').eq('id', targetProfileId).maybeSingle();
+   if (rmRow) {
+     resolvedTarget = {
+       id: rmRow.id,
+       telegram_id: rmRow.user_telegram_id,
+       preferred_gender: rmRow.preferred_gender,
+       roommate_traits: rmRow.lifestyle_bio,
+       status: rmRow.status,
+       display_code: rmRow.display_code,
+     };
+   }
+ }
+ if (!resolvedTarget) {
+   const dTarget = await getRoommateDraft(targetProfileId.replace(/^#/, ''));
+   if (dTarget) {
+     resolvedTarget = {
+       id: dTarget.id,
+       telegram_id: dTarget.user_telegram_id,
+       preferred_gender: dTarget.preferred_gender,
+       roommate_traits: dTarget.lifestyle_bio,
+       status: dTarget.status,
+       display_code: dTarget.display_code,
+     };
+   }
+ }
+
+ if (resolvedTarget && ['matched', 'closed', 'archived', 'rejected', 'rented'].includes(String(resolvedTarget.status || '').toLowerCase())) {
+   await sendOrEditCard(
+     chatId,
+     `<b>Listing Closed / ማስታወቂያው ተዘግቷል</b>\n\n<blockquote>This roommate listing is already closed or matched.\nይህ ማስታወቂያ ቀድሞውኑ ተዘግቷል።</blockquote>`,
+     [[{ text: 'Browse Open Matches / ሌሎችን እይ', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
+     msgId
+   );
+   return NextResponse.json({ ok: true });
+ }
+
+ if (resolvedTarget?.telegram_id && String(resolvedTarget.telegram_id) === String(chatId)) {
+   await sendOrEditCard(
+     chatId,
+     `<b>Own Listing / የራስዎ ማስታወቂያ</b>\n\n<blockquote>You cannot send a connection request to yourself.\nለራስዎ ማስታወቂያ ጥያቄ መላክ አይችሉም።</blockquote>`,
+     [[{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
+     msgId
+   );
+   return NextResponse.json({ ok: true });
+ }
+
+ if (!isVerified) {
+ await sendFaydaGateCard(chatId, 'verify your National ID before connecting with roommates', msgId, {
+   return_flow: 'search_unlock_contact',
+   return_meta: { targetProfileId },
+ });
+ return NextResponse.json({ ok: true });
+ }
+
+ const effectiveGender = myProfile?.gender || existingDraft.my_gender || existingDraft.gender;
+ if (resolvedTarget && effectiveGender && effectiveGender !== 'Member') {
+   const gCheck = checkGenderPreferenceMatch(resolvedTarget.preferred_gender, resolvedTarget.roommate_traits, effectiveGender);
+   if (!gCheck.allowed) {
+     const isAm = getUserLanguage(chatId) === 'am';
+     const { text: mismatchText, keyboard: mismatchKb } = getGenderMismatchCard(
+       isAm,
+       resolvedTarget.display_code || targetProfileId,
+       gCheck.targetPrefFormattedEn,
+       gCheck.targetPrefFormattedAm,
+       effectiveGender
+     );
+     await sendOrEditCard(chatId, mismatchText, mismatchKb, msgId);
+     return NextResponse.json({ ok: true });
+   }
+ }
+
+ // Mandatory 100 ETB Pass Gate (Invariant 8 - checked AFTER eligibility & Fayda)
  const memCheck = await getUserMembershipStatus(chatId);
  if (!memCheck.isActive) {
  await sendMembershipPaywallCard(
@@ -6473,26 +6986,13 @@ ${res.message}
  return NextResponse.json({ ok: true });
  }
 
- // 1. Check if requester is Fayda verified and has profile (Parallelized for maximum speed)
- const [isVerified, { data: myProfile }] = await Promise.all([
- isUserFaydaVerified(chatId),
- supabaseAdmin
- .from('profiles')
- .select('*')
- .eq('telegram_id', chatId)
- .maybeSingle(),
- ]);
-
- const session = getSession(chatId);
- const existingDraft = session?.draft_data || {};
-
  // Seed draft from user's existing search criteria and profile so nothing is discarded
  const seededDraft: Record<string, any> = {
  ...existingDraft,
  target_id: targetProfileId,
  age: myProfile?.age || existingDraft.age,
- gender: myProfile?.gender || existingDraft.my_gender || existingDraft.gender,
- my_gender: myProfile?.gender || existingDraft.my_gender || existingDraft.gender,
+ gender: effectiveGender,
+ my_gender: effectiveGender,
  preferred_gender: myProfile?.preferred_gender || existingDraft.preferred_gender,
  budget_max: (myProfile?.budget_max !== undefined && myProfile?.budget_max !== null)
  ? myProfile.budget_max
@@ -6505,17 +7005,15 @@ ${res.message}
  : (existingDraft.preferred_subcity && existingDraft.preferred_subcity.length > 0)
  ? existingDraft.preferred_subcity
  : ['Bole'],
- religion: myProfile?.religion || existingDraft.religion,
- job: myProfile?.job || existingDraft.job,
+ religion: myProfile?.religion || existingDraft.religion || 'Any',
+ job: myProfile?.job || existingDraft.job || 'Member',
  roommate_traits: myProfile?.roommate_traits || existingDraft.roommate_traits || existingDraft.lifestyle_bio,
  interstitial_seen: true,
  };
 
- const hasCompleteProfile = !!(
- (myProfile?.religion || existingDraft.religion) &&
- (myProfile?.job || existingDraft.job) &&
+ const hasCompleteProfile = Boolean(
  (myProfile?.preferred_gender || existingDraft.preferred_gender) &&
- (myProfile?.gender || existingDraft.my_gender || existingDraft.gender) &&
+ (effectiveGender && effectiveGender !== 'Member') &&
  (myProfile?.age || existingDraft.age)
  );
 
@@ -6524,7 +7022,7 @@ ${res.message}
  const syntheticCallback = `confirm_match:${targetProfileId}`;
  callbackData = syntheticCallback;
  } else {
- // Seeded profile draft routes directly to Fayda or DB save without re-asking completed search prompts
+ // Seeded profile draft saves to DB & sends match request cleanly
  await routeNextMissingSeekerStep(chatId, seededDraft, msgId, callback.from);
  return NextResponse.json({ ok: true });
  }
@@ -6548,12 +7046,10 @@ ${res.message}
  return NextResponse.json({ ok: true });
  }
  const primaryCh = await getPrimaryChannel();
- await executeChannelPostClose(targetCode, chatId);
- const closeMsg = `<b>Listing Marked as Closed / ማስታወቂያው ተዘግቷል</b>
-
-<blockquote>System Notification · ${escapeHtml(primaryCh)}
-Post <b>#${escapeHtml(targetCode)}</b> has been updated on channel with red banner and all contact buttons removed. Your direct contact details are safe.\n\nማስታወቂያ <b>#${escapeHtml(targetCode)}</b> በቻናሉ ላይ ተዘግቷል፤ የግንኙነት ቁልፎችም ተነስተዋል።</blockquote>
- `.trim();
+ const closeRes = await executeChannelPostClose(targetCode, chatId);
+ const closeMsg = closeRes.success
+ ? `<b>Listing Marked as Closed / ማስታወቂያው ተዘግቷል</b>\n\n<blockquote>System Notification · ${escapeHtml(primaryCh)}\nPost <b>#${escapeHtml(targetCode)}</b> has been updated on channel with red banner and all contact buttons removed. Your direct contact details are safe.\n\nማስታወቂያ <b>#${escapeHtml(targetCode)}</b> በቻናሉ ላይ ተዘግቷል፤ የግንኙነት ቁልፎችም ተነስተዋል።</blockquote>`
+ : `<b>Listing Marked Closed in App / ማስታወቂያው ተዘግቷል</b>\n\n<blockquote>Listing <b>#${escapeHtml(targetCode)}</b> is now closed for new requests, though the channel post could not be edited (${escapeHtml(closeRes.message || 'no channel message')}).\n\nማስታወቂያ <b>#${escapeHtml(targetCode)}</b> ተዘግቷል።</blockquote>`;
 
  await sendOrEditCard(
  chatId,
@@ -6612,6 +7108,37 @@ Post <b>#${escapeHtml(targetCode)}</b> has been updated on channel with red bann
  const gender = callbackData.split(':')[1];
  const session = getSession(chatId);
  const updatedDraft: Record<string, any> = { ...session.draft_data, gender, my_gender: gender };
+
+ // Decision #1: Fail fast on gender mismatch during /start req_... right after Step 2 instead of Step 9
+ if (updatedDraft.target_id || updatedDraft.target_code) {
+   try {
+     let tProf: any = null;
+     if (updatedDraft.target_id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(updatedDraft.target_id))) {
+       const { data } = await supabaseAdmin.from('profiles').select('display_code, preferred_gender, roommate_traits').eq('id', updatedDraft.target_id).maybeSingle();
+       tProf = data;
+     }
+     if (!tProf && updatedDraft.target_code) {
+       const { data } = await supabaseAdmin.from('profiles').select('display_code, preferred_gender, roommate_traits').ilike('display_code', String(updatedDraft.target_code).replace(/^#/, '')).maybeSingle();
+       tProf = data;
+     }
+     if (tProf) {
+       const gChk = checkGenderPreferenceMatch(tProf.preferred_gender, tProf.roommate_traits, gender);
+       if (!gChk.allowed) {
+         const { text: mismatchText, keyboard: mismatchKb } = getGenderMismatchCard(
+           false,
+           tProf.display_code || updatedDraft.target_code || 'Listing',
+           gChk.targetPrefFormattedEn,
+           gChk.targetPrefFormattedAm,
+           gender
+         );
+         await sendOrEditCard(chatId, mismatchText, mismatchKb, msgId);
+         await clearSession(chatId);
+         return NextResponse.json({ ok: true });
+       }
+     }
+   } catch {}
+ }
+
  if (!updatedDraft.religion) {
  await sendDynamicCardStep3Religion(chatId, updatedDraft, msgId);
  } else {
@@ -6635,13 +7162,13 @@ Post <b>#${escapeHtml(targetCode)}</b> has been updated on channel with red bann
  if (callbackData.startsWith('dyn_sub_toggle:')) {
  const sub = callbackData.split(':')[1];
  const session = getSession(chatId);
- const currentList: string[] = session.draft_data.preferred_subcity || ['Bole'];
+ const currentList: string[] = Array.isArray(session.draft_data.preferred_subcity) ? session.draft_data.preferred_subcity : [];
  const newList = currentList.includes(sub)
  ? currentList.filter((s) => s !== sub)
  : [...currentList, sub];
  const updatedDraft = {
  ...session.draft_data,
- preferred_subcity: newList.length > 0 ? newList : [sub],
+ preferred_subcity: newList,
  };
  await sendDynamicCardStep8Subcities(chatId, updatedDraft, msgId);
  return NextResponse.json({ ok: true });
@@ -6649,19 +7176,36 @@ Post <b>#${escapeHtml(targetCode)}</b> has been updated on channel with red bann
 
  if (callbackData === 'dyn_sub_all') {
  const session = getSession(chatId);
- const updatedDraft = { ...session.draft_data, preferred_subcity: [...ALL_SUBCITIES] };
- await sendPreferencesRegistrationSuccessCard(chatId, updatedDraft, msgId);
+ const currentList: string[] = Array.isArray(session.draft_data.preferred_subcity) ? session.draft_data.preferred_subcity : [];
+ const allSelected = ALL_SUBCITIES.every((s) => currentList.includes(s));
+ const updatedDraft = {
+   ...session.draft_data,
+   preferred_subcity: allSelected ? [] : [...ALL_SUBCITIES],
+ };
+ await sendDynamicCardStep8Subcities(chatId, updatedDraft, msgId);
  return NextResponse.json({ ok: true });
  }
 
  if (callbackData === 'dyn_sub_proceed') {
  const session = getSession(chatId);
- const currentList = session.draft_data.preferred_subcity || ['Bole'];
- const updatedDraft = {
+ const currentList: string[] = Array.isArray(session.draft_data.preferred_subcity) ? session.draft_data.preferred_subcity : [];
+ if (currentList.length === 0) {
+   await sendTelegram('answerCallbackQuery', {
+     callback_query_id: callback.id,
+     text: 'Please select at least 1 area first / እባክዎ ቢያንስ 1 አካባቢ ይምረጡ።',
+     show_alert: true,
+   }).catch(() => {});
+   return NextResponse.json({ ok: true });
+ }
+ const updatedDraft: Record<string, any> = {
  ...session.draft_data,
- preferred_subcity: currentList.length > 0 ? currentList : ['Bole'],
+ preferred_subcity: currentList,
  };
- await sendPreferencesRegistrationSuccessCard(chatId, updatedDraft, msgId);
+ if (updatedDraft.edit_return_preview) {
+   await routeNextMissingSeekerStep(chatId, updatedDraft, msgId, callback.from);
+ } else {
+   await sendPreferencesRegistrationSuccessCard(chatId, updatedDraft, msgId);
+ }
  return NextResponse.json({ ok: true });
  }
 
@@ -6674,6 +7218,56 @@ Post <b>#${escapeHtml(targetCode)}</b> has been updated on channel with red bann
  } else {
  await sendDynamicCardStep9FaydaFan(chatId, updatedDraft, msgId);
  }
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData === 'dyn_back_to_interstitial') {
+ const session = getSession(chatId);
+ await sendPersonalRegistrationSuccessCard(chatId, session.draft_data, msgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData === 'dyn_edit_menu') {
+ const session = getSession(chatId);
+ await sendOrEditCard(
+   chatId,
+   `<b>Edit Profile Details / መረጃ አሻሽል</b>\n\n<blockquote>Choose which field you want to update:\nማስተካከል የሚፈልጉትን መረጃ ይምረጡ:</blockquote>`,
+   [
+     [
+       { text: 'Age / እድሜ', callback_data: 'dyn_edit_field:age' },
+       { text: 'Gender / ጾታ', callback_data: 'dyn_edit_field:gender' },
+     ],
+     [
+       { text: 'Religion / እምነት', callback_data: 'dyn_edit_field:religion' },
+       { text: 'Occupation / ሙያ', callback_data: 'dyn_edit_field:job' },
+     ],
+     [
+       { text: 'Budget / በጀት', callback_data: 'dyn_edit_field:budget' },
+       { text: 'Pref Gender / የአጋር ጾታ', callback_data: 'dyn_edit_field:pref_gender' },
+     ],
+     [
+       { text: 'Habits / መግለጫ', callback_data: 'dyn_edit_field:traits' },
+       { text: 'Areas / አካባቢዎች', callback_data: 'dyn_edit_field:subcities' },
+     ],
+     [{ text: 'Back to Review / ወደ ክለሳ ተመለስ', callback_data: 'dyn_pref_to_next' }],
+   ],
+   msgId
+ );
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData.startsWith('dyn_edit_field:')) {
+ const field = callbackData.split(':')[1];
+ const session = getSession(chatId);
+ const editDraft = { ...(session.draft_data || {}), edit_return_preview: true, card_msg_id: msgId };
+ if (field === 'age') await sendDynamicCardStep1Age(chatId, editDraft, msgId);
+ else if (field === 'gender') await sendDynamicCardStep2Gender(chatId, editDraft, msgId);
+ else if (field === 'religion') await sendDynamicCardStep3Religion(chatId, editDraft, msgId);
+ else if (field === 'job') await sendDynamicCardStep4Job(chatId, editDraft, msgId);
+ else if (field === 'budget') await sendDynamicCardStep5Budget(chatId, editDraft, msgId);
+ else if (field === 'pref_gender') await sendDynamicCardStep6PrefGender(chatId, editDraft, msgId);
+ else if (field === 'traits') await sendDynamicCardStep7Traits(chatId, editDraft, msgId);
+ else if (field === 'subcities') await sendDynamicCardStep8Subcities(chatId, editDraft, msgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -6716,7 +7310,7 @@ Post <b>#${escapeHtml(targetCode)}</b> has been updated on channel with red bann
  if (callbackData === 'dyn_card_to_preferences') {
  const session = getSession(chatId);
  const updatedDraft: Record<string, any> = { ...session.draft_data, interstitial_seen: true };
- if (!updatedDraft.budget_max) {
+ if (updatedDraft.budget_max === undefined || updatedDraft.budget_max === null || updatedDraft.budget_max === '') {
  await sendDynamicCardStep5Budget(chatId, updatedDraft, msgId);
  } else {
  await routeNextMissingSeekerStep(chatId, updatedDraft, msgId, callback.from);
@@ -6750,10 +7344,6 @@ Post <b>#${escapeHtml(targetCode)}</b> has been updated on channel with red bann
 
  // ── Roommate Profile Channel Submission & Admin Approval Workflow ────
  if (callbackData.startsWith('dyn_publish_channel:') || callbackData.startsWith('dyn_submit_channel:')) {
- if (!(await isUserFaydaVerified(chatId))) {
- await sendFaydaGateCard(chatId, 'verify Fayda before submitting your listing to the channel', msgId);
- return NextResponse.json({ ok: true });
- }
  const identifier = callbackData.split(':')[1] || '';
  const cleanCode = identifier.trim().replace(/^#/, '');
  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanCode);
@@ -6775,19 +7365,19 @@ Post <b>#${escapeHtml(targetCode)}</b> has been updated on channel with red bann
 
  const session = getSession(chatId);
  const draft = session.draft_data || {};
- let displayCode = (prof?.display_code || draft.display_code || cleanCode || '').replace(/^#/, '');
+ let displayCode = (draft.display_code || prof?.display_code || cleanCode || '').replace(/^#/, '');
  if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
  displayCode = await getNextSpmarbrCode('seeker');
  }
- const subcities = Array.isArray(prof?.locations) && prof.locations.length > 0
- ? prof.locations
- : (Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity : ['Addis Ababa']);
- const budgetNum = prof?.budget_max || draft.budget_max || 10000;
- const rawCandidate = (prof?.gender && prof?.gender !== 'Member' ? prof?.gender : draft.gender) || prof?.gender || 'Member';
+ const subcities = (Array.isArray(draft.preferred_subcity) && draft.preferred_subcity.length > 0)
+ ? draft.preferred_subcity
+ : (Array.isArray(prof?.locations) && prof.locations.length > 0 ? prof.locations : ['Addis Ababa']);
+ const budgetNum = draft.budget_max ?? prof?.budget_max ?? 10000;
+ const rawCandidate = (draft.gender && draft.gender !== 'Member' ? draft.gender : prof?.gender) || 'Member';
  const genderStr = rawCandidate;
- const prefGenderStr = prof?.preferred_gender || draft.preferred_gender || 'Any';
+ const prefGenderStr = draft.preferred_gender || prof?.preferred_gender || 'Any';
  const userAge = draft.age || prof?.age || 24;
- const rawBio = draft.description || draft.details || prof?.roommate_traits || draft.roommate_traits || draft.lifestyle_bio || '';
+ const rawBio = draft.description || draft.details || draft.roommate_traits || draft.lifestyle_bio || prof?.roommate_traits || '';
  const bioStr = extractUserDescription(rawBio) || rawBio || `Age ${userAge} · Seeking roommate in Addis Ababa.`;
 
  const meta = {
@@ -6800,6 +7390,15 @@ Post <b>#${escapeHtml(targetCode)}</b> has been updated on channel with red bann
  userAge,
  bioStr,
  };
+
+ if (!(await isUserFaydaVerified(chatId))) {
+ await sendFaydaGateCard(chatId, 'verify Fayda before submitting your listing to the channel', msgId, {
+   return_flow: 'submit_seeker',
+   membership_purpose: 'post_channel',
+   membership_metadata: meta,
+ });
+ return NextResponse.json({ ok: true });
+ }
 
  const userLang = getUserLanguage(chatId);
  const isAm = userLang === 'am';
@@ -6995,7 +7594,10 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  ]);
 
  if (!isVerified) {
- await sendFaydaGateCard(chatId, 'send mutual match requests', msgId);
+ await sendFaydaGateCard(chatId, 'send mutual match requests', msgId, {
+   return_flow: 'confirm_match',
+   return_meta: { targetProfileId },
+ });
  return NextResponse.json({ ok: true });
  }
 
@@ -7182,6 +7784,17 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  return NextResponse.json({ ok: true });
  }
 
+ const confirmTargetStatus = String(targetProfile.status || '').toLowerCase();
+ if (['matched', 'closed', 'archived', 'rejected', 'rented'].includes(confirmTargetStatus)) {
+ await sendOrEditCard(
+ chatId,
+ `<b>Listing Closed / ማስታወቂያው ተዘግቷል</b>\n\n<blockquote>This roommate or space listing is already closed/matched.\nይህ ማስታወቂያ ቀድሞውኑ ተዘግቷል።</blockquote>`,
+ [[{ text: 'Browse Open Matches / ሌሎችን እይ', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
+ msgId
+ );
+ return NextResponse.json({ ok: true });
+ }
+
  // Enforce gender preference
  const genderCheck = checkGenderPreferenceMatch(
  targetProfile.preferred_gender,
@@ -7296,9 +7909,11 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  .from('matches')
  .update({ status: 'pending_payment' })
  .eq('id', matchId);
- await tgSend(
+ await sendOrEditCard(
  chatId,
- `<b>Cannot Accept Connection Request / ጥያቄውን መቀበል አልተቻለም</b>\n\n<blockquote>The requesting roommate has not yet activated their 100 ETB 3-Month Membership Pass. Contacts cannot be revealed until their pass is active.\n\nይህንን ጥያቄ የላከው አባል እስካሁን የ100 ብር የአባልነት ፓስ ስላላጠናቀቀ አድራሻዎችን መክፈት አይቻልም።</blockquote>`
+ `<b>Waiting for Requester Pass / የጠያቂው ክፍያ እየተጠበቀ ነው</b>\n\n<blockquote>The requesting roommate has not yet activated their 100 ETB 3-Month Membership Pass. We have notified them to activate their pass—contacts will reveal automatically once they complete payment.\n\nይህንን ጥያቄ የላከው አባል እስካሁን የ100 ብር የአባልነት ፓስ ስላላጠናቀቀ አድራሻዎችን መክፈት አይቻልም። እንዲከፍል ማሳወቂያ ተልኮለታል።</blockquote>`,
+ [[{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
+ msgId
  );
  if (requesterTgId > 0) {
  const tCode = (match.target as any)?.display_code || 'Listing';
@@ -7331,9 +7946,20 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  await sendOrEditCard(
  chatId,
  `<b>Upload Payment Receipt / የክፍያ ደረሰኝ ይላኩ</b>\n\n<blockquote>📸 Send a clear screenshot of your Telebirr / CBE / Abyssinia / Dashen receipt right here in chat, OR send your transaction reference code (e.g. <code>DKM7J1EXAP</code> or <code>FT...</code>).\n\nየከፈሉበትን የደረሰኝ ስክሪንሽት ፎቶ በቀጥታ እዚህ ይላኩ፤ ወይም የግብይት ቁጥሩን ይጻፉ።</blockquote>`,
- [[{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
+ [
+   [{ text: 'Back to Payment Accounts / ወደ ክፍያ ቁጥሮች ተመለስ', callback_data: 'paywall_back' }],
+   [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+ ],
  msgId
  );
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData === 'paywall_back') {
+ const session = getSession(chatId);
+ const purpose = session?.draft_data?.membership_purpose === 'post_channel' ? 'post_channel' : 'connect_request';
+ const meta = session?.draft_data?.membership_metadata || { generalPass: true };
+ await sendMembershipPaywallCard(chatId, purpose, meta, msgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -7361,8 +7987,9 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  return NextResponse.json({ ok: true });
  } else {
  const session = getSession(chatId);
- const existingPurpose = session?.draft_data?.membership_purpose || 'connect_request';
- const existingMeta = session?.draft_data?.membership_metadata || { generalPass: true };
+ const isOngoingFlow = Boolean(session?.step && (session.step.startsWith('awaiting_payment_') || session.step === 'dyn_card_preview' || session.step === 'space_preview'));
+ const existingPurpose = isOngoingFlow && session?.draft_data?.membership_purpose ? session.draft_data.membership_purpose : 'connect_request';
+ const existingMeta = isOngoingFlow && session?.draft_data?.membership_metadata ? session.draft_data.membership_metadata : { generalPass: true };
  await sendMembershipPaywallCard(chatId, existingPurpose, existingMeta, msgId);
  return NextResponse.json({ ok: true });
  }
@@ -7437,6 +8064,18 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  }
 
  if (callbackData === 'why_fayda_id') {
+ const session = getSession(chatId);
+ const originReturn = session?.step === 'dyn_card_fayda_fan'
+   ? 'dyn_card_fayda_fan'
+   : session?.step === 'awaiting_standalone_fayda_fan'
+   ? 'standalone_gate'
+   : 'verify_fayda';
+ await saveSession({
+   telegram_id: chatId,
+   step: session?.step || 'idle',
+   draft_data: { ...(session?.draft_data || {}), why_fayda_return: originReturn, card_msg_id: msgId },
+   updated_at: new Date().toISOString(),
+ }, true);
  const text = `<b>Why Fayda ID? / ለምን ፋይዳ መታወቂያ አስፈለገ?</b>
 <blockquote>1. <b>Zero Fake Profiles & Delalas / ከአጭበርባሪ ደላላ ነፃ:</b>
 Every resident is cryptographically authenticated via National ID (RS256).
@@ -7451,9 +8090,24 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  await sendOrEditCard(
  chatId,
  text,
- [[{ text: 'Back / ተመለስ', callback_data: 'nav_start' }]],
+ [[{ text: 'Back / ተመለስ', callback_data: 'why_fayda_back' }], [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
  msgId
  );
+ return NextResponse.json({ ok: true });
+ }
+
+ if (callbackData === 'why_fayda_back') {
+ const session = getSession(chatId);
+ const ret = session?.draft_data?.why_fayda_return;
+ if (ret === 'dyn_card_fayda_fan') {
+   await sendDynamicCardStep9FaydaFan(chatId, session.draft_data, msgId);
+ } else if (ret === 'standalone_gate') {
+   await sendFaydaGateCard(chatId, session.draft_data?.target_action || 'verify your National ID', msgId);
+ } else if (await isUserFaydaVerified(chatId)) {
+   await sendVerifiedFaydaDossierCard(chatId, getLanguage(session?.draft_data, chatId), msgId);
+ } else {
+   await sendFaydaGateCard(chatId, 'verify your National ID', msgId);
+ }
  return NextResponse.json({ ok: true });
  }
 
@@ -7622,7 +8276,7 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  }
 
  if (callbackData === 'seeker_flow') {
- await sendDynamicCardStep1Age(chatId, { mode: 'post_to_channel' }, msgId);
+ await sendPostProfileBranchPrompt(chatId, msgId, callback.from);
  return NextResponse.json({ ok: true });
  }
 
@@ -7732,36 +8386,33 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  }
 
  // User Self-Close Channel Listing Callback
- if (callbackData.startsWith('user_close_listing:')) {
- const listingId = callbackData.split(':')[1];
- let displayCode = 'Listing';
+ if (callbackData.startsWith('user_close_listing:') || callbackData.startsWith('user_delete_listing:')) {
+ const isDelete = callbackData.startsWith('user_delete_listing:');
+ const listingKey = callbackData.split(':')[1];
+ const isUuidKey = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(listingKey);
+ let displayCode = !isUuidKey ? listingKey.toUpperCase().replace(/^#/, '') : 'Listing';
  let channelMsgId: number | undefined;
  const primaryChannel = await getPrimaryChannel();
 
  try {
- const { data: p } = await supabaseAdmin
- .from('profiles')
- .update({ status: 'matched' })
- .eq('id', listingId)
- .eq('telegram_id', chatId)
- .select('display_code, channel_message_id')
- .maybeSingle();
+ const pMatch = isUuidKey
+   ? supabaseAdmin.from('profiles').update({ status: 'matched' }).eq('id', listingKey).eq('telegram_id', chatId).select('display_code, channel_message_id').maybeSingle()
+   : supabaseAdmin.from('profiles').update({ status: 'matched' }).ilike('display_code', displayCode).eq('telegram_id', chatId).select('display_code, channel_message_id').maybeSingle();
+ const { data: p } = await pMatch;
  if (p) {
- displayCode = p.display_code || 'Listing';
+ displayCode = p.display_code || displayCode;
  channelMsgId = p.channel_message_id;
  }
  } catch {}
 
  try {
- const { data: rm } = await supabaseAdmin
- .from('roommate_profiles')
- .update({ status: 'archived', updated_at: new Date().toISOString() })
- .eq('id', listingId)
- .eq('user_telegram_id', chatId)
- .select('channel_message_id')
- .maybeSingle();
- if (rm?.channel_message_id) {
- channelMsgId = rm.channel_message_id;
+ const rmQ = isUuidKey
+   ? supabaseAdmin.from('roommate_profiles').update({ status: 'archived', updated_at: new Date().toISOString() }).eq('id', listingKey).eq('user_telegram_id', chatId).select('display_code, channel_message_id').maybeSingle()
+   : supabaseAdmin.from('roommate_profiles').update({ status: 'archived', updated_at: new Date().toISOString() }).ilike('display_code', displayCode).eq('user_telegram_id', chatId).select('display_code, channel_message_id').maybeSingle();
+ const { data: rm } = await rmQ;
+ if (rm) {
+ if (rm.display_code) displayCode = rm.display_code;
+ if (rm.channel_message_id) channelMsgId = rm.channel_message_id;
  }
  } catch {}
 
@@ -7770,30 +8421,31 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  await supabaseAdmin
  .from('pending_roommate_drafts')
  .update({ status: 'archived', updated_at: new Date().toISOString() })
- .ilike('display_code', displayCode);
+ .eq('user_telegram_id', chatId)
+ .or(`id.ilike.${displayCode},display_code.ilike.${displayCode}`);
  } catch {}
  }
 
+ let channelClosed = false;
  if (channelMsgId) {
  try {
- await updateChannelPostAsMatched(channelMsgId, displayCode, undefined, primaryChannel);
+ channelClosed = Boolean(await updateChannelPostAsMatched(channelMsgId, displayCode, undefined, primaryChannel));
  } catch (err) {
  console.error('Failed to update channel post:', err);
  }
  }
 
- const closedSuccessText = `<b>Listing Marked as Closed / ማስታወቂያው ተዘግቷል</b>
-
-<blockquote>System Notification · ${escapeHtml(primaryChannel)}
-Post <b>#${escapeHtml(displayCode)}</b> has been updated on channel with closed banner and contact buttons removed.\n\nማስታወቂያ <b>#${escapeHtml(displayCode)}</b> በቻናሉ ላይ ተዘግቷል፤ የግንኙነት ቁልፎችም ተነስተዋል።</blockquote>
- `.trim();
+ const actionTitle = isDelete ? 'Listing Removed / ማስታወቂያው ተሰርዟል' : 'Listing Marked as Closed / ማስታወቂያው ተዘግቷል';
+ const channelDetail = channelClosed
+ ? `Post <b>#${escapeHtml(displayCode)}</b> has been updated on ${escapeHtml(primaryChannel)} with closed banner and contact buttons removed.\n\nማስታወቂያ <b>#${escapeHtml(displayCode)}</b> በቻናሉ ላይ ተዘግቷል፤ የግንኙነት ቁልፎችም ተነስተዋል።`
+ : `Listing <b>#${escapeHtml(displayCode)}</b> has been closed and removed from active matches.\n\nማስታወቂያ <b>#${escapeHtml(displayCode)}</b> ተዘግቷል።`;
 
  await sendOrEditCard(
  chatId,
- closedSuccessText,
+ `<b>${actionTitle}</b>\n\n<blockquote>${channelDetail}</blockquote>`.trim(),
  [
- [{ text: 'Post New / አዲስ ልጠፍ', callback_data: 'post_profile_start' }],
- [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+ [{ text: 'View My Listings / ማስታወቂያዎቼ', callback_data: 'my_listings' }],
+ [{ text: 'Post New / አዲስ ልጠፍ', callback_data: 'post_profile_start' }, { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ],
  msgId
  );
@@ -7908,10 +8560,6 @@ Post <b>#${escapeHtml(displayCode)}</b> has been updated on channel with closed 
  }
 
  if (callbackData.startsWith('prop_type:')) {
- if (!(await isUserFaydaVerified(chatId))) {
- await sendFaydaGateCard(chatId, 'post your room / space listing', msgId);
- return NextResponse.json({ ok: true });
- }
  const propType = callbackData.split(':')[1];
  const propLabelMap: Record<string, string> = {
  shared: 'Shared Room / የጋራ መኖሪያ ክፍል',
@@ -7920,10 +8568,17 @@ Post <b>#${escapeHtml(displayCode)}</b> has been updated on channel with closed 
  shop: 'Shop / Commercial Venue / ሱቅ ወይም ንግድ ቦታ',
  };
  const resolvedSpaceType = propLabelMap[propType] || propType;
+ if (!(await isUserFaydaVerified(chatId))) {
+ await sendFaydaGateCard(chatId, 'post your room / space listing', msgId, {
+   return_flow: 'prop_type',
+   return_meta: { propType, resolvedSpaceType },
+ });
+ return NextResponse.json({ ok: true });
+ }
  const session = getSession(chatId);
- await sendSpaceStep2Rent(
+ await sendSpaceStep2Location(
  chatId,
- { ...(session.draft_data || {}), mode: 'post_space', property_type: propType, space_type: resolvedSpaceType },
+ buildCleanFlowDraft(chatId, session.draft_data, { mode: 'post_space', property_type: propType, space_type: resolvedSpaceType, card_msg_id: msgId }),
  msgId
  );
  return NextResponse.json({ ok: true });
@@ -7960,27 +8615,27 @@ Post <b>#${escapeHtml(displayCode)}</b> has been updated on channel with closed 
  let ordersList: any[] = [];
  let completedMatches: any[] = [];
  try {
- const [ordRes, matchRes] = await Promise.all([
- supabaseAdmin
- .from('orders')
- .select('*')
- .eq('buyer_telegram_id', chatId)
- .eq('payment_status', 'completed')
- .eq('order_type', 'unlock_contact')
- .order('created_at', { ascending: false })
- .limit(10),
- supabaseAdmin
- .from('matches')
- .select('id, status, completed_at, requester:requester_id(*), target:target_id(*)')
- .eq('status', 'completed')
- .order('created_at', { ascending: false })
- .limit(25),
+ const [{ data: myProfRow }, { data: ordData }] = await Promise.all([
+   supabaseAdmin.from('profiles').select('id').eq('telegram_id', chatId).maybeSingle(),
+   supabaseAdmin
+     .from('orders')
+     .select('*')
+     .eq('buyer_telegram_id', chatId)
+     .eq('payment_status', 'completed')
+     .eq('order_type', 'unlock_contact')
+     .order('created_at', { ascending: false })
+     .limit(10),
  ]);
- if (ordRes?.data) ordersList = ordRes.data;
- if (matchRes?.data) {
- completedMatches = matchRes.data.filter(
- (m: any) => Number(m.requester?.telegram_id) === chatId || Number(m.target?.telegram_id) === chatId
- );
+ if (ordData) ordersList = ordData;
+ if (myProfRow?.id) {
+   const { data: matchRows } = await supabaseAdmin
+     .from('matches')
+     .select('id, status, completed_at, requester:requester_id(*), target:target_id(*)')
+     .eq('status', 'completed')
+     .or(`requester_id.eq.${myProfRow.id},target_id.eq.${myProfRow.id}`)
+     .order('created_at', { ascending: false })
+     .limit(25);
+   if (matchRows) completedMatches = matchRows;
  }
  } catch {}
 
@@ -8123,7 +8778,8 @@ Post <b>#${escapeHtml(displayCode)}</b> has been updated on channel with closed 
  const { count } = await supabaseAdmin
  .from('profiles')
  .select('id', { count: 'exact', head: true })
- .eq('status', 'pending_approval');
+ .eq('status', 'paused')
+ .eq('onboarding_step', 'pending_approval');
  pendingCount = count || 0;
  } catch {}
 
@@ -8640,7 +9296,7 @@ Please send the Telegram username of the user you want to appoint as an administ
 
  let foundCode: string | null = null;
  if (text) {
- const matchCode = text.match(/#(RM\d+|SP\d+)/i);
+ const matchCode = text.match(/#(SPMAR(?:BR|WR)\d+|RM\d+|SP\d+)/i);
  if (matchCode) foundCode = matchCode[1].toUpperCase();
  }
  if (!foundCode && forwardMsgId) {
@@ -8690,15 +9346,17 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  }
 
  if (text === '/amharic') {
+ setUserLanguage(chatId, 'am');
  const sess = getSession(chatId);
- await saveSession({ ...sess, draft_data: { ...sess.draft_data, lang: 'am' }, updated_at: new Date().toISOString() });
+ await saveSession({ ...sess, draft_data: buildCleanFlowDraft(chatId, sess.draft_data, { lang: 'am' }), updated_at: new Date().toISOString() });
  await sendPrimaryWelcomeMenu(chatId, undefined, message.from);
  return NextResponse.json({ ok: true });
  }
 
  if (text === '/english') {
+ setUserLanguage(chatId, 'en');
  const sess = getSession(chatId);
- await saveSession({ ...sess, draft_data: { ...sess.draft_data, lang: 'en' }, updated_at: new Date().toISOString() });
+ await saveSession({ ...sess, draft_data: buildCleanFlowDraft(chatId, sess.draft_data, { lang: 'en' }), updated_at: new Date().toISOString() });
  await sendPrimaryWelcomeMenu(chatId, undefined, message.from);
  return NextResponse.json({ ok: true });
  }
@@ -8981,8 +9639,21 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  ]);
  const myProfile = profileRes.data;
 
+ if (!isVerified) {
+ await sendFaydaGateCard(chatId, 'verify your National ID before connecting with this roommate', undefined, {
+   return_flow: 'req_connect',
+   return_meta: {
+     targetId: targetProfile.id,
+     targetCode: targetProfile.display_code || lookupCode,
+     targetLocations,
+     targetBudgetStr,
+   },
+ });
+ return NextResponse.json({ ok: true });
+ }
+
  if (!myProfile) {
- // New user without a profile: automatically lock target and launch dynamic card onboarding
+ // Verified new user without a profile: automatically lock target and launch dynamic card onboarding
  await sendDynamicCardStep1Age(chatId, {
  target_id: targetProfile.id,
  target_code: targetProfile.display_code || lookupCode,
@@ -8996,7 +9667,9 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  const hasCompleteSeekerProfile = Boolean(
  isVerified &&
  myProfile.gender &&
- myProfile.budget_max &&
+ myProfile.gender !== 'Member' &&
+ myProfile.budget_max !== null &&
+ myProfile.budget_max !== undefined &&
  ['completed', 'pending_approval'].includes(String(myProfile.onboarding_step || ''))
  );
 
@@ -9166,11 +9839,11 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 
  if (text === '/start property_type') {
  if (!(await isUserFaydaVerified(chatId))) {
- await sendFaydaGateCard(chatId, 'post your room / space listing');
+ await sendFaydaGateCard(chatId, 'post your room / space listing', undefined, { return_flow: 'post_space' });
  return NextResponse.json({ ok: true });
  }
  const session = getSession(chatId);
- await sendSpaceStep1Type(chatId, { ...session.draft_data, mode: 'post_space' });
+ await sendSpaceStep1Type(chatId, buildCleanFlowDraft(chatId, session.draft_data, { mode: 'post_space' }));
  return NextResponse.json({ ok: true });
  }
 
@@ -9283,8 +9956,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  return NextResponse.json({ ok: true });
  }
 
- // Search Roommate Commands
- if (text === '/search_roommate' || text === '/match' || text === '/find' || text === '/roommate') {
+ // Search Roommate Commands (Admins typing /find reach admin lookup below)
+ if (text === '/search_roommate' || text === '/match' || text === '/roommate' || (text === '/find' && !(await getAdminIds()).includes(chatId))) {
  await clearSession(chatId);
  await sendMatchmakerSubcityStep(chatId, { mode: 'search_roommate' });
  return NextResponse.json({ ok: true });
@@ -9297,7 +9970,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  return NextResponse.json({ ok: true });
  }
 
- if (text === '/post' || text === '/property_type') {
+ if (text === '/property_type' || (text === '/post' && !(await getAdminIds()).includes(chatId))) {
  await clearSession(chatId);
  await sendPropertyTypePrompt(chatId);
  return NextResponse.json({ ok: true });
@@ -9523,8 +10196,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 
  await tgSend(chatId, celebText);
 
- // 7. Check if session has awaiting_payment_for_membership
- if (session.step && session.step.startsWith('awaiting_payment_for_membership:')) {
+ // 7. Check if session has pending membership or payment unlock flow
+ if (session.step && (session.step.startsWith('awaiting_payment_for_membership:') || session.step === 'payment_input_ref' || session.step.startsWith('awaiting_payment_for_unlock:'))) {
  const purpose = session.draft_data?.membership_purpose;
  const metadata = session.draft_data?.membership_metadata || {};
 
@@ -9614,6 +10287,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  [{ text: 'Search Post by Code (#SPMARBR...) ', callback_data: 'admin_search_code_prompt' }],
  [{ text: `Pending Channel Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
  [{ text: 'Post to Channel as Admin >', callback_data: 'admin_post_start' }],
+ [{ text: 'Connected Channels & Settings', callback_data: 'admin_list_channels' }],
  [{ text: 'Add Admin by Username >', callback_data: 'admin_add_prompt' }],
  [{ text: 'View Administrators', callback_data: 'admin_list_team' }],
  [{ text: 'Open Channel Posts & Close / ክፍት ማስታወቂያዎችና መዝጊያ', callback_data: 'admin_list_active_posts' }],
@@ -10325,11 +10999,28 @@ All administrators of this channel can now use bot admin features, and approved 
  } else {
  const lang = getLanguage(session.draft_data, chatId);
  const activeMsgId = session.draft_data?.card_msg_id;
+ const isFaydaStep = Boolean(
+   session.step === 'awaiting_seeker_fayda_upload' ||
+   session.step === 'awaiting_standalone_fayda_fan' ||
+   session.step === 'dyn_card_fayda_fan' ||
+   session.step?.startsWith('awaiting_target_fayda_fan:')
+ );
+ const isIdleOrSafeStep = Boolean(!session.step || session.step === 'idle' || session.step === 'returning_user_review' || isOnboardingSession(session.step));
+
+ if (!isFaydaStep && !isIdleOrSafeStep) {
+   await sendTelegram('sendMessage', {
+     chat_id: chatId,
+     text: `<b>Please use the current step options / እባክዎ የአሁኑን ጥያቄ ይመልሱ</b>\n\n<blockquote>You are currently filling out a form. Finish or tap Cancel / Main Menu first before uploading a Fayda ID or receipt photo.\n\nበአሁኑ ሰዓት መረጃ እየሞሉ ነው፤ ፎቶ ከመላክዎ በፊት እባክዎ አሁን ያለውን ደረጃ ይጨርሱ ወይም ሰርዝን ይጫኑ።</blockquote>`,
+     parse_mode: 'HTML',
+     reply_markup: { inline_keyboard: [[{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }]] },
+   });
+   return NextResponse.json({ ok: true });
+ }
 
  const photoResult = await verifyFaydaMediaFromTelegram(message, chatId);
 
  // Privacy hygiene: delete uploaded ID photo from Telegram chat history immediately after RAM processing
- if (session.step === 'awaiting_seeker_fayda_upload' || session.step === 'awaiting_standalone_fayda_fan' || session.step === 'dyn_card_fayda_fan' || session.step?.startsWith('awaiting_target_fayda_fan:')) {
+ if (isFaydaStep) {
  sendTelegram('deleteMessage', { chat_id: chatId, message_id: message.message_id }).catch(() => {});
  }
 
@@ -10350,7 +11041,7 @@ All administrators of this channel can now use bot admin features, and approved 
  }
 
  // Photo did not contain a valid Fayda QR code
- if (session.step === 'awaiting_seeker_fayda_upload') {
+ if (session.step === 'awaiting_seeker_fayda_upload' || session.step === 'dyn_card_fayda_fan') {
  await sendDynamicCardStep9FaydaFan(
  chatId,
  session.draft_data,
@@ -10362,24 +11053,19 @@ All administrators of this channel can now use bot admin features, and approved 
 
  if (
  session.step === 'awaiting_standalone_fayda_fan' ||
- session.step === 'dyn_card_fayda_fan' ||
  session.step?.startsWith('awaiting_target_fayda_fan:') ||
  isOnboardingSession(session.step)
  ) {
- await sendTelegram('sendMessage', {
- chat_id: chatId,
- text: photoResult.message,
- parse_mode: 'HTML',
- reply_markup: {
- inline_keyboard: [
- [{ text: 'Back to Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
- ],
- },
- });
+ await sendOrEditCard(
+   chatId,
+   photoResult.message,
+   [[{ text: 'Why Fayda? / ለምን ፋይዳ?', callback_data: 'why_fayda_id' }], [{ text: 'Back to Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
+   activeMsgId
+ );
  return NextResponse.json({ ok: true });
  }
 
- // If in idle or any other step, check if the photo is a payment receipt first
+ // In idle/safe state, check if the photo is a payment receipt
  if (!('error' in uploadedMedia)) {
  try {
  const buffer = await downloadTelegramFile(uploadedMedia.fileId);
@@ -10441,29 +11127,21 @@ All administrators of this channel can now use bot admin features, and approved 
 
  if (incomingFileId) {
  const updatedPhotos = [...photos, incomingFileId];
- const lang = getLanguage(session.draft_data, chatId);
- const isAm = lang === 'am';
-
- await saveSession({
- telegram_id: chatId,
- step: 'space_input_photos',
- draft_data: { ...session.draft_data, lang, space_photos: updatedPhotos },
- updated_at: new Date().toISOString(),
- });
-
- await sendTelegram('sendMessage', {
- chat_id: chatId,
- text: `<b>Photo received! / ፎቶው ደርሷል!</b> (Total / ጠቅላላ: <b>${updatedPhotos.length}</b>)\n\n<blockquote>You can send another photo, or tap below to proceed:\nተጨማሪ ፎቶ መላክ ይችላሉ፣ ወይም ለመቀጠል ከስር ይጫኑ:</blockquote>`,
- parse_mode: 'HTML',
- reply_markup: {
- inline_keyboard: [
- [{ text: `Proceed with ${updatedPhotos.length} Photo(s) / ቀጥል (${updatedPhotos.length} ፎቶ) >`, callback_data: 'space_photos_done' }],
- [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
- ],
- },
- });
+ const updatedDraft = { ...session.draft_data, space_photos: updatedPhotos };
+ await sendSpaceStep9Photos(chatId, updatedDraft, session.draft_data?.card_msg_id);
  return NextResponse.json({ ok: true });
  }
+
+ if (/^(done|finish|ok|skip|next|proceed|ቀጥል|እለፍ|ጨርሻለሁ)$/i.test(text.trim())) {
+ if (update.message?.message_id) {
+   sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+ }
+ await sendSpacePreviewCard(chatId, session.draft_data || {}, session.draft_data?.card_msg_id);
+ return NextResponse.json({ ok: true });
+ }
+
+ await sendSpaceStep9Photos(chatId, session.draft_data || {}, session.draft_data?.card_msg_id);
+ return NextResponse.json({ ok: true });
  }
 
  // Space Type Text Input
@@ -10473,7 +11151,6 @@ All administrators of this channel can now use bot admin features, and approved 
  }
  const activeMsgId = session.draft_data?.card_msg_id;
  const lang = getLanguage(session.draft_data, chatId);
- const isAm = lang === 'am';
  const typeText = text.trim();
  if (!typeText || typeText.length < 3) {
  await sendSpaceStep1Type(
@@ -10485,7 +11162,7 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
  const updatedDraft = { ...session.draft_data, lang, space_type: typeText };
- await sendSpaceStep2Rent(chatId, updatedDraft, activeMsgId);
+ await sendSpaceStep2Location(chatId, updatedDraft, activeMsgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -10521,12 +11198,15 @@ All administrators of this channel can now use bot admin features, and approved 
  const lang = getLanguage(session.draft_data, chatId);
  const isAm = lang === 'am';
  const parsedShare = parseNumericInput(text);
- if (!parsedShare || parsedShare < 200 || parsedShare > 500000) {
+ const totalRentCap = Number(session.draft_data?.space_rent || 0);
+ if (!parsedShare || parsedShare < 200 || parsedShare > 500000 || (totalRentCap > 0 && parsedShare > totalRentCap)) {
  await sendSpaceStep3Share(
  chatId,
  session.draft_data,
  activeMsgId,
- 'Please enter a valid roommate share amount between 200 and 500,000 ETB (e.g. 6000) / ከ 200 እስከ 500,000 በብር መካከል ትክክለኛ የቤት ጓደኛ ድርሻ ያስገቡ (ምሳሌ: 6000):'
+ totalRentCap > 0 && parsedShare && parsedShare > totalRentCap
+   ? `Roommate share cannot exceed total monthly rent (${totalRentCap.toLocaleString()} ETB) / የአጋር ድርሻ ከጠቅላላው ኪራይ (${totalRentCap.toLocaleString()} ብር) መብለጥ አይችልም።`
+   : 'Please enter a valid roommate share amount between 200 and 500,000 ETB (e.g. 6000) / ከ 200 እስከ 500,000 በብር መካከል ትክክለኛ የቤት ጓደኛ ድርሻ ያስገቡ (ምሳሌ: 6000):'
  );
  return NextResponse.json({ ok: true });
  }
@@ -10594,9 +11274,10 @@ All administrators of this channel can now use bot admin features, and approved 
  lang,
  preferred_roommate: rawPref,
  roommate_traits: rawPref,
+ description: rawPref,
  };
 
- await sendSpaceStep8Subcity(chatId, updatedDraft, activeMsgId);
+ await sendSpaceStep9Photos(chatId, updatedDraft, activeMsgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -10922,12 +11603,12 @@ All administrators of this channel can now use bot admin features, and approved 
  const lang = getLanguage(session.draft_data, chatId);
  const isAm = lang === 'am';
  const ageVal = parseNumericInput(text);
- if (!ageVal || ageVal < 18 || ageVal > 85) {
+ if (!ageVal || ageVal < 18 || ageVal > 99) {
  await sendDynamicCardStep1Age(
  chatId,
  session.draft_data,
  activeMsgId,
- 'Please enter a valid numerical age between 18 and 85 (e.g. 24) / ትክክለኛ ዕድሜዎን በቁጥር ያስገቡ (ከ 18 እስከ 85፣ ምሳሌ: 24):'
+ 'Please enter a valid numerical age between 18 and 99 (e.g. 24) / ትክክለኛ ዕድሜዎን በቁጥር ያስገቡ (ከ 18 እስከ 99፣ ምሳሌ: 24):'
  );
  return NextResponse.json({ ok: true });
  }

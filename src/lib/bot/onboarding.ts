@@ -699,7 +699,7 @@ export async function handleOnboardingMessage(
       const memStatus = await getUserMembershipStatus(chatId);
       const channels = await getManagedChannels();
       const activeCh = channels.find((c) => c.is_active);
-      const rawChRef = String(activeCh?.channel_username || activeCh?.channel_id || process.env.TELEGRAM_CHANNEL_ID || '@Spacematch_Addis').trim();
+      const rawChRef = String(activeCh?.channel_username || activeCh?.channel_id || process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis').trim();
       const chUrl = rawChRef.startsWith('-100')
         ? `https://t.me/c/${rawChRef.slice(4)}`
         : /^-\d+$/.test(rawChRef)
