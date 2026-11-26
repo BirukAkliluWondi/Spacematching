@@ -42,7 +42,7 @@ export interface InlineKeyboardButton {
   url?: string;
   callback_data?: string;
   request_contact?: boolean;
-  web_app?: { url: string };
+  // [DISABLED - Mini App not ready] web_app?: { url: string };
 }
 
 export type InlineKeyboard = { inline_keyboard: InlineKeyboardButton[][] };
@@ -198,9 +198,9 @@ export async function answerCallbackQuery(
  */
 export async function setChatMenuButton(
   menuButton?: {
-    type: 'default' | 'commands' | 'web_app';
+    type: 'default' | 'commands'; // [DISABLED - Mini App not ready] | 'web_app';
     text?: string;
-    web_app?: { url: string };
+    // [DISABLED - Mini App not ready] web_app?: { url: string };
   },
   chatId?: number
 ): Promise<TelegramApiResponse> {

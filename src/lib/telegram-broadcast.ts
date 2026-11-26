@@ -20,7 +20,7 @@ export async function broadcastRoommateProfileToChannel(
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
   const botUsername = rawBotUsername.replace('@', '');
-  const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
+  // [DISABLED - Mini App not ready] const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
 
   let targetChannel = channelId;
   if (!targetChannel) {
@@ -634,7 +634,7 @@ export async function broadcastListingToChannel(
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
   const botUsername = rawBotUsername.replace('@', '');
-  const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
+  // [DISABLED - Mini App not ready] const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
   let targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@Spacematch_Addis';
   try {
     if (!channelId) {
@@ -822,7 +822,7 @@ export async function postCustomToChannel(
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
   const botUsername = rawBotUsername.replace('@', '');
-  const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
+  // [DISABLED - Mini App not ready] const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
   let targetChannel = channelId || process.env.TELEGRAM_CHANNEL_ID || '@Spacematch_Addis';
   try {
     if (!channelId) {

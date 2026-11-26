@@ -684,7 +684,7 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
         React.createElement(
           'span',
           { style: { fontSize: '12px', color: '#64748b', letterSpacing: '0.5px' } },
-          'SpaceMatch Addis Ababa · Select an option below to get started'
+          'SpaceMatch Addis Ababa · Developed by @birukadiyee'
         )
       )
     )

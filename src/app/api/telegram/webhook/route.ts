@@ -155,7 +155,7 @@ export async function POST(request: Request) {
  const botToken = process.env.TELEGRAM_BOT_TOKEN;
  const rawBotUsername = process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot';
  const botUsername = rawBotUsername.replace('@', '');
- const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
+ // [DISABLED - Mini App not ready] const appName = process.env.NEXT_PUBLIC_TELEGRAM_APP_NAME || 'roommatch';
  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://spacematch1-flax.vercel.app';
  const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
  const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
@@ -4146,7 +4146,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
       ? `Active (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining} ቀናት)`
       : `Inactive / የለም (100 ETB / 3 Months)`;
 
-    const welcomeText = `<b>SpaceMatch Addis / ስፔስማች አዲስ</b>\n\n<blockquote>Verified Roommate Network · Addis Ababa\nየተረጋገጡ የቤት አጋሮች መፈለጊያ</blockquote>\n\n<b>Pass / አባልነት:</b> ${memBadge}`;
+    const welcomeText = `<b>SpaceMatch Addis / ስፔስማች አዲስ</b>\n\n<blockquote>Verified Roommate Network · Addis Ababa\nየተረጋገጡ የቤት አጋሮች መፈለጊያ</blockquote>\n\n<b>Pass / አባልነት:</b> ${memBadge}\n\nDeveloped by @birukadiyee`;
 
     const inlineKeyboard = [
       // Hero CTA on Top: Keep single most important action full-width at top
@@ -4200,7 +4200,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
           sendTelegram('deleteMessage', { chat_id: chatId, message_id: messageIdToEdit }).catch(() => {});
         }
 
-        const startCacheKey = `start_card_${resolvedName}_${mem.isActive ? mem.daysRemaining : 'inactive'}_${isAm ? 'am' : 'bi'}`;
+        const startCacheKey = `start_card_v2_${resolvedName}_${mem.isActive ? mem.daysRemaining : 'inactive'}_${isAm ? 'am' : 'bi'}`;
         const photoRes = await sendTelegramPhotoBuffer(chatId, pngBuffer, welcomeText, inlineKeyboard, startCacheKey);
         if (photoRes?.ok && photoRes.result?.message_id) {
           activeId = photoRes.result.message_id;

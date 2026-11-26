@@ -311,7 +311,7 @@ async function sendPhoneStep(chatId: number) {
 }
 
 async function sendKycStep(chatId: number) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://spacematch1-flax.vercel.app';
+  // [DISABLED - Mini App not ready] const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://spacematch1-flax.vercel.app';
 
   // Check if already verified
   try {
