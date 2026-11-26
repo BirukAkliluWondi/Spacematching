@@ -32,6 +32,7 @@ import {
   setChatMenuButton,
   parseNumericInput,
   parseBudgetRangeInput,
+  formatBudgetRangeLabel,
   deleteMessage,
   type Profile,
 } from '@/lib/telegram';
@@ -74,6 +75,7 @@ const ONBOARDING_STEPS = [
   'gender',
   'locations',
   'budget',
+  'budget_max',
   'move_in',
   'traits',
   'phone',
@@ -257,10 +259,26 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
 async function sendBudgetStep(chatId: number) {
   await sendMessage(
     chatId,
-    `<b>Monthly Budget / ወርሃዊ በጀት</b>
+    `<b>Monthly Budget Range / ወርሃዊ የበጀት ክልል</b>
 
-<blockquote>Enter monthly budget in ETB (e.g. <code>8000 - 15000</code>).
-ወርሃዊ የኪራይ በጀትዎን በብር ያስገቡ:</blockquote>`
+<blockquote>Enter your minimum and maximum monthly budget in ETB (e.g. <code>5000 - 12000</code>),\nor enter your MINIMUM budget first (e.g. <code>5000</code>):
+
+ዝቅተኛውን እና ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ (ምሳሌ: <code>5000 - 12000</code>)
+ወይም መጀመሪያ ዝቅተኛውን ብቻ ይጻፉ (ምሳሌ: <code>5000</code>):</blockquote>`
+  );
+}
+
+async function sendBudgetMaxStep(chatId: number, minAmount: number) {
+  const suggestedMax = Math.min(1000000, Math.round(minAmount * 1.5));
+  await sendMessage(
+    chatId,
+    `<b>Maximum Monthly Budget / ከፍተኛ ወርሃዊ በጀት</b>
+
+<blockquote>Minimum saved: <b>${minAmount.toLocaleString()} ETB/mo</b>
+Now enter your MAXIMUM monthly budget in ETB (e.g. <code>${suggestedMax.toLocaleString()}</code>):
+
+ዝቅተኛ በጀት ተይዟል: <b>${minAmount.toLocaleString()} ብር</b>
+አሁን ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ:</blockquote>`
   );
 }
 
@@ -549,7 +567,7 @@ export async function handleOnboardingMessage(
     );
     return true;
   }
-  // ── Budget text input ─────────────────────────────────────────────────────
+  // ── Budget range input (Min - Max or Min -> Max step-by-step) ──────────
   if (step === 'budget') {
     const raw = (message.text || '').trim();
     const parsedRange = parseBudgetRangeInput(raw);
@@ -557,14 +575,53 @@ export async function handleOnboardingMessage(
     if (!parsedRange || parsedRange.max <= 0) {
       await sendMessage(
         chatId,
-        `<b>Invalid Budget Range / የተሳሳተ የበጀት መጠን</b>\n\n<blockquote>Please enter a valid monthly budget range in ETB.\nእባክዎ ትክክለኛ ወርሃዊ የኪራይ መጠን በብር ያስገቡ።\n\nExample / ምሳሌ: <code>8000 - 14000</code></blockquote>`
+        `<b>Invalid Budget Range / የተሳሳተ የበጀት መጠን</b>\n\n<blockquote>Please enter a range (e.g. <code>5000 - 12000</code>) or your minimum budget first (e.g. <code>5000</code>).\nእባክዎ ትክክለኛ የበጀት ክልል (ምሳሌ: <code>5000 - 12000</code>) ወይም ዝቅተኛውን በጀት በብር ያስገቡ።</blockquote>`
       );
       return true;
     }
 
+    if (parsedRange.isExplicitRange) {
+      await updateProfile(chatId, {
+        budget_min: parsedRange.min,
+        budget_max: parsedRange.max,
+        onboarding_step: 'move_in',
+      });
+      await sendMoveInStep(chatId);
+      return true;
+    }
+
     await updateProfile(chatId, {
-      budget_min: parsedRange.min,
-      budget_max: parsedRange.max,
+      budget_min: parsedRange.max,
+      onboarding_step: 'budget_max',
+    });
+    await sendBudgetMaxStep(chatId, parsedRange.max);
+    return true;
+  }
+
+  if (step === 'budget_max') {
+    const raw = (message.text || '').trim();
+    const prof = await getOrCreateProfile(chatId, telegramUsername);
+    const minVal = Number(prof?.budget_min || 500);
+    const parsedRange = parseBudgetRangeInput(raw);
+    if (!parsedRange) {
+      await sendMessage(
+        chatId,
+        `<b>Invalid Maximum Budget / የተሳሳተ ከፍተኛ በጀት</b>\n\n<blockquote>Please enter your maximum monthly budget in ETB (must be at least ${minVal.toLocaleString()} ETB).\nእባክዎ ከ${minVal.toLocaleString()} ብር ያላነሰ ከፍተኛ ወርሃዊ በጀት ያስገቡ።</blockquote>`
+      );
+      return true;
+    }
+    const finalMin = parsedRange.isExplicitRange ? parsedRange.min : minVal;
+    const finalMax = parsedRange.max;
+    if (finalMax < finalMin) {
+      await sendMessage(
+        chatId,
+        `<b>Maximum Lower Than Minimum / ከፍተኛው ከዝቅተኛው ያንሳል</b>\n\n<blockquote>Maximum budget must be at least <b>${finalMin.toLocaleString()} ETB</b>.\nከፍተኛው በጀት ቢያንስ <b>${finalMin.toLocaleString()} ብር</b> መሆን አለበት።</blockquote>`
+      );
+      return true;
+    }
+    await updateProfile(chatId, {
+      budget_min: finalMin,
+      budget_max: finalMax,
       onboarding_step: 'move_in',
     });
     await sendMoveInStep(chatId);
@@ -746,7 +803,7 @@ export async function handleOnboardingMessage(
       // 6. Confirmation message
       await sendMessage(
         chatId,
-        `<b>Listing Live / ማስታወቂያዎ ተለጥፏል</b>\n\n<blockquote><b>Listing Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>${publishedMsgId ? 'Verified & Live / የጸደቀ' : 'Pending Review / በግምገማ ላይ'}</b>\n• <b>Budget / በጀት:</b> <b>${updatedProfile.budget_min || 0} – ${updatedProfile.budget_max || 0} ETB</b>\n• <b>Areas / ሰፈሮች:</b> <b>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</b>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
+        `<b>Listing Live / ማስታወቂያዎ ተለጥፏል</b>\n\n<blockquote><b>Listing Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>${publishedMsgId ? 'Verified & Live / የጸደቀ' : 'Pending Review / በግምገማ ላይ'}</b>\n• <b>Budget / በጀት:</b> <b>${escapeHtml(formatBudgetRangeLabel(updatedProfile.budget_min, updatedProfile.budget_max))}</b>\n• <b>Areas / ሰፈሮች:</b> <b>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</b>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
             ...(chUrl ? [[{ text: 'View on Channel / በቻናል ላይ እይ >', url: chUrl }]] : []),
@@ -825,6 +882,15 @@ async function resumeOnboardingStep(chatId: number, step: OnboardingStep) {
     case 'budget':
       await sendBudgetStep(chatId);
       break;
+    case 'budget_max': {
+      const cachedMin = Number(_profileCache.get(chatId)?.budget_min || 0);
+      if (cachedMin >= 500) {
+        await sendBudgetMaxStep(chatId, cachedMin);
+      } else {
+        await sendBudgetStep(chatId);
+      }
+      break;
+    }
     case 'move_in':
       await sendMoveInStep(chatId);
       break;

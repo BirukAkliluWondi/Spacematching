@@ -288,10 +288,32 @@ export function parseNumericInput(
  *   "8k - 15k", "8k to 12.5k", "8000 15000"
  *   "12000" (single number fallback -> { min: 0, max: 12000 })
  */
+export function formatBudgetRangeLabel(
+  min?: number | null,
+  max?: number | null,
+  fallback = 'Flexible'
+): string {
+  const bMin = Number(min || 0);
+  const bMax = Number(max || 0);
+  if (bMin > 0 && bMax > 0 && bMin < bMax) {
+    return `${bMin.toLocaleString()} – ${bMax.toLocaleString()} ETB/mo`;
+  }
+  if (bMin > 0 && bMax > 0 && bMin === bMax) {
+    return `${bMax.toLocaleString()} ETB/mo`;
+  }
+  if (bMax > 0) {
+    return bMin > 0 ? `${bMax.toLocaleString()} ETB/mo` : `Up to ${bMax.toLocaleString()} ETB/mo`;
+  }
+  if (bMin > 0) {
+    return `From ${bMin.toLocaleString()} ETB/mo`;
+  }
+  return fallback;
+}
+
 export function parseBudgetRangeInput(
   raw?: string | null,
   options?: { minLimit?: number; maxLimit?: number }
-): { min: number; max: number } | null {
+): { min: number; max: number; isExplicitRange: boolean } | null {
   if (!raw) return null;
   let text = String(raw).trim().toLowerCase();
 
@@ -313,15 +335,16 @@ export function parseBudgetRangeInput(
 
   // Strip common words and currency units
   const cleaned = text
-    .replace(/(?:etb|birr|br|usd|\$|€|£|\/mo|\/month|monthly|budget|rent|about|around|approx)/gi, ' ')
+    .replace(/(?:etb|birr|br|usd|\$|€|£|\/mo|\/month|monthly|budget|rent|about|around|approx|min|max|ከ|:)/gi, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 
   const minLimit = options?.minLimit ?? 500;
   const maxLimit = options?.maxLimit ?? 1000000;
 
-  // 1. Detect explicit range separators ("8000 - 15000", "8k to 15k", "between 8000 and 15000")
+  // 1. Detect explicit range separators ("8000 - 15000", "8k to 15k", "between 8000 and 15000", "5000 እስከ 12000")
   const rangeMatch = cleaned.match(
-    /(?:between\s+)?([\d,\.]+\s*(?:\s\d{3})*\s*k?)\s*(?:-|–|—|to|and)\s*([\d,\.]+\s*(?:\s\d{3})*\s*k?)/i
+    /(?:between\s+)?([\d,\.]+\s*(?:\s\d{3})*\s*k?)\s*(?:-|–|—|~|\/|to|and|እስከ)\s*([\d,\.]+\s*(?:\s\d{3})*\s*k?)/i
   );
 
   if (rangeMatch) {
@@ -334,8 +357,23 @@ export function parseBudgetRangeInput(
         return {
           min: lower,
           max: upper,
+          isExplicitRange: true,
         };
       }
+    }
+  }
+
+  // 1b. Detect two whitespace-separated amounts ("5000 12000", "5k 12k") while ignoring space-grouped thousands like "8 000"
+  const spacePairMatch = cleaned.match(/^([\d,\.]+\s*k?)\s+([\d,\.]+\s*k?)$/i);
+  if (spacePairMatch) {
+    const p1 = parseNumericInput(spacePairMatch[1]);
+    const p2 = parseNumericInput(spacePairMatch[2]);
+    if (p1 !== null && p2 !== null && p1 >= minLimit && p2 >= minLimit && p1 <= maxLimit && p2 <= maxLimit) {
+      return {
+        min: Math.min(p1, p2),
+        max: Math.max(p1, p2),
+        isExplicitRange: true,
+      };
     }
   }
 
@@ -345,6 +383,7 @@ export function parseBudgetRangeInput(
     return {
       min: Math.max(0, Math.round(single * 0.7)),
       max: single,
+      isExplicitRange: false,
     };
   }
 
@@ -727,6 +766,8 @@ export function formatRoommatePost(profile: Profile | Record<string, any>): stri
   let budgetDisplay = '';
   if (bMin > 0 && bMax > 0 && bMin < bMax) {
     budgetDisplay = `${bMin.toLocaleString()}–${bMax.toLocaleString()} ETB / month`;
+  } else if (bMin > 0 && bMax > 0 && bMin === bMax) {
+    budgetDisplay = `${bMax.toLocaleString()} ETB / month`;
   } else if (bMax > 0) {
     budgetDisplay = bMin > 0 ? `${bMax.toLocaleString()} ETB / month` : `Up to ${bMax.toLocaleString()} ETB / month`;
   } else if (bMin > 0) {

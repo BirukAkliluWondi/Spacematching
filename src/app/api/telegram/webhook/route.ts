@@ -49,6 +49,7 @@ import {
  updateChannelPostAsMatched,
  parseNumericInput,
  parseBudgetRangeInput,
+ formatBudgetRangeLabel,
  escapeHtml,
  setChatMenuButton,
  deleteMessage,
@@ -659,7 +660,9 @@ export async function POST(request: Request) {
  const candSex = targetProfile.gender || 'Any';
  const candPrefSex = targetProfile.preferred_gender || 'Any';
  const candLocations = Array.isArray(targetProfile.locations) ? targetProfile.locations.join(', ') : (Array.isArray(targetProfile.preferred_subcity) ? targetProfile.preferred_subcity.join(', ') : 'Addis Ababa');
- const candBudget = targetProfile.budget_max ? `${Number(targetProfile.budget_max).toLocaleString()} ETB / month` : (targetProfile.space_rent ? `${Number(targetProfile.space_rent).toLocaleString()} ETB / month` : 'Negotiable');
+ const candBudget = (targetProfile.budget_min || targetProfile.budget_max)
+   ? formatBudgetRangeLabel(targetProfile.budget_min, targetProfile.budget_max, 'Negotiable')
+   : (targetProfile.space_rent ? `${Number(targetProfile.space_rent).toLocaleString()} ETB / month` : 'Negotiable');
  const candDesc = extractUserDescription(targetProfile.roommate_traits || targetProfile.lifestyle_bio || targetProfile.description) || 'None provided';
 
  const dossierText = `<b>SpaceMatch Admin · Post Dossier #${code} / የመረጃ ማህደር</b>
@@ -1824,7 +1827,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
  };
 
- // Step 5: Monthly Budget Range (Text Input)
+ // Step 5: Monthly Budget Range (Custom Min - Max or Step-by-Step Min -> Max)
  const sendDynamicCardStep5Budget = async (
     chatId: number,
     draft: Record<string, any>,
@@ -1834,14 +1837,15 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const activeMsgId = messageIdToEdit || draft.card_msg_id;
     const lang = getLanguage(draft, chatId);
 
+    const { pending_budget_min: _ignoredMin, ...cleanDraft } = draft || {};
     await saveSession({
       telegram_id: chatId,
       step: 'dyn_card_budget',
-      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
+      draft_data: { ...cleanDraft, lang, card_msg_id: activeMsgId },
       updated_at: new Date().toISOString(),
     });
 
-    const promptText = '<b>Monthly Budget / ወርሃዊ በጀት</b>\n\n<blockquote>Enter budget range in ETB (e.g. 8000 - 15000):\nወርሃዊ በጀትዎን በብር ያስገቡ:</blockquote>';
+    const promptText = '<b>Monthly Budget Range / ወርሃዊ የበጀት ክልል</b>\n\n<blockquote>Enter your minimum and maximum monthly budget in ETB (e.g. <code>5000 - 12000</code>),\nor type your MINIMUM budget first (e.g. <code>5000</code>):\n\nዝቅተኛውን እና ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ (ምሳሌ: <code>5000 - 12000</code>)\nወይም መጀመሪያ ዝቅተኛውን ብቻ ይጻፉ (ምሳሌ: <code>5000</code>):</blockquote>';
     const errBlock = errorMsg ? (/</.test(errorMsg) ? errorMsg : `<b>${escapeHtml(errorMsg)}</b>`) : '';
     const text = `${errBlock ? `${errBlock}\n\n` : ''}${promptText}`.trim();
 
@@ -1854,7 +1858,43 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
  const newMsgId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
  if (newMsgId && newMsgId !== activeMsgId) {
-   await saveSession({ telegram_id: chatId, step: 'dyn_card_budget', draft_data: { ...draft, lang, card_msg_id: newMsgId }, updated_at: new Date().toISOString() });
+   await saveSession({ telegram_id: chatId, step: 'dyn_card_budget', draft_data: { ...cleanDraft, lang, card_msg_id: newMsgId }, updated_at: new Date().toISOString() });
+ }
+ };
+
+ // Step 5b: Maximum Monthly Budget (when user entered minimum first)
+ const sendDynamicCardStep5BudgetMax = async (
+    chatId: number,
+    draft: Record<string, any>,
+    minAmount: number,
+    messageIdToEdit?: number,
+    errorMsg?: string
+  ) => {
+    const activeMsgId = messageIdToEdit || draft.card_msg_id;
+    const lang = getLanguage(draft, chatId);
+    const suggestedMax = Math.min(1000000, Math.round(minAmount * 1.5));
+
+    await saveSession({
+      telegram_id: chatId,
+      step: 'dyn_card_budget_max',
+      draft_data: { ...draft, pending_budget_min: minAmount, lang, card_msg_id: activeMsgId },
+      updated_at: new Date().toISOString(),
+    });
+
+    const promptText = `<b>Maximum Monthly Budget / ከፍተኛ ወርሃዊ በጀት</b>\n\n<blockquote>Minimum saved: <b>${minAmount.toLocaleString()} ETB/mo</b>\nNow enter your MAXIMUM monthly budget in ETB (e.g. <code>${suggestedMax.toLocaleString()}</code>):\n\nዝቅተኛ በጀት ተይዟል: <b>${minAmount.toLocaleString()} ብር</b>\nአሁን ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ:</blockquote>`;
+    const errBlock = errorMsg ? (/</.test(errorMsg) ? errorMsg : `<b>${escapeHtml(errorMsg)}</b>`) : '';
+    const text = `${errBlock ? `${errBlock}\n\n` : ''}${promptText}`.trim();
+
+ const inlineKeyboard = [
+ [
+ { text: 'Change Minimum / ዝቅተኛውን ቀይር', callback_data: 'dyn_back_to_budget_min' },
+ { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
+ ],
+ ];
+
+ const newMsgId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ if (newMsgId && newMsgId !== activeMsgId) {
+   await saveSession({ telegram_id: chatId, step: 'dyn_card_budget_max', draft_data: { ...draft, pending_budget_min: minAmount, lang, card_msg_id: newMsgId }, updated_at: new Date().toISOString() });
  }
  };
 
@@ -2000,12 +2040,11 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     });
 
     const header = '<b>Preferences Saved / ምርጫዎችዎ ተመዝግበዋል</b>';
-    const minB = draft.budget_min ? `${Number(draft.budget_min).toLocaleString()} - ` : '';
-    const maxB = draft.budget_max ? `${Number(draft.budget_max).toLocaleString()} ETB / ብር` : 'Not set / አልተገለጸም';
+    const budgetSummaryStr = formatBudgetRangeLabel(draft.budget_min, draft.budget_max, 'Not set / አልተገለጸም');
     const prefG = draft.preferred_gender || 'Any / ማንኛውም';
     const subs = Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity.join(', ') : (draft.preferred_subcity || 'Addis Ababa / አዲስ አበባ');
 
-    const summary = `<blockquote>• <b>Budget / በጀት:</b> <b>${minB}${maxB}</b>\n• <b>Gender / ጾታ:</b> <b>${prefG}</b>\n• <b>Areas / አካባቢ:</b> <b>${subs}</b></blockquote>`;
+    const summary = `<blockquote>• <b>Budget / በጀት:</b> <b>${escapeHtml(budgetSummaryStr)}</b>\n• <b>Gender / ጾታ:</b> <b>${prefG}</b>\n• <b>Areas / አካባቢ:</b> <b>${subs}</b></blockquote>`;
     const prompt = 'Tap below to continue / ለመቀጠል ከታች ይጫኑ:';
 
     const isVerified = await isUserFaydaVerified(chatId);
@@ -2106,8 +2145,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const areasDisplay = Array.isArray(profileData.locations || profileData.preferred_subcity)
       ? (profileData.locations || profileData.preferred_subcity).join(', ')
       : 'Addis Ababa';
-    const budgetNum = Number(profileData.budget_max || profileData.budget || 0);
-    const budgetDisplay = budgetNum > 0 ? `${budgetNum.toLocaleString()} ETB/month` : 'Flexible';
+    const budgetDisplay = formatBudgetRangeLabel(profileData.budget_min, profileData.budget_max || profileData.budget, 'Flexible');
     const myGender = profileData.gender || profileData.my_gender || 'Any';
     const myGenderDisplay = myGender === 'Female' ? 'Female / ሴት' : myGender === 'Male' ? 'Male / ወንድ' : myGender;
     const prefGender = profileData.preferred_gender || 'Any';
@@ -3228,20 +3266,50 @@ Select the category of the post to broadcast to ${targetChannel}:
  errorMsg?: string
  ) => {
  const activeMsgId = messageIdToEdit || draft.card_msg_id;
+ const { pending_budget_min: _ignoredMin, ...cleanDraft } = draft || {};
  await saveSession({
  telegram_id: chatId,
  step: 'admin_post_budget',
- draft_data: { ...draft, card_msg_id: activeMsgId },
+ draft_data: { ...cleanDraft, card_msg_id: activeMsgId },
  updated_at: new Date().toISOString(),
  });
 
- const text = `<b>SpaceMatch Admin · Step 3: Rent / Budget Cap</b>
-${errorMsg ? `<b>${errorMsg}</b>\n\n` : ''} <b>Please reply with the monthly rent or budget cap in ETB:</b>
-(Example: <code>10000</code> or <code>15000</code>)
+ const text = `<b>SpaceMatch Admin · Step 3: Rent / Budget Range</b>
+${errorMsg ? `<b>${errorMsg}</b>\n\n` : ''}<b>Enter monthly budget/rent range in ETB (e.g. <code>5000 - 12000</code>),</b>
+or enter MINIMUM amount first (e.g. <code>5000</code>):
  `.trim();
 
  const inlineKeyboard = [
  [{ text: 'Back to Sub-Cities', callback_data: 'admin_post_back_to_subs' }],
+ [{ text: 'Cancel', callback_data: 'nav_start' }],
+ ];
+
+ await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
+ };
+
+ const sendAdminPostBudgetMaxStep = async (
+ chatId: number,
+ draft: Record<string, any>,
+ minAmount: number,
+ messageIdToEdit?: number,
+ errorMsg?: string
+ ) => {
+ const activeMsgId = messageIdToEdit || draft.card_msg_id;
+ const suggestedMax = Math.min(1000000, Math.round(minAmount * 1.5));
+ await saveSession({
+ telegram_id: chatId,
+ step: 'admin_post_budget_max',
+ draft_data: { ...draft, pending_budget_min: minAmount, card_msg_id: activeMsgId },
+ updated_at: new Date().toISOString(),
+ });
+
+ const text = `<b>SpaceMatch Admin · Step 3b: Maximum Rent / Budget</b>
+${errorMsg ? `<b>${errorMsg}</b>\n\n` : ''}Minimum saved: <b>${minAmount.toLocaleString()} ETB/mo</b>
+Now enter the MAXIMUM monthly amount in ETB (e.g. <code>${suggestedMax.toLocaleString()}</code>):
+ `.trim();
+
+ const inlineKeyboard = [
+ [{ text: 'Change Minimum', callback_data: 'admin_post_back_to_budget' }],
  [{ text: 'Cancel', callback_data: 'nav_start' }],
  ];
 
@@ -3398,7 +3466,8 @@ Example: <code>Selamawit Tadesse | 0911223344 | @selam_t</code>
  const subcitiesStr = Array.isArray(draft.locations) && draft.locations.length > 0
  ? draft.locations.join(', ')
  : 'Addis Ababa';
- const budgetNum = draft.budget || 10000;
+ const budgetMin = Number(draft.budget_min || 0);
+ const budgetNum = Number(draft.budget_max || draft.budget || 10000);
  const rawCandidate = (draft.gender && draft.gender !== 'Member' ? draft.gender : draft.my_gender) || draft.gender || 'Any';
  const rawGender = rawCandidate.toLowerCase();
  const isCandidateFemale = rawGender.includes('female') || rawGender.includes('ሴት') || rawGender === 'f';
@@ -3420,6 +3489,7 @@ Example: <code>Selamawit Tadesse | 0911223344 | @selam_t</code>
  const postDraft = {
  ...draft,
  display_code: draft.display_code || (isSpace ? 'SPMARWR1' : 'SPMARBR5'),
+ budget_min: budgetMin,
  budget_max: budgetNum,
  space_rent: isSpace ? budgetNum : undefined,
  locations: draft.locations || ['Addis Ababa'],
@@ -3719,7 +3789,9 @@ ${postPreview}
 
  const subcities = metadata?.subcities || (Array.isArray(prof?.locations) && prof.locations.length > 0 ? prof.locations : (Array.isArray(draft.preferred_subcity) ? draft.preferred_subcity : ['Addis Ababa']));
  const subcitiesStr = Array.isArray(subcities) ? subcities.join(', ') : String(subcities);
- const budgetNum = metadata?.budgetNum || prof?.budget_max || draft.budget_max || 10000;
+ const budgetMin = Number(metadata?.budgetMin ?? draft.budget_min ?? prof?.budget_min ?? 0);
+ const budgetNum = Number(metadata?.budgetNum ?? draft.budget_max ?? prof?.budget_max ?? 10000);
+ const budgetLabel = formatBudgetRangeLabel(budgetMin, budgetNum, 'Flexible');
  const genderStr = metadata?.genderStr || (prof?.gender && prof?.gender !== 'Member' ? prof?.gender : draft.gender) || prof?.gender || 'Member';
  const prefGenderStr = metadata?.prefGenderStr || prof?.preferred_gender || draft.preferred_gender || 'Any';
  const prefGenderFormatted = prefGenderStr === 'Female' ? 'Female Only' : prefGenderStr === 'Male' ? 'Male Only' : 'Any Gender';
@@ -3733,7 +3805,7 @@ ${postPreview}
  display_code: prof?.display_code && String(prof.display_code).toUpperCase().startsWith('SPMARWR') ? prof.display_code : displayCode,
  gender: genderStr,
  locations: Array.isArray(subcities) ? subcities : [subcities],
- budget_min: 0,
+ budget_min: budgetMin,
  budget_max: budgetNum,
  roommate_traits: bioStr,
  kyc_status: 'verified',
@@ -3763,7 +3835,7 @@ ${postPreview}
  my_gender: genderStr,
  age: userAge,
  preferred_gender: prefGenderStr,
- budget_min: 0,
+ budget_min: budgetMin,
  budget_max: budgetNum,
  lifestyle_bio: bioStr,
  unlock_fee: 100,
@@ -3782,7 +3854,7 @@ ${postPreview}
 
 <blockquote>• <b>Listing Code / መለያ ኮድ:</b> <code>#${displayCode}</code>
 • <b>Target Areas / አካባቢዎች:</b> <code>${subcitiesStr}</code>
-• <b>Budget Cap / በጀት:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB/mo</code>
+• <b>Budget Range / በጀት:</b> <code>${escapeHtml(budgetLabel)}</code>
 • <b>Status / ሁኔታ:</b> <b>Pending Admin Review / በግምገማ ላይ</b>
 • <b>Target Channel / ዒላማ ቻናል:</b> <code>${targetChannel}</code></blockquote>
 
@@ -3833,7 +3905,7 @@ A user has requested to post their profile to the channel <code>${targetChannel}
 • <b>Sex:</b> ${genderStr}
 • <b>Preferred Sex:</b> ${prefGenderFormatted}
 • <b>Age:</b> ${ageStr}
-• <b>Budget Cap:</b> <code>Up to ${Number(budgetNum).toLocaleString()} ETB / month</code>
+• <b>Budget Range:</b> <code>${escapeHtml(budgetLabel)}</code>
 • <b>Target Areas:</b> <code>${subcitiesStr}</code>
 • <b>Description:</b> ${bioStr}
 • <b>Pass Status:</b> 3-Month Pass Active 
@@ -4540,7 +4612,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  seenCodes.add(code);
  const { isClosed, badge } = formatListingStatusBadge(p.status, p.onboarding_step);
  const kindLabel = code.startsWith('SPMARWR') ? 'Space' : 'Roommate';
- text += `<b>${kindLabel} #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((p.locations || []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${Number(p.budget_max || p.budget_min || 0).toLocaleString()} ETB/mo\n\n`;
+ text += `<b>${kindLabel} #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((p.locations || []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${escapeHtml(formatBudgetRangeLabel(p.budget_min, p.budget_max, 'Flexible'))}\n\n`;
  if (!isClosed) {
  buttons.push([
    { text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${p.id}` },
@@ -4557,7 +4629,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  seenCodes.add(code);
  count++;
  const { isClosed, badge } = formatListingStatusBadge(rm.status);
- text += `<b>Seeker Listing #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((rm.preferred_subcity || []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${Number(rm.budget_max || 0).toLocaleString()} ETB/mo\n\n`;
+ text += `<b>Seeker Listing #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((rm.preferred_subcity || []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${escapeHtml(formatBudgetRangeLabel(rm.budget_min, rm.budget_max, 'Flexible'))}\n\n`;
  if (!isClosed) {
  buttons.push([
    { text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${rm.id}` },
@@ -4576,7 +4648,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  count++;
  const { isClosed, badge } = formatListingStatusBadge(d.status);
  const kindLabel = d.listing_category === 'space_available' || code.startsWith('SPMARWR') ? 'Space Listing' : 'Seeker Draft';
- text += `<b>${kindLabel} #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((Array.isArray(d.preferred_subcity) ? d.preferred_subcity : []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${Number(d.space_share || d.budget_max || 0).toLocaleString()} ETB/mo\n\n`;
+ text += `<b>${kindLabel} #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((Array.isArray(d.preferred_subcity) ? d.preferred_subcity : []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${escapeHtml(formatBudgetRangeLabel(d.budget_min, d.space_share || d.budget_max, 'Flexible'))}\n\n`;
  if (!isClosed) {
  buttons.push([
    { text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${code}` },
@@ -4879,7 +4951,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  });
  };
 
- // Matchmaker Step 7: Monthly Rent Budget (Direct Input or Any Budget - In-Place Edit)
+ // Matchmaker Step 7: Monthly Rent Budget Range (Custom Min - Max or Step-by-Step Min -> Max)
  const sendMatchmakerBudgetStep = async (
     chatId: number,
     currentDraft: Record<string, any> = {},
@@ -4888,7 +4960,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
   ) => {
     const lang = getLanguage(currentDraft, chatId);
     const header = errorMessage ? `<b>${errorMessage}</b>\n\n` : '';
-    const text = `${header}<b>Monthly Budget / ወርሃዊ በጀት</b>\n\n<blockquote>Enter maximum rent in ETB (e.g. 10000) or select Any Budget:\nከፍተኛ የበጀት ገደብ በብር ያስገቡ ወይም ማንኛውም የሚለውን ይጫኑ:</blockquote>`;
+    const text = `${header}<b>Monthly Budget Range / ወርሃዊ የበጀት ክልል</b>\n\n<blockquote>Enter your minimum and maximum budget range in ETB (e.g. <code>5000 - 12000</code>),\nor enter your MINIMUM budget first (e.g. <code>5000</code>), or tap Any Budget:\n\nዝቅተኛውን እና ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ (ምሳሌ: <code>5000 - 12000</code>)\nወይም መጀመሪያ ዝቅተኛውን ብቻ ይጻፉ (ምሳሌ: <code>5000</code>) ወይም ማንኛውም በጀት የሚለውን ይጫኑ:</blockquote>`;
 
  const keyboard = [
  [
@@ -4900,14 +4972,50 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  ],
  ];
 
+ const { pending_budget_min: _ignoredMin, ...cleanDraft } = currentDraft || {};
+ const targetMsgId = messageIdToEdit || cleanDraft.card_msg_id;
+ const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+ if (activeMsgId) cleanDraft.card_msg_id = activeMsgId;
+
+ await saveSession({
+ telegram_id: chatId,
+ step: 'awaiting_match_budget_input',
+ draft_data: { ...cleanDraft, lang },
+ updated_at: new Date().toISOString(),
+ });
+ };
+
+ // Matchmaker Step 7b: Maximum Monthly Budget (when user entered minimum first)
+ const sendMatchmakerBudgetMaxStep = async (
+    chatId: number,
+    currentDraft: Record<string, any> = {},
+    minAmount: number,
+    messageIdToEdit?: number,
+    errorMessage?: string
+  ) => {
+    const lang = getLanguage(currentDraft, chatId);
+    const suggestedMax = Math.min(1000000, Math.round(minAmount * 1.5));
+    const header = errorMessage ? `<b>${errorMessage}</b>\n\n` : '';
+    const text = `${header}<b>Maximum Monthly Budget / ከፍተኛ ወርሃዊ በጀት</b>\n\n<blockquote>Minimum saved: <b>${minAmount.toLocaleString()} ETB/mo</b>\nNow enter your MAXIMUM monthly budget in ETB (e.g. <code>${suggestedMax.toLocaleString()}</code>):\n\nዝቅተኛ በጀት ተይዟል: <b>${minAmount.toLocaleString()} ብር</b>\nአሁን ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ:</blockquote>`;
+
+ const keyboard = [
+ [
+ { text: 'Change Minimum / ዝቅተኛውን ቀይር', callback_data: 'match_goto_budget' },
+ { text: 'Any Budget / ማንኛውም በጀት', callback_data: 'match_set_budget:0' },
+ ],
+ [
+ { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+ ],
+ ];
+
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
  const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
  if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
 
  await saveSession({
  telegram_id: chatId,
- step: 'awaiting_match_budget_input',
- draft_data: { ...currentDraft, lang },
+ step: 'awaiting_match_budget_max',
+ draft_data: { ...currentDraft, pending_budget_min: minAmount, lang },
  updated_at: new Date().toISOString(),
  });
  };
@@ -5107,7 +5215,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  });
  };
 
- // Helper: Seeker Step 5 (Budget Input - Direct Numerical ETB Amount)
+ // Helper: Seeker Step 5 (Budget Range Input - Custom Min - Max or Min -> Max)
  const sendSeekerBudgetStep = async (
     chatId: number,
     currentDraft: Record<string, any> = {},
@@ -5116,11 +5224,43 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
   ) => {
     const lang = getLanguage(currentDraft, chatId);
     const header = errorMessage ? `<b>${errorMessage}</b>\n\n` : '';
-    const text = `${header}<b>Monthly Budget / ወርሃዊ በጀት</b>\n\n<blockquote>Enter maximum budget in ETB (e.g. 10000):\nከፍተኛ ወርሃዊ በጀትዎን በብር ያስገቡ:</blockquote>`;
+    const text = `${header}<b>Monthly Budget Range / ወርሃዊ የበጀት ክልል</b>\n\n<blockquote>Enter your minimum and maximum monthly budget in ETB (e.g. <code>5000 - 12000</code>),\nor type your MINIMUM budget first (e.g. <code>5000</code>):\n\nዝቅተኛውን እና ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ (ምሳሌ: <code>5000 - 12000</code>)\nወይም መጀመሪያ ዝቅተኛውን ብቻ ይጻፉ (ምሳሌ: <code>5000</code>):</blockquote>`;
 
  const keyboard = [
  [
  { text: 'Back to Preference / ተመለስ', callback_data: 'seeker_goto_pref_gender' },
+ { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
+ ],
+ ];
+
+ const { pending_budget_min: _ignoredMin, ...cleanDraft } = currentDraft || {};
+ const targetMsgId = messageIdToEdit || cleanDraft.card_msg_id;
+ const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
+ if (activeMsgId) cleanDraft.card_msg_id = activeMsgId;
+
+ await saveSession({
+ telegram_id: chatId,
+ step: 'awaiting_seeker_budget_text',
+ draft_data: { ...cleanDraft, lang },
+ updated_at: new Date().toISOString(),
+ });
+ };
+
+ const sendSeekerBudgetMaxStep = async (
+    chatId: number,
+    currentDraft: Record<string, any> = {},
+    minAmount: number,
+    messageIdToEdit?: number,
+    errorMessage?: string
+  ) => {
+    const lang = getLanguage(currentDraft, chatId);
+    const suggestedMax = Math.min(1000000, Math.round(minAmount * 1.5));
+    const header = errorMessage ? `<b>${errorMessage}</b>\n\n` : '';
+    const text = `${header}<b>Maximum Monthly Budget / ከፍተኛ ወርሃዊ በጀት</b>\n\n<blockquote>Minimum saved: <b>${minAmount.toLocaleString()} ETB/mo</b>\nNow enter your MAXIMUM monthly budget in ETB (e.g. <code>${suggestedMax.toLocaleString()}</code>):\n\nዝቅተኛ በጀት ተይዟል: <b>${minAmount.toLocaleString()} ብር</b>\nአሁን ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ:</blockquote>`;
+
+ const keyboard = [
+ [
+ { text: 'Change Minimum / ዝቅተኛውን ቀይር', callback_data: 'seeker_goto_budget' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -5131,8 +5271,8 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  await saveSession({
  telegram_id: chatId,
- step: 'awaiting_seeker_budget_text',
- draft_data: { ...currentDraft, lang },
+ step: 'awaiting_seeker_budget_max',
+ draft_data: { ...currentDraft, pending_budget_min: minAmount, lang },
  updated_at: new Date().toISOString(),
  });
  };
@@ -5207,8 +5347,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
     const areasDisplay = Array.isArray(currentDraft.preferred_subcity) && currentDraft.preferred_subcity.length > 0
       ? currentDraft.preferred_subcity.join(', ')
       : 'Addis Ababa';
-    const budgetNum = Number(currentDraft.budget_max || currentDraft.budget || 0);
-    const budgetDisplay = budgetNum > 0 ? `${budgetNum.toLocaleString()} ETB/month` : 'Flexible';
+    const budgetDisplay = formatBudgetRangeLabel(currentDraft.budget_min, currentDraft.budget_max || currentDraft.budget, 'Flexible');
     const myGender = currentDraft.my_gender || currentDraft.gender || 'Any';
     const myGenderDisplay = myGender === 'Female' ? 'Female / ሴት' : myGender === 'Male' ? 'Male / ወንድ' : myGender;
     const prefGender = currentDraft.preferred_gender || 'Any';
@@ -5265,6 +5404,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  job?: string;
  roommate_traits?: string;
  preferred_gender?: string;
+ budget_min?: number;
  budget_max?: number;
  } = {},
  messageIdToEdit?: number,
@@ -5275,6 +5415,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  const myGender = criteria.my_gender || '';
  const myAge = criteria.age ? Number(criteria.age) : undefined;
  const myReligion = (criteria.religion || '').trim();
+ const budgetMin = criteria.budget_min !== undefined ? Number(criteria.budget_min) : 0;
  const budgetMax = criteria.budget_max !== undefined ? Number(criteria.budget_max) : 100000;
  const ageBracket = criteria.age_bracket || '';
  const lang = getLanguage(criteria, chatId);
@@ -5364,6 +5505,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  preferred_subcity: p.locations || ['Addis Ababa'],
  my_gender: p.gender || 'Female',
  preferred_gender: p.preferred_gender || 'Any',
+ budget_min: p.budget_min || 0,
  budget_max: p.budget_max || 10000,
  lifestyle_bio: meta.cleanBio || 'Looking for compatible roommate in Addis Ababa.',
  fayda_status: p.kyc_status === 'verified' ? 'verified' : 'unverified',
@@ -5388,6 +5530,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  preferred_subcity: p.preferred_subcity || ['Addis Ababa'],
  my_gender: p.my_gender || 'Female',
  preferred_gender: p.preferred_gender || 'Any',
+ budget_min: p.budget_min || 0,
  budget_max: p.budget_max || 10000,
  lifestyle_bio: meta.cleanBio || 'Looking for compatible roommate in Addis Ababa.',
  fayda_status: p.users?.fayda_status || 'verified',
@@ -5413,6 +5556,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  preferred_subcity: d.preferred_subcity || ['Bole'],
  my_gender: d.my_gender || 'Female',
  preferred_gender: d.preferred_gender || 'Any',
+ budget_min: d.budget_min || 0,
  budget_max: d.budget_max || 10000,
  lifestyle_bio: meta.cleanBio || 'Seeking a compatible roommate in Addis Ababa.',
  fayda_status: d.fayda_status || 'verified',
@@ -5464,8 +5608,18 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  );
  if (!hasSubOverlap && !profSubs.some((ps) => ps.toLowerCase().includes('addis ababa'))) return false;
  }
- if (budgetMax > 0 && budgetMax < 100000 && Number(prof.budget_max || 0) > budgetMax * 1.5) {
- return false;
+ if (budgetMin > 0 || (budgetMax > 0 && budgetMax < 100000)) {
+ const profMin = Number(prof.budget_min || 0);
+ const profMax = Number(prof.budget_max || 0);
+ if (budgetMax > 0 && budgetMax < 100000 && profMin > budgetMax * 1.5) {
+   return false;
+ }
+ if (budgetMax > 0 && budgetMax < 100000 && profMin === 0 && profMax > budgetMax * 1.5) {
+   return false;
+ }
+ if (budgetMin > 0 && profMax > 0 && profMax < budgetMin * 0.75) {
+   return false;
+ }
  }
  }
  return true;
@@ -5485,7 +5639,12 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  if (hasSubcityOverlap) score += 25;
  }
 
- if (!budgetMax || budgetMax === 0 || prof.budget_max <= budgetMax * 1.25) {
+ const profMin = Number(prof.budget_min || 0);
+ const profMax = Number(prof.budget_max || 0);
+ if ((!budgetMin && (!budgetMax || budgetMax === 0)) || (
+   (profMax === 0 || profMax >= budgetMin * 0.85) &&
+   (budgetMax === 0 || (profMin > 0 ? profMin <= budgetMax * 1.15 : profMax <= budgetMax * 1.25))
+ )) {
  score += 15;
  }
 
@@ -5558,7 +5717,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  const genderDisplay = match.my_gender === 'Female' ? 'Female / ሴት' : match.my_gender === 'Male' ? 'Male / ወንድ' : match.my_gender;
  const prefGenderDisplay = match.preferred_gender === 'Female' ? 'Female Only / ሴት ብቻ' : match.preferred_gender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
  const matchDisplayCode = match.display_code ? `#${match.display_code.replace(/^#/, '')}` : `#${safeIndex + 1}`;
- const budgetDisplay = Number(match.budget_max || 0) > 0 ? `Up to ${Number(match.budget_max).toLocaleString()} ETB/mo` : 'Flexible';
+ const budgetDisplay = formatBudgetRangeLabel(match.budget_min, match.budget_max, 'Flexible');
  const religionLine = match.religion ? `\n• <b>Religion / እምነት:</b> ${escapeHtml(match.religion)}` : '';
  const jobLine = match.job ? `\n• <b>Occupation / ሙያ:</b> ${escapeHtml(match.job)}` : '';
 
@@ -6394,7 +6553,8 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
 
  const subcities = draft.locations || ['Bole'];
  const subcitiesStr = subcities.join(', ');
- const budgetNum = draft.budget || 10000;
+ const budgetMin = Number(draft.budget_min || 0);
+ const budgetNum = Number(draft.budget_max || draft.budget || 10000);
 
  const rawCandidate = (draft.gender && draft.gender !== 'Member' ? draft.gender : draft.my_gender) || draft.gender || 'Any';
  const rawGender = rawCandidate.toLowerCase();
@@ -6444,7 +6604,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  gender: draft.gender || 'Any',
  preferred_gender: prefGenderStr,
  locations: subcities,
- budget_min: 0,
+ budget_min: budgetMin,
  budget_max: budgetNum,
  roommate_traits: bioStr,
  kyc_status: 'verified',
@@ -6472,7 +6632,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  my_gender: draft.gender || 'Any',
  preferred_gender: prefGenderStr,
  preferred_subcity: subcities,
- budget_min: 0,
+ budget_min: budgetMin,
  budget_max: budgetNum,
  lifestyle_bio: bioStr,
  preferred_roommate: 'Clean, respectful, and compatible housemate.',
@@ -6491,7 +6651,7 @@ ${cleanTraits ? `\n<blockquote>"${escapeHtml(cleanTraits)}"</blockquote>\n` : ''
  ...draft,
  display_code: displayCode,
  locations: subcities,
- budget_min: 0,
+ budget_min: budgetMin,
  budget_max: budgetNum,
  space_rent: isSpace ? budgetNum : undefined,
  space_type: isSpace ? (draft.space_type || 'Private Bedroom in Shared Flat') : undefined,
@@ -6843,6 +7003,7 @@ ${res.message}
      religion: savedProf.religion,
      job: savedProf.job,
      preferred_gender: savedProf.preferred_gender,
+     budget_min: savedProf.budget_min ?? 0,
      budget_max: savedProf.budget_max ?? 0,
      roommate_traits: savedProf.roommate_traits,
      lifestyle_bio: savedProf.roommate_traits,
@@ -6851,7 +7012,7 @@ ${res.message}
    });
    await saveSession({ telegram_id: chatId, step: 'matchmaker_saved_prompt', draft_data: savedDraft, updated_at: new Date().toISOString() }, true);
    const savedAreasStr = savedProf.locations.join(', ');
-   const savedBudgetStr = Number(savedProf.budget_max || 0) > 0 ? `${Number(savedProf.budget_max).toLocaleString()} ETB/mo` : 'Any Budget';
+   const savedBudgetStr = formatBudgetRangeLabel(savedProf.budget_min, savedProf.budget_max, 'Any Budget');
    await sendOrEditCard(
      chatId,
      `<b>Search Roommate / የቤት አጋር ፈልግ</b>\n\n<blockquote>We found your saved profile & preferences:\n• <b>Areas / አካባቢ:</b> <b>${escapeHtml(savedAreasStr)}</b>\n• <b>Budget / በጀት:</b> <b>${escapeHtml(savedBudgetStr)}</b>\n• <b>Looking For / ምርጫ:</b> <b>${escapeHtml(savedProf.preferred_gender)}</b>\n\nበተቀመጠው መረጃዎ ወዲያውኑ ይፈልጉ ወይም መስፈርቶችዎን ያሻሽሉ:</blockquote>`,
@@ -7271,7 +7432,7 @@ ${res.message}
  return NextResponse.json({ ok: true });
  }
 
- if (callbackData === 'dyn_back_to_budget') {
+ if (callbackData === 'dyn_back_to_budget' || callbackData === 'dyn_back_to_budget_min') {
  const session = getSession(chatId);
  await sendDynamicCardStep5Budget(chatId, session.draft_data, msgId);
  return NextResponse.json({ ok: true });
@@ -7372,6 +7533,7 @@ ${res.message}
  const subcities = (Array.isArray(draft.preferred_subcity) && draft.preferred_subcity.length > 0)
  ? draft.preferred_subcity
  : (Array.isArray(prof?.locations) && prof.locations.length > 0 ? prof.locations : ['Addis Ababa']);
+ const budgetMin = Number(draft.budget_min ?? prof?.budget_min ?? 0);
  const budgetNum = draft.budget_max ?? prof?.budget_max ?? 10000;
  const rawCandidate = (draft.gender && draft.gender !== 'Member' ? draft.gender : prof?.gender) || 'Member';
  const genderStr = rawCandidate;
@@ -7384,6 +7546,7 @@ ${res.message}
  category: 'seeker',
  displayCode,
  subcities,
+ budgetMin,
  budgetNum,
  genderStr,
  prefGenderStr,
@@ -8210,7 +8373,8 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  if (callbackData.startsWith('match_set_budget:')) {
  const budget = parseInt(callbackData.split(':')[1], 10);
  const session = getSession(chatId);
- const updatedDraft = { ...session.draft_data, budget_max: budget, browse_all: false };
+ const { pending_budget_min: _ignoredMin, ...cleanDraft } = session.draft_data || {};
+ const updatedDraft = { ...cleanDraft, budget_min: budget === 0 ? 0 : (cleanDraft.budget_min || 0), budget_max: budget, browse_all: false };
  await sendMatchmakerTraitsStep(chatId, updatedDraft, msgId);
  return NextResponse.json({ ok: true });
  }
@@ -8473,6 +8637,7 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  await submitSeekerListingToAdmin(chatId, {
  displayCode: draftData.display_code,
  subcities: draftData.preferred_subcity || ['Bole'],
+ budgetMin: draftData.budget_min ?? 0,
  budgetNum: draftData.budget_max || 10000,
  genderStr: draftData.my_gender || draftData.gender || 'Member',
  prefGenderStr: draftData.preferred_gender || 'Any',
@@ -11491,24 +11656,64 @@ All administrators of this channel can now use bot admin features, and approved 
  }
 
  // ── ADMIN POST WIZARD TEXT INPUT HANDLERS ─────────────────────────────
- // Admin Post Wizard: Budget/Rent Text Input
+ // Admin Post Wizard: Budget/Rent Range Input (Min - Max or Min -> Max)
  if (session.step === 'admin_post_budget') {
  if (update.message?.message_id) {
  sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
  }
  const activeMsgId = session.draft_data?.card_msg_id;
- const budgetVal = parseNumericInput(text);
- if (!budgetVal || budgetVal < 500 || budgetVal > 1000000) {
+ const budgetRange = parseBudgetRangeInput(text);
+ if (!budgetRange || budgetRange.max < 500 || budgetRange.max > 1000000) {
  await sendAdminPostBudgetStep(
  chatId,
  session.draft_data,
  activeMsgId,
- 'Please enter a valid monthly rent/budget in ETB (e.g. 12000):'
+ 'Please enter a valid range (e.g. 5000 - 12000) or minimum budget first (e.g. 5000):'
  );
  return NextResponse.json({ ok: true });
  }
 
- const updatedDraft = { ...session.draft_data, budget: budgetVal };
+ if (budgetRange.isExplicitRange) {
+ const updatedDraft = { ...session.draft_data, budget_min: budgetRange.min, budget_max: budgetRange.max, budget: budgetRange.max };
+ await sendAdminPostGenderStep(chatId, updatedDraft, activeMsgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ await sendAdminPostBudgetMaxStep(chatId, session.draft_data, budgetRange.max, activeMsgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ if (session.step === 'admin_post_budget_max') {
+ if (update.message?.message_id) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+ }
+ const activeMsgId = session.draft_data?.card_msg_id;
+ const minAmount = Number(session.draft_data?.pending_budget_min || 500);
+ const budgetRange = parseBudgetRangeInput(text);
+ if (!budgetRange || budgetRange.max < 500 || budgetRange.max > 1000000) {
+ await sendAdminPostBudgetMaxStep(
+ chatId,
+ session.draft_data,
+ minAmount,
+ activeMsgId,
+ `Please enter a valid maximum amount in ETB (at least ${minAmount.toLocaleString()}):`
+ );
+ return NextResponse.json({ ok: true });
+ }
+ const finalMin = budgetRange.isExplicitRange ? budgetRange.min : minAmount;
+ const finalMax = budgetRange.max;
+ if (finalMax < finalMin) {
+ await sendAdminPostBudgetMaxStep(
+ chatId,
+ session.draft_data,
+ finalMin,
+ activeMsgId,
+ `Maximum must be at least ${finalMin.toLocaleString()} ETB:`
+ );
+ return NextResponse.json({ ok: true });
+ }
+ const { pending_budget_min: _ignoredMin, ...cleanDraft } = session.draft_data || {};
+ const updatedDraft = { ...cleanDraft, budget_min: finalMin, budget_max: finalMax, budget: finalMax };
  await sendAdminPostGenderStep(chatId, updatedDraft, activeMsgId);
  return NextResponse.json({ ok: true });
  }
@@ -11653,7 +11858,7 @@ All administrators of this channel can now use bot admin features, and approved 
  }
  const activeMsgId = session.draft_data?.card_msg_id;
  const budgetRange = parseBudgetRangeInput(text);
- if (budgetRange && budgetRange.max >= 500 && budgetRange.max <= 1000000) {
+ if (budgetRange && budgetRange.isExplicitRange && budgetRange.max >= 500 && budgetRange.max <= 1000000) {
  const updatedDraft = { ...session.draft_data, budget_min: budgetRange.min, budget_max: budgetRange.max, interstitial_seen: true };
  await routeNextMissingSeekerStep(chatId, updatedDraft, activeMsgId, update.message?.from);
  return NextResponse.json({ ok: true });
@@ -11672,26 +11877,67 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
 
- // Step 5 Text Input: Monthly Budget Range
+ // Step 5 Text Input: Monthly Budget Range (Min - Max or Min -> Max)
  if (session.step === 'dyn_card_budget') {
  if (update.message?.message_id) {
  sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
  }
  const activeMsgId = session.draft_data?.card_msg_id;
  const lang = getLanguage(session.draft_data, chatId);
- const isAm = lang === 'am';
  const budgetRange = parseBudgetRangeInput(text);
  if (!budgetRange || budgetRange.max < 500 || budgetRange.max > 1000000) {
  await sendDynamicCardStep5Budget(
  chatId,
  session.draft_data,
  activeMsgId,
- 'Please enter a valid monthly budget range in ETB (e.g. 8000 - 15000) / ትክክለኛ ወርሃዊ የበጀት ክልል በብር ያስገቡ (ምሳሌ: 8000 - 15000):'
+ 'Please enter a valid range (e.g. 5000 - 12000) or minimum budget first (e.g. 5000) / ትክክለኛ የበጀት ክልል (ምሳሌ: 5000 - 12000) ወይም ዝቅተኛውን በጀት በብር ያስገቡ:'
  );
  return NextResponse.json({ ok: true });
  }
 
+ if (budgetRange.isExplicitRange) {
  const updatedDraft = { ...session.draft_data, budget_min: budgetRange.min, budget_max: budgetRange.max, lang };
+ await routeNextMissingSeekerStep(chatId, updatedDraft, activeMsgId, update.message?.from);
+ return NextResponse.json({ ok: true });
+ }
+
+ await sendDynamicCardStep5BudgetMax(chatId, session.draft_data, budgetRange.max, activeMsgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ // Step 5b Text Input: Maximum Monthly Budget
+ if (session.step === 'dyn_card_budget_max') {
+ if (update.message?.message_id) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+ }
+ const activeMsgId = session.draft_data?.card_msg_id;
+ const lang = getLanguage(session.draft_data, chatId);
+ const minAmount = Number(session.draft_data?.pending_budget_min || 500);
+ const budgetRange = parseBudgetRangeInput(text);
+ if (!budgetRange || budgetRange.max < 500 || budgetRange.max > 1000000) {
+ await sendDynamicCardStep5BudgetMax(
+ chatId,
+ session.draft_data,
+ minAmount,
+ activeMsgId,
+ `Please enter a valid maximum budget in ETB (at least ${minAmount.toLocaleString()}) / እባክዎ ከ${minAmount.toLocaleString()} ብር ያላነሰ ከፍተኛ በጀት ያስገቡ:`
+ );
+ return NextResponse.json({ ok: true });
+ }
+ const finalMin = budgetRange.isExplicitRange ? budgetRange.min : minAmount;
+ const finalMax = budgetRange.max;
+ if (finalMax < finalMin) {
+ await sendDynamicCardStep5BudgetMax(
+ chatId,
+ session.draft_data,
+ finalMin,
+ activeMsgId,
+ `Maximum budget must be at least ${finalMin.toLocaleString()} ETB / ከፍተኛው በጀት ቢያንስ ${finalMin.toLocaleString()} ብር መሆን አለበት:`
+ );
+ return NextResponse.json({ ok: true });
+ }
+ const { pending_budget_min: _ignoredMin, ...cleanDraft } = session.draft_data || {};
+ const updatedDraft = { ...cleanDraft, budget_min: finalMin, budget_max: finalMax, lang };
  await routeNextMissingSeekerStep(chatId, updatedDraft, activeMsgId, update.message?.from);
  return NextResponse.json({ ok: true });
  }
@@ -11868,26 +12114,67 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
 
- // Matchmaker Wizard: Budget Text Input
+ // Matchmaker Wizard: Budget Range Text Input (Min - Max or Min -> Max)
  if (session.step === 'awaiting_match_prefs' || session.step === 'awaiting_match_budget_input') {
  if (update.message?.message_id) {
  sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
  }
  const targetMsgId = session.draft_data.card_msg_id;
  const lang = getLanguage(session.draft_data, chatId);
- const isAm = lang === 'am';
- const budgetVal = parseNumericInput(text);
- if (!budgetVal || budgetVal <= 0 || budgetVal > 1000000) {
+ const budgetRange = parseBudgetRangeInput(text);
+ if (!budgetRange || budgetRange.max <= 0 || budgetRange.max > 1000000) {
  await sendMatchmakerBudgetStep(
  chatId,
  session.draft_data,
  targetMsgId,
- '<b>Please type a valid monthly budget cap in ETB (e.g. 10000): / ትክክለኛ ወርሃዊ የበጀት ጣሪያ በብር ያስገቡ (ምሳሌ: 10000):</b>'
+ '<b>Please type a valid range (e.g. 5000 - 12000) or minimum budget first (e.g. 5000): / ትክክለኛ የበጀት ክልል (ምሳሌ: 5000 - 12000) ወይም ዝቅተኛውን በጀት ያስገቡ:</b>'
  );
  return NextResponse.json({ ok: true });
  }
 
- const updatedDraft = { ...session.draft_data, budget_max: budgetVal, lang };
+ if (budgetRange.isExplicitRange) {
+ const updatedDraft = { ...session.draft_data, budget_min: budgetRange.min, budget_max: budgetRange.max, lang };
+ await sendMatchmakerTraitsStep(chatId, updatedDraft, targetMsgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ await sendMatchmakerBudgetMaxStep(chatId, session.draft_data, budgetRange.max, targetMsgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ // Matchmaker Wizard: Maximum Budget Input (Step 2 of custom Min -> Max range)
+ if (session.step === 'awaiting_match_budget_max') {
+ if (update.message?.message_id) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+ }
+ const targetMsgId = session.draft_data.card_msg_id;
+ const lang = getLanguage(session.draft_data, chatId);
+ const minAmount = Number(session.draft_data?.pending_budget_min || 500);
+ const budgetRange = parseBudgetRangeInput(text);
+ if (!budgetRange || budgetRange.max < 500 || budgetRange.max > 1000000) {
+ await sendMatchmakerBudgetMaxStep(
+ chatId,
+ session.draft_data,
+ minAmount,
+ targetMsgId,
+ `<b>Please enter a valid maximum budget in ETB (at least ${minAmount.toLocaleString()}): / እባክዎ ከ${minAmount.toLocaleString()} ብር ያላነሰ ከፍተኛ በጀት ያስገቡ:</b>`
+ );
+ return NextResponse.json({ ok: true });
+ }
+ const finalMin = budgetRange.isExplicitRange ? budgetRange.min : minAmount;
+ const finalMax = budgetRange.max;
+ if (finalMax < finalMin) {
+ await sendMatchmakerBudgetMaxStep(
+ chatId,
+ session.draft_data,
+ finalMin,
+ targetMsgId,
+ `<b>Maximum budget must be at least ${finalMin.toLocaleString()} ETB: / ከፍተኛው በጀት ቢያንስ ${finalMin.toLocaleString()} ብር መሆን አለበት:</b>`
+ );
+ return NextResponse.json({ ok: true });
+ }
+ const { pending_budget_min: _ignoredMin, ...cleanDraft } = session.draft_data || {};
+ const updatedDraft = { ...cleanDraft, budget_min: finalMin, budget_max: finalMax, lang };
  await sendMatchmakerTraitsStep(chatId, updatedDraft, targetMsgId);
  return NextResponse.json({ ok: true });
  }
@@ -11955,26 +12242,66 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
 
- // Seeker Wizard: Budget Text Input
+ // Seeker Wizard: Budget Range Text Input (Min - Max or Min -> Max)
  if (session.step === 'awaiting_seeker_budget_text') {
  if (update.message?.message_id) {
  sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
  }
  const targetMsgId = session.draft_data.card_msg_id;
  const lang = getLanguage(session.draft_data, chatId);
- const isAm = lang === 'am';
- const budgetVal = parseNumericInput(text);
- if (!budgetVal || budgetVal < 500 || budgetVal > 1000000) {
+ const budgetRange = parseBudgetRangeInput(text);
+ if (!budgetRange || budgetRange.max < 500 || budgetRange.max > 1000000) {
  await sendSeekerBudgetStep(
  chatId,
  session.draft_data,
  targetMsgId,
- '<b>Please type a valid monthly budget cap in ETB (e.g. 10000): / ትክክለኛ ወርሃዊ የበጀት ጣሪያ በብር ያስገቡ (ምሳሌ: 10000):</b>'
+ '<b>Please enter a valid range (e.g. 5000 - 12000) or minimum budget first (e.g. 5000): / ትክክለኛ የበጀት ክልል (ምሳሌ: 5000 - 12000) ወይም ዝቅተኛውን በጀት ያስገቡ:</b>'
  );
  return NextResponse.json({ ok: true });
  }
 
- const updatedDraft = { ...session.draft_data, budget_max: budgetVal, lang };
+ if (budgetRange.isExplicitRange) {
+ const updatedDraft = { ...session.draft_data, budget_min: budgetRange.min, budget_max: budgetRange.max, lang };
+ await sendSeekerBioStep(chatId, updatedDraft, targetMsgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ await sendSeekerBudgetMaxStep(chatId, session.draft_data, budgetRange.max, targetMsgId);
+ return NextResponse.json({ ok: true });
+ }
+
+ if (session.step === 'awaiting_seeker_budget_max') {
+ if (update.message?.message_id) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: update.message.message_id }).catch(() => {});
+ }
+ const targetMsgId = session.draft_data.card_msg_id;
+ const lang = getLanguage(session.draft_data, chatId);
+ const minAmount = Number(session.draft_data?.pending_budget_min || 500);
+ const budgetRange = parseBudgetRangeInput(text);
+ if (!budgetRange || budgetRange.max < 500 || budgetRange.max > 1000000) {
+ await sendSeekerBudgetMaxStep(
+ chatId,
+ session.draft_data,
+ minAmount,
+ targetMsgId,
+ `<b>Please enter a valid maximum budget in ETB (at least ${minAmount.toLocaleString()}): / እባክዎ ከ${minAmount.toLocaleString()} ብር ያላነሰ ከፍተኛ በጀት ያስገቡ:</b>`
+ );
+ return NextResponse.json({ ok: true });
+ }
+ const finalMin = budgetRange.isExplicitRange ? budgetRange.min : minAmount;
+ const finalMax = budgetRange.max;
+ if (finalMax < finalMin) {
+ await sendSeekerBudgetMaxStep(
+ chatId,
+ session.draft_data,
+ finalMin,
+ targetMsgId,
+ `<b>Maximum budget must be at least ${finalMin.toLocaleString()} ETB: / ከፍተኛው በጀት ቢያንስ ${finalMin.toLocaleString()} ብር መሆን አለበት:</b>`
+ );
+ return NextResponse.json({ ok: true });
+ }
+ const { pending_budget_min: _ignoredMin, ...cleanDraft } = session.draft_data || {};
+ const updatedDraft = { ...cleanDraft, budget_min: finalMin, budget_max: finalMax, lang };
  await sendSeekerBioStep(chatId, updatedDraft, targetMsgId);
  return NextResponse.json({ ok: true });
  }
