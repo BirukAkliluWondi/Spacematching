@@ -1489,13 +1489,16 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  setFaydaStatusCache(chatId, true);
 
  // Always deliver an explicit visible confirmation that Fayda verification succeeded before continuing
- if (originStep !== 'universal_photo' && originStep !== 'idle') {
+ const shouldSendExplicitBanner = originStep !== 'universal_photo' && originStep !== 'idle';
+ if (shouldSendExplicitBanner) {
  const maskedFaydaFan = cleanFan.length >= 4 ? `•••• •••• ${cleanFan.slice(-4)}` : 'Verified';
  await tgSend(
  chatId,
  `✅ <b>Fayda Verification Successful! / የፋይዳ መታወቂያዎ በተሳካ ሁኔታ ተረጋግጧል!</b>\n\n<blockquote>• <b>Status / ሁኔታ:</b> Verified Resident / የተረጋገጠ ነዋሪ${fullName ? `\n• <b>Name / ስም:</b> ${escapeHtml(fullName)}` : ''}\n• <b>ID / መለያ:</b> <code>${escapeHtml(maskedFaydaFan)}</code></blockquote>`
  );
  }
+ // Never edit an older message above the Fayda confirmation banner — open subsequent cards cleanly below it
+ const nextStepMsgId: number | undefined = shouldSendExplicitBanner ? undefined : activeMsgId;
 
  const targetMatchId = extraParams.target_match_id || currentDraft.target_match_id || currentDraft.match_id;
  if (targetMatchId) {
@@ -1511,7 +1514,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  chatId,
  `<b>Fayda Verified / ፋይዳ ተረጋግጧል</b>\n\n<blockquote>However, this match request is no longer pending. / ነገር ግን ይህ የግንኙነት ጥያቄ በአሁኑ ሰዓት ክፍት አይደለም።</blockquote>`,
  [[{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
- activeMsgId
+ nextStepMsgId
  );
  }
 
@@ -1522,7 +1525,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  chatId,
  `<b>Unauthorized / ያልተፈቀደ</b>\n\n<blockquote>Only the recipient of this request can accept it. / ይህንን የግንኙነት ጥያቄ መቀበል የሚችለው ተቀባዩ ብቻ ነው።</blockquote>`,
  [[{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
- activeMsgId
+ nextStepMsgId
  );
  }
 
@@ -1534,11 +1537,11 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  chatId,
  `<b>Fayda Verified / ፋይዳ ተረጋግጧል</b>\n\n<blockquote>The requesting member has not yet activated their 3-Month Membership Pass. Contacts cannot be revealed until their pass is active.\n\nይህንን ጥያቄ የላከው አባል እስካሁን የአባልነት ክፍያውን ስላላጠናቀቀ አድራሻዎችን መክፈት አይቻልም።</blockquote>`,
  [[{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]],
- activeMsgId
+ nextStepMsgId
  );
  }
 
- return await revealMutualMatchContacts(targetMatchId, chatId, activeMsgId);
+ return await revealMutualMatchContacts(targetMatchId, chatId, nextStepMsgId);
  }
 
  const isSeekerFlow =
@@ -1551,13 +1554,14 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  const updatedSeekerDraft = {
  ...currentDraft,
  ...extraParams,
+ ...(shouldSendExplicitBanner ? { card_msg_id: undefined } : {}),
  lang,
  fayda_number: cleanFan,
  fayda_status: 'verified',
  full_name: fullName || currentDraft.full_name,
  gender: photoResult.gender || currentDraft.gender,
  };
- return await completeSeekerOnboarding(chatId, updatedSeekerDraft, activeMsgId, fromUser);
+ return await completeSeekerOnboarding(chatId, updatedSeekerDraft, nextStepMsgId, fromUser);
  }
 
  const returnFlow = extraParams.return_flow || currentDraft.return_flow;
@@ -1567,17 +1571,19 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
    const cleanSeekerDraft = buildCleanFlowDraft(chatId, currentDraft, {
      mode: 'post_to_channel',
      listing_category: 'seeker',
+     ...(shouldSendExplicitBanner ? { card_msg_id: undefined } : {}),
      full_name: fullName || currentDraft.full_name,
      fayda_number: cleanFan,
      fayda_status: 'verified',
    });
-   await sendDynamicCardStep1Age(chatId, cleanSeekerDraft, activeMsgId);
-   return activeMsgId;
+   await sendDynamicCardStep1Age(chatId, cleanSeekerDraft, nextStepMsgId);
+   return nextStepMsgId;
  }
  if (returnFlow === 'req_connect' && returnMeta.targetId) {
    const { data: myP } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
    const seededReqDraft = {
      ...(myP || {}),
+     ...(shouldSendExplicitBanner ? { card_msg_id: undefined } : {}),
      target_id: returnMeta.targetId,
      target_code: returnMeta.targetCode,
      target_locations: returnMeta.targetLocations,
@@ -1587,46 +1593,36 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
      fayda_number: cleanFan,
      fayda_status: 'verified',
    };
-   await routeNextMissingSeekerStep(chatId, seededReqDraft, activeMsgId, fromUser);
-   return activeMsgId;
+   await routeNextMissingSeekerStep(chatId, seededReqDraft, nextStepMsgId, fromUser);
+   return nextStepMsgId;
  }
- if (returnFlow === 'post_space') {
-   const cleanSpaceDraft = buildCleanFlowDraft(chatId, currentDraft, { mode: 'post_space', full_name: fullName || currentDraft.full_name });
-   await sendSpaceStep1Type(chatId, cleanSpaceDraft, activeMsgId);
-   return activeMsgId;
- }
- if (returnFlow === 'post_space_prop') {
-   await sendPropertyTypePrompt(chatId, activeMsgId);
-   return activeMsgId;
- }
- if (returnFlow === 'prop_type' && returnMeta.resolvedSpaceType) {
-   const cleanSpaceDraft = buildCleanFlowDraft(chatId, currentDraft, {
-     mode: 'post_space',
-     property_type: returnMeta.propType,
-     space_type: returnMeta.resolvedSpaceType,
-     full_name: fullName || currentDraft.full_name,
-   });
-   await sendSpaceStep2Location(chatId, cleanSpaceDraft, activeMsgId);
-   return activeMsgId;
+ if (returnFlow === 'post_space' || returnFlow === 'post_space_prop' || returnFlow === 'prop_type') {
+   await sendHaveRoomAdminDirectCard(chatId, nextStepMsgId);
+   return nextStepMsgId;
  }
  if (returnFlow === 'unlock_contact' && returnMeta.targetId) {
    await clearSession(chatId);
-   await sendUnlockPaywallCard(chatId, returnMeta.targetId, returnMeta.targetType === 'space_listing' ? 'space_listing' : 'roommate_profile', activeMsgId);
-   return activeMsgId;
+   await sendUnlockPaywallCard(chatId, returnMeta.targetId, returnMeta.targetType === 'space_listing' ? 'space_listing' : 'roommate_profile', nextStepMsgId);
+   return nextStepMsgId;
  }
  if (returnFlow === 'search_unlock_contact' && returnMeta.targetProfileId) {
-   await routeNextMissingSeekerStep(chatId, { ...currentDraft, target_id: returnMeta.targetProfileId }, activeMsgId, fromUser);
-   return activeMsgId;
+   await routeNextMissingSeekerStep(
+     chatId,
+     { ...currentDraft, ...(shouldSendExplicitBanner ? { card_msg_id: undefined } : {}), target_id: returnMeta.targetProfileId },
+     nextStepMsgId,
+     fromUser
+   );
+   return nextStepMsgId;
  }
  if (returnFlow === 'confirm_match' && returnMeta.targetProfileId) {
    await clearSession(chatId);
    const pass = await getUserMembershipStatus(chatId);
    if (!pass.isActive) {
-     await sendMembershipPaywallCard(chatId, 'connect_request', { targetProfileId: returnMeta.targetProfileId, targetDisplayCode: returnMeta.targetDisplayCode }, activeMsgId);
+     await sendMembershipPaywallCard(chatId, 'connect_request', { targetProfileId: returnMeta.targetProfileId, targetDisplayCode: returnMeta.targetDisplayCode }, nextStepMsgId);
    } else {
-     await executeDirectMatchRequest(chatId, returnMeta.targetProfileId, activeMsgId);
+     await executeDirectMatchRequest(chatId, returnMeta.targetProfileId, nextStepMsgId);
    }
-   return activeMsgId;
+   return nextStepMsgId;
  }
 
  // Resume pending paid action (when an unverified user paid 100 ETB pass first and just completed Fayda verification)
@@ -1637,30 +1633,30 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  if (activePass.isActive) {
  if (pendingPurpose === 'post_channel') {
  if (pendingMeta.category === 'space_available' || pendingMeta.isSpace) {
- await submitSpaceListingToAdmin(chatId, { ...pendingMeta, full_name: fullName || pendingMeta.full_name }, activeMsgId, fromUser);
+ await submitSpaceListingToAdmin(chatId, { ...pendingMeta, full_name: fullName || pendingMeta.full_name }, nextStepMsgId, fromUser);
  } else {
- await submitSeekerListingToAdmin(chatId, { ...pendingMeta, full_name: fullName || pendingMeta.full_name }, activeMsgId, fromUser);
+ await submitSeekerListingToAdmin(chatId, { ...pendingMeta, full_name: fullName || pendingMeta.full_name }, nextStepMsgId, fromUser);
  }
- return activeMsgId;
+ return nextStepMsgId;
  }
  const targetId = pendingMeta.targetProfileId || pendingMeta.target_id;
  if (pendingPurpose === 'connect_request' && targetId) {
  await clearSession(chatId);
- await executeDirectMatchRequest(chatId, targetId, activeMsgId);
- return activeMsgId;
+ await executeDirectMatchRequest(chatId, targetId, nextStepMsgId);
+ return nextStepMsgId;
  }
  } else if (returnFlow === 'submit_space') {
-   await sendMembershipPaywallCard(chatId, 'post_channel', { ...pendingMeta, category: 'space_available', isSpace: true }, activeMsgId);
-   return activeMsgId;
+   await sendMembershipPaywallCard(chatId, 'post_channel', { ...pendingMeta, category: 'space_available', isSpace: true }, nextStepMsgId);
+   return nextStepMsgId;
  } else if (returnFlow === 'submit_seeker') {
-   await sendMembershipPaywallCard(chatId, 'post_channel', { ...pendingMeta, category: 'seeker' }, activeMsgId);
-   return activeMsgId;
+   await sendMembershipPaywallCard(chatId, 'post_channel', { ...pendingMeta, category: 'seeker' }, nextStepMsgId);
+   return nextStepMsgId;
  }
  }
 
  // Standalone or universal photo: clear session and display verified dossier card
  await clearSession(chatId);
- return await sendVerifiedFaydaDossierCard(chatId, lang, activeMsgId);
+ return await sendVerifiedFaydaDossierCard(chatId, lang, nextStepMsgId);
  };
 
  // Helper to format dynamic context header
@@ -2297,7 +2293,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  const targetCode = draft.target_code;
 
  const cleanUserTraits = extractUserDescription(userTraits) || userTraits;
- const formattedTraits = `Job: ${userJob} | Religion: ${userReligion} | Prefers: ${userPrefGender} | Rules: ${userHouseRules} | ${cleanUserTraits}`;
+ const formattedTraits = `Age: ${userAge} | Job: ${userJob} | Religion: ${userReligion} | Prefers: ${userPrefGender} | Rules: ${userHouseRules} | ${cleanUserTraits}`;
  const tgFullName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || 'Verified Member';
  const resolvedProfileFullName = (draft.full_name || '').trim() || tgFullName;
 
@@ -5574,18 +5570,23 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
 
  const parseTraitMeta = (rawBio: string) => {
    const parts = String(rawBio || '').split('|').map((s) => s.trim()).filter(Boolean);
+   let parsedAge: number | undefined;
    let parsedJob = '';
    let parsedReligion = '';
    let parsedRules = '';
    const bioParts: string[] = [];
    for (const part of parts) {
-     if (/^Job:/i.test(part)) parsedJob = part.replace(/^Job:\s*/i, '').trim();
+     if (/^Age:/i.test(part)) {
+       const n = parseInt(part.replace(/^Age:\s*/i, '').trim(), 10);
+       if (!Number.isNaN(n) && n >= 18 && n <= 99) parsedAge = n;
+     } else if (/^Job:/i.test(part)) parsedJob = part.replace(/^Job:\s*/i, '').trim();
      else if (/^Religion:/i.test(part)) parsedReligion = part.replace(/^Religion:\s*/i, '').trim();
      else if (/^(?:House\s*)?Rules:/i.test(part)) parsedRules = part.replace(/^(?:House\s*)?Rules:\s*/i, '').trim();
      else if (/^Prefers?:/i.test(part)) continue;
      else bioParts.push(part);
    }
    return {
+     age: parsedAge,
      job: parsedJob,
      religion: parsedReligion,
      house_rules: parsedRules,
@@ -5653,7 +5654,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  display_code: p.display_code || undefined,
  user_name: p.full_name || 'Verified Seeker',
  username: p.telegram_username || null,
- age: p.age || undefined,
+ age: p.age || meta.age || undefined,
  religion: p.religion || meta.religion || undefined,
  job: p.job || meta.job || undefined,
  house_rules: meta.house_rules || undefined,
