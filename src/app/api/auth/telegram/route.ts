@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateTelegramInitData } from '@/lib/telegram-auth';
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { getAdminTelegramIds } from '@/lib/bot-session-store';
 
 const authPayloadSchema = z.object({
   initData: z.string().min(1, 'initData string is required'),
@@ -18,17 +19,23 @@ export async function POST(request: Request) {
     const validatedData = validateTelegramInitData(parsedPayload.initData);
     const { user } = validatedData;
 
-    const { data: existingUser } = await supabaseAdmin
-      .from('users')
-      .select('id, role, fayda_status, first_name, last_name')
-      .eq('telegram_id', user.id)
-      .maybeSingle();
+    const [{ data: existingUser, error: existingErr }, adminIds] = await Promise.all([
+      supabaseAdmin
+        .from('users')
+        .select('id, role, fayda_status, first_name, last_name')
+        .eq('telegram_id', user.id)
+        .maybeSingle(),
+      getAdminTelegramIds(),
+    ]);
 
-    const envAdminIds = (process.env.ADMIN_TELEGRAM_IDS || '800701176,148318506,980853835')
-      .split(',')
-      .map((s) => Number(s.trim()))
-      .filter((n) => !isNaN(n) && n > 0);
-    const isConfiguredAdmin = envAdminIds.includes(user.id) || existingUser?.role === 'admin';
+    if (existingErr) {
+      return NextResponse.json(
+        { error: 'Failed to look up user record.', details: existingErr.message },
+        { status: 500 }
+      );
+    }
+
+    const isConfiguredAdmin = adminIds.includes(user.id) || existingUser?.role === 'admin';
     const isFaydaVerified = existingUser?.fayda_status === 'verified';
 
     const upsertPayload: Record<string, any> = {
@@ -47,7 +54,7 @@ export async function POST(request: Request) {
     const { data: dbUser, error: dbError } = await supabaseAdmin
       .from('users')
       .upsert(upsertPayload, { onConflict: 'telegram_id' })
-      .select('id, telegram_id, first_name, last_name, username, phone_number, role, fayda_url, fayda_status, created_at')
+      .select('id, telegram_id, first_name, last_name, username, phone_number, role, fayda_document_url, fayda_status, created_at')
       .single();
 
     if (dbError) {

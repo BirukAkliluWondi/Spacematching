@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-/**
- * Sliding window in-memory rate limiter store.
- * Bounded to prevent memory exhaustion under high unique IP volume.
- */
 interface RateLimitRecord {
   timestamps: number[];
   lastSeen: number;
@@ -14,19 +10,19 @@ const MAX_TRACKED_IPS = 10000;
 const rateLimitMap = new Map<string, RateLimitRecord>();
 
 function getClientIp(request: NextRequest): string {
-  const xForwardedFor = request.headers.get('x-forwarded-for');
-  if (xForwardedFor) {
-    const firstIp = xForwardedFor.split(',')[0]?.trim();
-    if (firstIp) return firstIp;
+  const realIp = request.headers.get('x-real-ip');
+  if (realIp) return realIp.trim();
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  if (forwardedFor) {
+    // Prefer right-most non-private proxy hop added by edge platform when available
+    const hops = forwardedFor.split(',').map((h) => h.trim()).filter(Boolean);
+    if (hops.length > 0) return hops[hops.length - 1];
   }
-  const xRealIp = request.headers.get('x-real-ip');
-  if (xRealIp) return xRealIp.trim();
   return '127.0.0.1';
 }
 
 function pruneRateLimitMap(now: number): void {
   if (rateLimitMap.size <= MAX_TRACKED_IPS) return;
-  // Prune entries older than 2 minutes or oldest entries
   for (const [ip, record] of rateLimitMap.entries()) {
     if (now - record.lastSeen > 120000 || rateLimitMap.size > MAX_TRACKED_IPS) {
       rateLimitMap.delete(ip);
@@ -34,13 +30,24 @@ function pruneRateLimitMap(now: number): void {
   }
 }
 
-export function middleware(request: NextRequest) {
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'X-XSS-Protection': '1; mode=block',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
+
+export function proxy(request: NextRequest) {
   const pathname = request.nextUrl ? request.nextUrl.pathname : new URL(request.url).pathname;
   const now = Date.now();
 
-  // 1. Payload Size Check via Content-Length header
+  if (request.method === 'OPTIONS') {
+    return new NextResponse(null, { status: 204, headers: SECURITY_HEADERS });
+  }
+
+  // 1. Payload Size Check
   const isWebhook = pathname.startsWith('/api/telegram') || pathname.startsWith('/api/webhooks');
-  const maxBytes = isWebhook ? 12 * 1024 * 1024 : 1 * 1024 * 1024; // 12MB for webhook/photos, 1MB for general APIs
+  const maxBytes = isWebhook ? 12 * 1024 * 1024 : 2 * 1024 * 1024;
   const contentLengthHeader = request.headers.get('content-length');
 
   if (contentLengthHeader) {
@@ -48,24 +55,14 @@ export function middleware(request: NextRequest) {
     if (!isNaN(contentLength) && contentLength > maxBytes) {
       return NextResponse.json(
         { error: 'Payload Too Large', maxBytes },
-        {
-          status: 413,
-          headers: {
-            'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY',
-            'X-XSS-Protection': '1; mode=block',
-            'Referrer-Policy': 'strict-origin-when-cross-origin',
-          },
-        }
+        { status: 413, headers: SECURITY_HEADERS }
       );
     }
   }
 
-  // 2. Sliding Window Rate Limiting
-  // Exempt Telegram webhook delivery paths from shared-IP per-minute throttling
-  // because Telegram delivers all users' updates from a small shared pool of Bot API IPs.
-  const windowMs = 60 * 1000; // 60-second sliding window
-  const limit = 100; // 100 req/min per IP for general APIs
+  // 2. Per-instance sliding window limiter (Telegram webhooks exempted because Bot API shares IPs)
+  const windowMs = 60 * 1000;
+  const limit = 100;
   const isRateLimitDisabled = process.env.DISABLE_RATE_LIMIT === 'true' || isWebhook;
 
   let remaining = limit;
@@ -77,8 +74,6 @@ export function middleware(request: NextRequest) {
 
     const record = rateLimitMap.get(ip) || { timestamps: [], lastSeen: now };
     record.lastSeen = now;
-
-    // Filter out timestamps outside the sliding window
     const windowStart = now - windowMs;
     record.timestamps = record.timestamps.filter((ts) => ts > windowStart);
 
@@ -86,20 +81,16 @@ export function middleware(request: NextRequest) {
       const oldest = record.timestamps[0] || now;
       const retryAfter = Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
       rateLimitMap.set(ip, record);
-
       return NextResponse.json(
         { error: 'Too Many Requests', retryAfter },
         {
           status: 429,
           headers: {
+            ...SECURITY_HEADERS,
             'Retry-After': String(retryAfter),
             'X-RateLimit-Limit': String(limit),
             'X-RateLimit-Remaining': '0',
             'X-RateLimit-Reset': String(retryAfter),
-            'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY',
-            'X-XSS-Protection': '1; mode=block',
-            'Referrer-Policy': 'strict-origin-when-cross-origin',
           },
         }
       );
@@ -107,22 +98,18 @@ export function middleware(request: NextRequest) {
 
     record.timestamps.push(now);
     rateLimitMap.set(ip, record);
-
     remaining = Math.max(0, limit - record.timestamps.length);
     const oldest = record.timestamps[0] || now;
     resetSeconds = Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
   }
 
-  // 3. Continue Request Pipeline with Standard Security & Rate Limit Headers
   const response = NextResponse.next();
   response.headers.set('X-RateLimit-Limit', String(limit));
   response.headers.set('X-RateLimit-Remaining', String(remaining));
   response.headers.set('X-RateLimit-Reset', String(resetSeconds));
-  response.headers.set('X-Content-Type-Options', 'nosniff');
-  response.headers.set('X-Frame-Options', 'DENY');
-  response.headers.set('X-XSS-Protection', '1; mode=block');
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
+    response.headers.set(k, v);
+  }
   return response;
 }
 

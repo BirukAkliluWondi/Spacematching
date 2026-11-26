@@ -173,79 +173,13 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
     rawStr = rawBytes.toString('utf-8').trim();
   }
 
-  // 0. Try Fayda V4 Payload (:DLT: / :SIGN: / :A:)
+  // 0. Unsigned/unverified Fayda V4 text payloads (:DLT: / :SIGN: / :A:) MUST be rejected here.
+  // Authentic V4 JWS payloads are cryptographically verified via fayda-decoder verifySignature() before fallback.
   if (rawStr && (rawStr.includes(':DLT:') || rawStr.includes(':SIGN:') || rawStr.includes(':A:'))) {
-    try {
-      // Direct string-split parsing for maximum resilience (independent of library version restrictions)
-      const dltIdx = rawStr.indexOf(':DLT:');
-      const rest = dltIdx !== -1 ? rawStr.slice(dltIdx + 5) : rawStr;
-      const signIdx = rest.indexOf(':SIGN:');
-      const fieldsStr = signIdx !== -1 ? rest.slice(0, signIdx) : rest;
-      const parts = fieldsStr.split(':');
-      const directName = parts[0]?.trim() || '';
-      const map: Record<string, string> = {};
-      for (let i = 1; i + 1 < parts.length; i += 2) {
-        map[parts[i]] = parts[i + 1];
-      }
-      const rawFan = map['A'] || map['FIN'] || map['UIN'] || map['FAN'];
-      if (rawFan) {
-        const cleanFan = rawFan.replace(/\D/g, '');
-        const struct = validateFaydaStructure(cleanFan);
-        if (struct.valid) {
-          const rawGen = (map['G'] || '').toUpperCase();
-          const normGender = rawGen === 'M' ? 'Male' : rawGen === 'F' ? 'Female' : rawGen || undefined;
-          return {
-            success: true,
-            faydaNumber: struct.fanNumber || cleanFan,
-            fullName: directName || undefined,
-            gender: normGender,
-            dob: map['D'] || undefined,
-            rawType: 'fayda_v4_direct',
-          };
-        }
-      }
-
-      // Also try official fayda-decoder
-      const v4 = decodePayload(rawStr);
-      if (v4.ok && v4.fields?.fan) {
-        const cleanFan = String(v4.fields.fan).replace(/\D/g, '');
-        const struct = validateFaydaStructure(cleanFan);
-        if (struct.valid) {
-          const rawGen = String(v4.fields.gender || '').toUpperCase();
-          const normGender =
-            rawGen === 'M' || rawGen === 'MALE'
-              ? 'Male'
-              : rawGen === 'F' || rawGen === 'FEMALE'
-              ? 'Female'
-              : (v4.fields.gender as string) || undefined;
-
-          return {
-            success: true,
-            faydaNumber: struct.fanNumber || cleanFan,
-            fullName: v4.fields.full_name || undefined,
-            gender: normGender,
-            dob: v4.fields.date_of_birth || undefined,
-            rawType: 'fayda_v4_payload',
-          };
-        }
-      } else if (v4.raw?.map) {
-        const rawFanFromMap = v4.raw.map['A'] || v4.raw.map['UIN'] || v4.raw.map['FIN'];
-        if (rawFanFromMap) {
-          const cleanFan = String(rawFanFromMap).replace(/\D/g, '');
-          const struct = validateFaydaStructure(cleanFan);
-          if (struct.valid) {
-            return {
-              success: true,
-              faydaNumber: struct.fanNumber || cleanFan,
-              fullName: directName || undefined,
-              gender: v4.raw.map['G'] === 'M' ? 'Male' : v4.raw.map['G'] === 'F' ? 'Female' : undefined,
-              dob: v4.raw.map['D'] || undefined,
-              rawType: 'fayda_v4_raw_map',
-            };
-          }
-        }
-      }
-    } catch {}
+    return {
+      success: false,
+      error: 'Unsigned or tampered Fayda V4 digital signature payload.',
+    };
   }
 
   // 1. Try MOSIP Claim 169 via RFC 9285 Base45
@@ -264,38 +198,17 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
     if (cborRes.success) return { ...cborRes, rawType: 'mosip_claim169_raw' };
   }
 
-  // 3. Try Parsing as Base64 encoded CBOR or JSON
+  // 3. Try Parsing as Base64-encoded MOSIP Claim 169 CBOR (reject unsigned base64 JSON/text spoofs)
   if (rawStr && /^[A-Za-z0-9+/=]+$/.test(rawStr) && rawStr.length >= 16) {
     try {
       const b64Buf = Buffer.from(rawStr, 'base64');
-      // Try CBOR first
       const cborRes = extractFromCborPayload(b64Buf);
       if (cborRes.success) return { ...cborRes, rawType: 'mosip_claim169_base64' };
-
-      // Try decoded string
-      const decodedStr = b64Buf.toString('utf-8');
-      try {
-        const json = JSON.parse(decodedStr);
-        const result = extractFromJsonObject(json);
-        if (result.success) return { ...result, rawType: 'base64_json' };
-      } catch {
-        const textResult = extractFromTextString(decodedStr);
-        if (textResult.success) return { ...textResult, rawType: 'base64_text' };
-      }
     } catch {}
   }
 
-  // 4. Try Direct JSON
-  if (rawStr) {
-    try {
-      const json = JSON.parse(rawStr);
-      const result = extractFromJsonObject(json);
-      if (result.success) return { ...result, rawType: 'json' };
-    } catch {}
-  }
-
-  // 5. Try Official NIDP URL (strictly id.gov.et, fayda.et, nidp.gov.et, or fayda.gov.et domains)
-  if (rawStr && (rawStr.startsWith('http://') || rawStr.startsWith('https://'))) {
+  // 4. Official NIDP HTTPS URL (strictly id.gov.et, fayda.et, nidp.gov.et, or fayda.gov.et domains)
+  if (rawStr && rawStr.startsWith('https://')) {
     try {
       const url = new URL(rawStr);
       const host = url.hostname.toLowerCase();
@@ -338,12 +251,6 @@ export function decodeFaydaQr(qrData: string | Uint8Array | Buffer): FaydaDecode
         }
       }
     } catch {}
-  }
-
-  // 6. Try Delimited Text (key-value pairs, pipe, colon)
-  if (rawStr) {
-    const textResult = extractFromTextString(rawStr);
-    if (textResult.success) return { ...textResult, rawType: 'text' };
   }
 
   return {
@@ -408,10 +315,25 @@ function extractFromCborPayload(bytes: Uint8Array | Buffer): FaydaDecodedResult 
 
     let unwrapped = unwrapTag(decoded);
 
-    // 3. Unwrap COSE_Sign1 or CWT array [protected, unprotected, payload, signature]
+    // 3. Unwrap COSE_Sign1 / CWT array [protected, unprotected, payload, signature]
+    // Require non-empty protected header and cryptographic signature bytes when wrapped in COSE_Sign1
     let claims: any = unwrapped;
-    if (Array.isArray(unwrapped) && unwrapped.length >= 3) {
+    if (Array.isArray(unwrapped)) {
+      if (unwrapped.length < 4) {
+        return { success: false };
+      }
+      const protectedHdr = unwrapped[0];
       const payloadCandidate = unwrapped[2];
+      const signatureBytes = unwrapped[3];
+      const hasProtected =
+        (Buffer.isBuffer(protectedHdr) || protectedHdr instanceof Uint8Array) &&
+        protectedHdr.length >= 2;
+      const hasSig =
+        (Buffer.isBuffer(signatureBytes) || signatureBytes instanceof Uint8Array) &&
+        signatureBytes.length >= 32;
+      if (!hasProtected || !hasSig) {
+        return { success: false };
+      }
       if (Buffer.isBuffer(payloadCandidate) || payloadCandidate instanceof Uint8Array) {
         let payloadBuf = Buffer.from(payloadCandidate);
         try { payloadBuf = zlib.inflateSync(payloadBuf); } catch {}

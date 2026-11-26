@@ -924,32 +924,54 @@ export function formatSpacePost(space: Record<string, any>): string {
     pricePerMonth: rentVal,
   });
 
-  return `
+  const renderSpaceHtml = (
+    det: string,
+    bio: string,
+    amen: string = amenitiesDisplay,
+    rules: string = houseRulesDisplay,
+    slogan: string = 'SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!'
+  ): string => `
 <b>SpaceMatch Addis / ስፔስማች አዲስ</b> · <b>#${cleanCode}</b>
 <b>ROOM AVAILABLE · ${escapeHtml(locationDisplay)}</b>
 Rent: ${escapeHtml(rentDisplay)} · Move in: ${escapeHtml(moveInDisplay)}
 
 <b>SPACE DETAILS / የቤቱ ዝርዝር</b>
 ${escapeHtml(spaceTypeDisplay)}
-Amenities: ${escapeHtml(amenitiesDisplay)}
+Amenities: ${escapeHtml(amen)}
 
 <b>ROOMMATE PREFERENCES / የቤት አጋር ምርጫ</b>
 Roommate: ${escapeHtml(prefSexDisplay)}
-House rules: ${escapeHtml(houseRulesDisplay)}
+House rules: ${escapeHtml(rules)}
 
 <b>DETAILS / ዝርዝር</b>
-<blockquote>${escapeHtml(detailsText)}</blockquote>
+<blockquote>${escapeHtml(det)}</blockquote>
 
 <b>ABOUT ME / ስለ እኔ</b>
 Posted by: ${escapeHtml(hostSexDisplay)} (Space Host / አከራይ)
-<blockquote>${escapeHtml(cleanBio)}</blockquote>
+<blockquote>${escapeHtml(bio)}</blockquote>
 
-SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
+${slogan}
 
 📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ
 
 ${hashtags}
 `.trim();
+
+  // Keep under Telegram's 1024-char photo caption limit while preserving @WWEHID footer, ABOUT ME excerpt & hashtags (Decision 3)
+  let out = renderSpaceHtml(detailsText, cleanBio);
+  if (out.length > 1000) {
+    const compactAmen = amenitiesDisplay.length > 60 ? amenitiesDisplay.slice(0, 57).trimEnd() + '…' : amenitiesDisplay;
+    const compactRules = houseRulesDisplay.length > 60 ? houseRulesDisplay.slice(0, 57).trimEnd() + '…' : houseRulesDisplay;
+    const compactSlogan = 'SpaceMatch Addis — Verified Roommate Network';
+    const baseTemplate = renderSpaceHtml('', '', compactAmen, compactRules, compactSlogan);
+    const budget = Math.max(80, 990 - baseTemplate.length);
+    const detCap = Math.max(40, Math.floor(budget * 0.55));
+    const bioCap = Math.max(40, budget - detCap);
+    const compactDet = detailsText.length > detCap ? detailsText.slice(0, detCap - 1).trimEnd() + '…' : detailsText;
+    const compactBio = cleanBio.length > bioCap ? cleanBio.slice(0, bioCap - 1).trimEnd() + '…' : cleanBio;
+    out = renderSpaceHtml(compactDet, compactBio, compactAmen, compactRules, compactSlogan);
+  }
+  return out;
 }
 
 // ─── Channel Publishing ───────────────────────────────────────────────────────

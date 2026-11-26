@@ -38,7 +38,9 @@ export async function POST(request: Request) {
 
     const { space_id, telegram_id } = parsed;
 
-    // 1, 2, 3, 4: Fetch user, space, existing completed order, and active 3-month pass in parallel
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+    // 1, 2, 3, 4: Fetch user, space, existing completed order (within 90d), and active 3-month pass in parallel
     const [userRes, spaceRes, existingOrderRes, membershipStatus] = await Promise.all([
       supabaseAdmin
         .from('users')
@@ -52,13 +54,24 @@ export async function POST(request: Request) {
         .maybeSingle(),
       supabaseAdmin
         .from('orders')
-        .select('id, payment_status')
+        .select('id, payment_status, verified_at, created_at')
         .eq('renter_telegram_id', telegram_id)
         .eq('space_id', space_id)
         .eq('payment_status', 'completed')
+        .or(`verified_at.gte.${ninetyDaysAgo},created_at.gte.${ninetyDaysAgo}`)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle(),
       getUserMembershipStatus(telegram_id),
     ]);
+
+    if (existingOrderRes.error) {
+      console.error('[orders/create] Error querying existing order:', existingOrderRes.error.message);
+      return NextResponse.json(
+        { error: 'Unable to verify existing membership state. Please try again.' },
+        { status: 500 }
+      );
+    }
 
     const user = userRes.data;
     if (userRes.error || !user) {
@@ -89,31 +102,19 @@ export async function POST(request: Request) {
 
     const existingCompletedOrder = existingOrderRes.data;
     if (existingCompletedOrder || membershipStatus.isActive) {
-      let unlocked: Record<string, any> | null = null;
-      const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc('get_unlocked_space_details', {
-        p_space_id: space_id,
-        p_telegram_id: telegram_id,
-      });
-      if (!rpcErr && rpcData) {
-        unlocked = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-      } else if (membershipStatus.isActive) {
-        // Active 3-Month Pass holders unlock published space contacts directly via service role
-        const { data: spaceDetails } = await supabaseAdmin
-          .from('spaces')
-          .select('exact_address, latitude, longitude, contact_name, contact_phone, contact_telegram')
-          .eq('id', space_id)
-          .eq('status', 'published')
-          .maybeSingle();
-        if (spaceDetails) unlocked = spaceDetails;
-      }
-
+      const botUser = (process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot').replace('@', '');
+      // Unified Double-Blind Consent (Decision 1): Never disclose unconsented owner phone/address here.
       return NextResponse.json({
         success: true,
         already_unlocked: true,
+        pass_active: true,
+        double_blind_ready: true,
+        days_remaining: membershipStatus.daysRemaining || 90,
         order_id: existingCompletedOrder?.id || membershipStatus.orderId,
+        space_id,
         amount: 100,
-        message: '3-Month Pass active — space contact details are unlocked.',
-        unlocked_details: unlocked || null,
+        message: '3-Month All-Access Pass active! Proceed in @' + botUser + ' to send a mutually consented connection request.',
+        bot_connect_url: `https://t.me/${botUser}?start=order_${space_id}`,
       });
     }
 

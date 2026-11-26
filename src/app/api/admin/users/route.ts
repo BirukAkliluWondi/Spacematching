@@ -88,11 +88,7 @@ export async function GET(request: Request) {
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
-      profilePromise = supabaseAdmin
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
+      profilePromise = Promise.resolve({ data: null, error: null });
     }
 
     const [userRes, profileRes] = await Promise.all([

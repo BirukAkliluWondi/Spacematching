@@ -12,7 +12,7 @@
  * - Admin/Catalog API query bounds, pagination, and response sanitization
  */
 
-import { middleware } from '../src/middleware';
+import { proxy as middleware } from '../src/proxy';
 import { BoundedLRUCache, deduplicateUpdate, saveSession, getSession } from '../src/lib/bot-session-store';
 import { parseNumericInput, parseBudgetRangeInput } from '../src/lib/telegram';
 import { extractTransactionReference, verifyTelebirrPayment } from '../src/lib/verify-et';
@@ -54,41 +54,51 @@ async function runAdversarialSuite() {
   assert(spoofRes.status === 200, 'Multi-hop X-Forwarded-For correctly accepted');
   assert(spoofRes.headers.get('x-ratelimit-remaining') === '99', 'First request has remaining=99 for general API (limit 100)');
 
-  // 1.2 Webhook Rate Limiting: 30 requests limit
+  // 1.2 Webhook Rate Exemption (Rule 12: Telegram Bot API shares IPs cleanly)
   const webhookIp = '203.0.113.88';
-  let lastWebhookRes: any;
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 35; i++) {
     const req = new Request('https://example.com/api/telegram/webhook', {
       method: 'POST',
       headers: { 'x-real-ip': webhookIp },
     });
-    lastWebhookRes = middleware(req as any);
-    assert(lastWebhookRes.status === 200, `Webhook request #${i + 1} accepted`);
+    const wRes = middleware(req as any);
+    assert(wRes.status === 200, `Webhook request #${i + 1} exempted from shared-IP throttle`);
   }
-  assert(lastWebhookRes.headers.get('x-ratelimit-remaining') === '0', '30th webhook request has remaining=0');
 
-  // 31st request should be rejected with 429
-  const blockedReq = new Request('https://example.com/api/telegram/webhook', {
-    method: 'POST',
-    headers: { 'x-real-ip': webhookIp },
+  // General API 100 req/min rate limit enforcement
+  const genApiIp = '203.0.113.99';
+  let lastGenRes: any;
+  for (let i = 0; i < 100; i++) {
+    const req = new Request('https://example.com/api/spaces', {
+      method: 'GET',
+      headers: { 'x-real-ip': genApiIp },
+    });
+    lastGenRes = middleware(req as any);
+    assert(lastGenRes.status === 200, `General API request #${i + 1} accepted`);
+  }
+  assert(lastGenRes.headers.get('x-ratelimit-remaining') === '0', '100th general API request has remaining=0');
+
+  const blockedReq = new Request('https://example.com/api/spaces', {
+    method: 'GET',
+    headers: { 'x-real-ip': genApiIp },
   });
   const blockedRes = middleware(blockedReq as any);
-  assert(blockedRes.status === 429, '31st webhook request receives HTTP 429 Too Many Requests');
+  assert(blockedRes.status === 429, '101st general API request receives HTTP 429 Too Many Requests');
   assert(blockedRes.headers.get('retry-after') !== null, 'HTTP 429 response includes Retry-After header');
   assert(blockedRes.headers.get('x-ratelimit-remaining') === '0', 'HTTP 429 response has X-RateLimit-Remaining: 0');
 
-  // 1.3 Payload Size Guard: 1MB on General API
-  const exact1MbReq = new Request('https://example.com/api/spaces', {
+  // 1.3 Payload Size Guard: 2MB on General API
+  const exact2MbReq = new Request('https://example.com/api/spaces', {
     method: 'POST',
-    headers: { 'content-length': String(1024 * 1024) }, // exactly 1MB
+    headers: { 'content-length': String(2 * 1024 * 1024) }, // exactly 2MB
   });
-  assert(middleware(exact1MbReq as any).status === 200, 'Payload exactly 1MB on general API passes (HTTP 200)');
+  assert(middleware(exact2MbReq as any).status === 200, 'Payload exactly 2MB on general API passes (HTTP 200)');
 
-  const over1MbReq = new Request('https://example.com/api/spaces', {
+  const over2MbReq = new Request('https://example.com/api/spaces', {
     method: 'POST',
-    headers: { 'content-length': String(1024 * 1024 + 1) }, // 1MB + 1 byte
+    headers: { 'content-length': String(2 * 1024 * 1024 + 1) }, // 2MB + 1 byte
   });
-  assert(middleware(over1MbReq as any).status === 413, 'Payload 1MB + 1 byte on general API blocked (HTTP 413)');
+  assert(middleware(over2MbReq as any).status === 413, 'Payload 2MB + 1 byte on general API blocked (HTTP 413)');
 
   // 1.4 Payload Size Guard: 12MB on Webhook API
   const exact12MbReq = new Request('https://example.com/api/telegram/webhook', {
@@ -152,7 +162,7 @@ async function runAdversarialSuite() {
   assert(purgeCache.get('k3') === 'v3', 'Unexpired key accessible after purge');
 
   // 2.4 Update Deduplication
-  const testUpdateId = 998877;
+  const testUpdateId = 710000000 + Math.floor(Math.random() * 80000000);
   assert((await deduplicateUpdate(testUpdateId)) === true, 'First update_id returns true (accepted)');
   assert((await deduplicateUpdate(testUpdateId)) === false, 'Duplicate update_id returns false (rejected)');
   assert((await deduplicateUpdate(testUpdateId)) === false, 'Third duplicate update_id returns false (rejected)');
@@ -260,13 +270,22 @@ async function runAdversarialSuite() {
   const rmJson = await rmRes.json();
   assert(rmRes.status === 200, '/api/roommates returns HTTP 200');
   assert(rmJson.count <= 50, `Roommates count capped at 50 (got ${rmJson.count})`);
-  assert(rmRes.headers.get('cache-control')?.includes('s-maxage=30') === true, 'Cache-Control header present on /api/roommates');
+  assert(rmRes.headers.get('cache-control')?.includes('no-store') === true, 'Cache-Control: no-store header present on /api/roommates');
 
-  // 5.3 /api/admin/users pagination bounds
-  const adminReq = new Request('https://example.com/api/admin/users?limit=100&page=1');
+  // 5.3 /api/admin/users auth & pagination bounds
+  const unauthAdminReq = new Request('https://example.com/api/admin/users?limit=100&page=1');
+  assert((await getAdminUsers(unauthAdminReq)).status === 401, '/api/admin/users rejects unauthenticated requests (401)');
+
+  const { signAdminToken, ADMIN_SESSION_COOKIE } = await import('../src/lib/admin-auth');
+  const { getAdminTelegramIds } = await import('../src/lib/bot-session-store');
+  const realAdmins = await getAdminTelegramIds();
+  const adminToken = signAdminToken(realAdmins[0] || 800701176, 60);
+  const adminReq = new Request('https://example.com/api/admin/users?limit=100&page=1', {
+    headers: { cookie: `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(adminToken)}` },
+  });
   const adminRes = await getAdminUsers(adminReq);
   const adminJson = await adminRes.json();
-  assert(adminRes.status === 200, '/api/admin/users returns HTTP 200');
+  assert(adminRes.status === 200, '/api/admin/users returns HTTP 200 for signed admin session');
   assert(adminJson.limit === 50, `Admin limit capped at 50 even when requested 100 (got ${adminJson.limit})`);
   assert(adminJson.users.length <= 50, `Admin users count capped at 50 (got ${adminJson.users.length})`);
 

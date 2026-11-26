@@ -2,14 +2,18 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { verifyTelebirrPayment, normalizeCanonicalTransactionRef } from '@/lib/verify-et';
+import { extractTransactionReferenceFromImage } from '@/lib/receipt-extractor';
 import { acquireActionLock, releaseActionLock, activateUserMembership } from '@/lib/bot-session-store';
 import { validateTelegramInitData } from '@/lib/telegram-auth';
 import { escapeHtml } from '@/lib/telegram';
 
+export const maxDuration = 60;
+
 const verifyOrderSchema = z.object({
   order_id: z.string().uuid('Invalid order_id UUID format'),
   telegram_id: z.number().or(z.string().transform((val) => parseInt(val, 10))),
-  transaction_reference: z.string().min(1, 'transaction_reference is required'),
+  transaction_reference: z.string().optional(),
+  receipt_image: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -34,24 +38,43 @@ export async function POST(request: Request) {
     const parsed = verifyOrderSchema.parse({
       order_id: rawBody.order_id,
       telegram_id: rawBody.telegram_id || rawBody.renter_telegram_id || validatedTg.user.id,
-      transaction_reference: rawBody.transaction_reference,
+      transaction_reference: typeof rawBody.transaction_reference === 'string' ? rawBody.transaction_reference : undefined,
+      receipt_image: typeof rawBody.receipt_image === 'string' ? rawBody.receipt_image : undefined,
     });
 
     if (validatedTg.user.id !== parsed.telegram_id) {
       return NextResponse.json({ error: 'Forbidden: Telegram identity mismatch.' }, { status: 403 });
     }
 
-    const { order_id, telegram_id, transaction_reference } = parsed;
-    const cleanTxRef = normalizeCanonicalTransactionRef(transaction_reference);
+    const { order_id, telegram_id, transaction_reference, receipt_image } = parsed;
+
+    let cleanTxRef = transaction_reference ? normalizeCanonicalTransactionRef(transaction_reference) : '';
+    let ocrBankHint: string | undefined;
+
+    if (!cleanTxRef && receipt_image) {
+      const base64Body = receipt_image.replace(/^data:image\/[a-z0-9+.-]+;base64,/i, '');
+      const imgBuf = Buffer.from(base64Body, 'base64');
+      if (imgBuf.length < 256 || imgBuf.length > 10 * 1024 * 1024) {
+        return NextResponse.json(
+          { error: 'Invalid receipt image size. Upload a clear screenshot under 10 MB.' },
+          { status: 400 }
+        );
+      }
+      const ocr = await extractTransactionReferenceFromImage(imgBuf);
+      if (ocr?.reference) {
+        cleanTxRef = normalizeCanonicalTransactionRef(ocr.reference) || ocr.reference.toUpperCase();
+        ocrBankHint = ocr.bankHint;
+      }
+    }
 
     if (!cleanTxRef) {
       return NextResponse.json(
-        { error: 'Invalid or unrecognized transaction reference code.' },
+        { error: 'Could not extract a valid transaction reference. Please enter your reference code or upload a clearer receipt screenshot.' },
         { status: 400 }
       );
     }
 
-    lockKey = `tx_ref_verify:${cleanTxRef.toUpperCase()}`;
+    lockKey = `tx_pay:${cleanTxRef.toUpperCase()}`;
     if (!(await acquireActionLock(lockKey, 15000))) {
       lockKey = null; // do not release someone else's active lock
       return NextResponse.json(
@@ -79,34 +102,36 @@ export async function POST(request: Request) {
     }
 
     const spaceObj = Array.isArray(order.spaces) ? order.spaces[0] : order.spaces;
+    const botUser = (process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot').replace('@', '');
 
     if (order.payment_status === 'completed') {
-      const { data: unlockedData, error: rpcError } = await supabaseAdmin.rpc(
-        'get_unlocked_space_details',
-        { p_space_id: order.space_id, p_telegram_id: telegram_id }
-      );
-
-      if (rpcError) {
-        return NextResponse.json({ error: 'Failed to retrieve unlocked details.' }, { status: 500 });
-      }
-
-      const unlocked = Array.isArray(unlockedData) ? unlockedData[0] : unlockedData;
       return NextResponse.json({
         success: true,
         already_completed: true,
-        message: 'Order was already verified and unlocked.',
-        unlocked_details: unlocked || null,
+        pass_active: true,
+        double_blind_ready: true,
+        space_id: order.space_id,
+        message: '3-Month Pass active! Proceed in @' + botUser + ' to send a mutually consented connection request.',
+        bot_connect_url: `https://t.me/${botUser}?start=order_${order.space_id}`,
       });
     }
 
-    // 2. Anti-Replay Check: Reject if transaction_reference is already attached to any completed order
+    // 2. Anti-Replay Check: Reject if transaction_reference is already attached to any completed order (fail closed on DB error)
     const safeLikeRef = cleanTxRef.replace(/[%_\\]/g, '\\$&');
-    const { data: replayRows } = await supabaseAdmin
+    const { data: replayRows, error: replayError } = await supabaseAdmin
       .from('orders')
       .select('id')
       .ilike('transaction_reference', safeLikeRef)
       .eq('payment_status', 'completed')
       .limit(1);
+
+    if (replayError) {
+      console.error('[orders/verify] Anti-replay check DB error:', replayError.message);
+      return NextResponse.json(
+        { error: 'Unable to validate transaction uniqueness right now. Please try again.' },
+        { status: 500 }
+      );
+    }
 
     if (replayRows && replayRows.length > 0) {
       return NextResponse.json(
@@ -115,20 +140,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. Call Verify.ET against at least 100 ETB (Invariant 7)
+    // 3. Call Verify.ET against at least 100 ETB (Invariant 7). Note: do NOT force 'cbe' on bare FT... codes (BoA uses FT... too)
     const requiredFee = Math.max(Number(order.amount || 100), 100);
     const refUpper = cleanTxRef.toUpperCase();
     const refLower = cleanTxRef.toLowerCase();
     const bankHint =
-      refUpper.startsWith('FT') || refLower.includes('cbe.com.et')
+      ocrBankHint ||
+      (refLower.includes('cbe.com.et')
         ? 'cbe'
         : refUpper.startsWith('TX') || refLower.includes('abyssinia')
         ? 'boa'
         : refUpper.startsWith('DTS') || refLower.includes('dashen')
         ? 'dashen'
-        : refUpper.startsWith('DK') || refUpper.startsWith('DT') || refLower.includes('ethiotelecom')
+        : refUpper.startsWith('DK') ||
+          refUpper.startsWith('DT') ||
+          refUpper.startsWith('DM') ||
+          refLower.includes('ethiotelecom')
         ? 'telebirr'
-        : undefined;
+        : undefined);
 
     const verification = await verifyTelebirrPayment(cleanTxRef, requiredFee, bankHint);
 
@@ -144,9 +173,36 @@ export async function POST(request: Request) {
       );
     }
 
-    // 4. Update order status to 'completed' and activate 90-day membership cache
+    const canonicalTxRef = (
+      normalizeCanonicalTransactionRef(verification.transactionNumber || cleanTxRef) ||
+      cleanTxRef
+    ).toUpperCase();
+
+    if (canonicalTxRef !== cleanTxRef.toUpperCase()) {
+      const safeCanon = canonicalTxRef.replace(/[%_\\]/g, '\\$&');
+      const { data: canonReplay, error: canonReplayErr } = await supabaseAdmin
+        .from('orders')
+        .select('id')
+        .ilike('transaction_reference', safeCanon)
+        .eq('payment_status', 'completed')
+        .limit(1);
+      if (canonReplayErr) {
+        return NextResponse.json(
+          { error: 'Unable to confirm canonical transaction uniqueness.' },
+          { status: 500 }
+        );
+      }
+      if (canonReplay && canonReplay.length > 0) {
+        return NextResponse.json(
+          { error: 'Replay Security Alert: This verified transaction has already been redeemed.' },
+          { status: 409 }
+        );
+      }
+    }
+
+    // 4. Update order status to 'completed' with optimistic lock guard and activate 90-day membership pass
     const nowIso = new Date().toISOString();
-    const { error: updateError } = await supabaseAdmin
+    const { data: updatedOrder, error: updateError } = await supabaseAdmin
       .from('orders')
       .update({
         buyer_telegram_id: telegram_id,
@@ -156,60 +212,39 @@ export async function POST(request: Request) {
         target_id: 'pass_90d',
         amount: verification.paidAmount ?? requiredFee,
         payment_status: 'completed',
-        transaction_reference: cleanTxRef,
+        transaction_reference: canonicalTxRef,
         verified_at: nowIso,
         updated_at: nowIso,
       })
-      .eq('id', order_id);
+      .eq('id', order_id)
+      .neq('payment_status', 'completed')
+      .select('id')
+      .maybeSingle();
 
-    if (updateError) {
+    if (updateError || !updatedOrder) {
       console.error('Database update error on verified order:', updateError);
       return NextResponse.json(
-        { error: 'Payment could not be finalized (reference may already be used).', details: updateError.message },
+        { error: 'Payment could not be finalized (reference may already be used).' },
         { status: 409 }
       );
     }
 
-    await activateUserMembership(telegram_id, order.id, cleanTxRef);
+    await activateUserMembership(telegram_id, order.id, canonicalTxRef);
 
-    // 5. Retrieve authorized details via RPC
-    const { data: unlockedRpcResult, error: rpcError } = await supabaseAdmin.rpc(
-      'get_unlocked_space_details',
-      { p_space_id: order.space_id, p_telegram_id: telegram_id }
-    );
-
-    if (rpcError) {
-      return NextResponse.json(
-        { error: 'Payment verified, but authorization RPC failed.', details: rpcError.message },
-        { status: 500 }
-      );
-    }
-
-    const unlocked = Array.isArray(unlockedRpcResult) ? unlockedRpcResult[0] : unlockedRpcResult;
-
-    // 6. Send Telegram confirmation DM if unlocked data exists
+    // 5. Notify user in Telegram to trigger double-blind mutual consent (NO unconsented PII revealed)
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    if (botToken && telegram_id && unlocked) {
+    const botConnectUrl = `https://t.me/${botUser}?start=order_${order.space_id}`;
+    if (botToken && telegram_id) {
       try {
         const spaceTitle = escapeHtml(spaceObj?.title || 'Room Listing');
-        const mapsUrl =
-          unlocked.latitude && unlocked.longitude
-            ? `https://www.google.com/maps?q=${unlocked.latitude},${unlocked.longitude}`
-            : null;
-
         const telegramMessage = [
           `<b>Payment Verified / ክፍያዎ ተረጋግጧል (3-Month Pass Active)</b>`,
           ``,
-          `<blockquote>Your access to <b>${spaceTitle}</b> is unlocked:`,
-          unlocked.exact_address ? `• <b>Address / አድራሻ:</b> ${escapeHtml(String(unlocked.exact_address))}` : '',
-          unlocked.contact_name ? `• <b>Contact Name / ስም:</b> ${escapeHtml(String(unlocked.contact_name))}` : '',
-          unlocked.contact_phone ? `• <b>Phone Number / ስልክ:</b> ${escapeHtml(String(unlocked.contact_phone))}` : '',
-          unlocked.contact_telegram ? `• <b>Telegram:</b> @${escapeHtml(String(unlocked.contact_telegram).replace('@', ''))}` : '',
-          mapsUrl ? `• <a href="${mapsUrl}">Google Maps Directions</a>` : '',
+          `<blockquote>Your <b>100 ETB 3-Month All-Access Pass</b> is now active!`,
+          `• Listing: <b>${spaceTitle}</b>`,
+          `• Double-Blind Privacy: Tap below to send a mutually consented connection request to the host. Contact details are revealed automatically once both parties accept.`,
           `</blockquote>`,
-        ]
-          .filter(Boolean)
-          .join('\n');
+        ].join('\n');
 
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
@@ -218,6 +253,16 @@ export async function POST(request: Request) {
             chat_id: telegram_id,
             text: telegramMessage,
             parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '🤝 Connect with Host / ጥያቄ ላክ',
+                    url: botConnectUrl,
+                  },
+                ],
+              ],
+            },
           }),
         });
       } catch (tgError) {
@@ -227,22 +272,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: 'Payment verified successfully and 3-Month Pass activated.',
+      pass_active: true,
+      double_blind_ready: true,
+      message: 'Payment verified and 3-Month Pass activated! Proceed in Telegram to send a mutually consented connection request.',
       order_id: order.id,
-      unlocked_details: unlocked
-        ? {
-            exact_address: unlocked.exact_address,
-            latitude: unlocked.latitude,
-            longitude: unlocked.longitude,
-            contact_name: unlocked.contact_name,
-            contact_phone: unlocked.contact_phone,
-            contact_telegram: unlocked.contact_telegram,
-            google_maps_url:
-              unlocked.latitude && unlocked.longitude
-                ? `https://www.google.com/maps?q=${unlocked.latitude},${unlocked.longitude}`
-                : null,
-          }
-        : null,
+      space_id: order.space_id,
+      bot_connect_url: botConnectUrl,
     });
   } catch (error: unknown) {
     if (error instanceof z.ZodError) {

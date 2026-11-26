@@ -56,10 +56,11 @@ export async function POST(request: Request) {
 
     const sessionToken = signAdminToken(verifiedAdminId, 24 * 60 * 60);
     const response = NextResponse.json({ success: true, authenticated: true, telegramId: verifiedAdminId });
+    const isProd = process.env.NODE_ENV === 'production';
     response.cookies.set(ADMIN_SESSION_COOKIE, sessionToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
       path: '/',
       maxAge: 24 * 60 * 60,
     });
@@ -70,11 +71,12 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE() {
+  const isProd = process.env.NODE_ENV === 'production';
   const response = NextResponse.json({ success: true, authenticated: false });
   response.cookies.set(ADMIN_SESSION_COOKIE, '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
     path: '/',
     maxAge: 0,
   });

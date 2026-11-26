@@ -680,8 +680,8 @@ export async function handleOnboardingMessage(
       const updatedProfile = await updateProfile(chatId, {
         kyc_doc_path: null, // ZERO STORAGE: Free tier database safe (no images stored)
         kyc_status: 'verified',
-        status: 'active',
-        onboarding_step: 'completed',
+        status: 'paused',
+        onboarding_step: 'pending_approval',
         display_code: displayCode,
         telegram_username: telegramUsername || null,
         full_name: verifyResult.fullName || undefined,
@@ -699,8 +699,12 @@ export async function handleOnboardingMessage(
       const memStatus = await getUserMembershipStatus(chatId);
       const channels = await getManagedChannels();
       const activeCh = channels.find((c) => c.is_active);
-      const chHandle = (activeCh?.channel_username || process.env.TELEGRAM_CHANNEL_ID || '@Spacematch_Addis').replace(/^@/, '');
-      const chUrl = `https://t.me/${chHandle}`;
+      const rawChRef = String(activeCh?.channel_username || activeCh?.channel_id || process.env.TELEGRAM_CHANNEL_ID || '@Spacematch_Addis').trim();
+      const chUrl = rawChRef.startsWith('-100')
+        ? `https://t.me/c/${rawChRef.slice(4)}`
+        : /^-\d+$/.test(rawChRef)
+        ? ''
+        : `https://t.me/${rawChRef.replace(/^@/, '')}`;
 
       if (!memStatus.isActive) {
         const currentSess = getSession(chatId);
@@ -728,11 +732,12 @@ export async function handleOnboardingMessage(
         return true;
       }
 
+      let publishedMsgId: number | null = null;
       try {
-        const channelMsgId = await publishListingToChannel(updatedProfile);
+        publishedMsgId = await publishListingToChannel(updatedProfile);
         await supabaseAdmin
           .from('profiles')
-          .update({ channel_message_id: channelMsgId })
+          .update({ status: 'active', onboarding_step: 'completed', channel_message_id: publishedMsgId })
           .eq('telegram_id', chatId);
       } catch (publishErr) {
         console.error('[onboarding] Channel publish failed:', publishErr);
@@ -741,10 +746,10 @@ export async function handleOnboardingMessage(
       // 6. Confirmation message
       await sendMessage(
         chatId,
-        `<b>Listing Live / ማስታወቂያዎ ተለጥፏል</b>\n\n<blockquote><b>Listing Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>Verified & Live / የጸደቀ</b>\n• <b>Budget / በጀት:</b> <code>${updatedProfile.budget_min || 0} – ${updatedProfile.budget_max || 0} ETB</code>\n• <b>Areas / ሰፈሮች:</b> <code>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</code>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
+        `<b>Listing Live / ማስታወቂያዎ ተለጥፏል</b>\n\n<blockquote><b>Listing Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>${publishedMsgId ? 'Verified & Live / የጸደቀ' : 'Pending Review / በግምገማ ላይ'}</b>\n• <b>Budget / በጀት:</b> <code>${updatedProfile.budget_min || 0} – ${updatedProfile.budget_max || 0} ETB</code>\n• <b>Areas / ሰፈሮች:</b> <code>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</code>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
-            [{ text: 'View on Channel / በቻናል ላይ እይ >', url: chUrl }],
+            ...(chUrl ? [[{ text: 'View on Channel / በቻናል ላይ እይ >', url: chUrl }]] : []),
             [{ text: 'Find Roommates / የቤት አጋር ፈልግ', callback_data: 'matchmaker_start' }],
             [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
           ],

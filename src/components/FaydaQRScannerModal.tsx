@@ -108,7 +108,15 @@ export function FaydaQRScannerModal({
 
   const handleBotOpen = () => {
     const botUser = process.env.NEXT_PUBLIC_BOT_USERNAME?.replace('@', '') || 'Spacematchaddis_bot';
-    window.open(`https://t.me/${botUser}?start=verify_fayda`, '_blank');
+    const url = `https://t.me/${botUser}?start=verify_fayda`;
+    const tg = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp : null;
+    if (tg && typeof tg.openTelegramLink === 'function') {
+      try {
+        tg.openTelegramLink(url);
+        return;
+      } catch {}
+    }
+    window.open(url, '_blank');
   };
 
   return (

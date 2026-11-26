@@ -67,7 +67,15 @@ export default function AdminPage() {
  const [usersList, setUsersList] = useState<AdminUser[]>([]);
  const [loadingUsers, setLoadingUsers] = useState(false);
  const [userSearchQuery, setUserSearchQuery] = useState('');
- const [userFilter, setUserFilter] = useState<'all' | 'verified' | 'pending'>('all');
+ const [userFilter, setUserFilter] = useState<'all' | 'verified' | 'pending' | 'unverified'>('all');
+
+ const getAdminHeaders = (extra?: Record<string, string>): Record<string, string> => {
+   const tgInit = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp?.initData : '';
+   return {
+     ...(tgInit ? { 'x-telegram-init-data': tgInit } : {}),
+     ...(extra || {}),
+   };
+ };
 
  // Custom post form state
  const [customText, setCustomText] = useState('');
@@ -103,7 +111,9 @@ export default function AdminPage() {
   const fetchRoommates = async (q = '') => {
     setLoadingRoommates(true);
     try {
-      const res = await fetch(`/api/admin/roommates${q ? `?query=${encodeURIComponent(q)}` : ''}`);
+      const res = await fetch(`/api/admin/roommates${q ? `?query=${encodeURIComponent(q)}` : ''}`, {
+        headers: getAdminHeaders(),
+      });
       const data = await res.json();
       if (data.success) {
         setRegisteredRoommates(data.roommates || []);
@@ -134,7 +144,7 @@ export default function AdminPage() {
     try {
       const res = await fetch('/api/admin/roommates', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           fullName: rmFullName,
           gender: rmGender,
@@ -187,7 +197,9 @@ export default function AdminPage() {
  setLoadingUsers(true);
  try {
  const q = encodeURIComponent(search.trim());
- const res = await fetch(`/api/admin/users${q ? `?query=${q}` : ''}`);
+ const res = await fetch(`/api/admin/users${q ? `?query=${q}` : ''}`, {
+ headers: getAdminHeaders(),
+ });
  const data = await res.json();
  if (data.success) {
  setUsersList(data.users || []);
@@ -202,7 +214,9 @@ export default function AdminPage() {
  const fetchAdminData = async () => {
  setLoading(true);
  try {
- const res = await fetch('/api/admin/channel');
+ const res = await fetch('/api/admin/channel', {
+ headers: getAdminHeaders(),
+ });
  const data = await res.json();
  if (data.success) {
  setStats(data.stats);
@@ -307,7 +321,7 @@ export default function AdminPage() {
  try {
  const res = await fetch('/api/admin/channel', {
  method: 'POST',
- headers: { 'Content-Type': 'application/json' },
+ headers: getAdminHeaders({ 'Content-Type': 'application/json' }),
  body: JSON.stringify({ action: 'broadcast', listingId }),
  });
  const data = await res.json();
@@ -323,22 +337,45 @@ export default function AdminPage() {
  };
 
  const handleDeletePost = async (listingId: string) => {
- if (!confirm('Are you sure you want to archive this room listing and delete it from the system?')) {
+ if (!confirm('Archive this listing and remove its Telegram channel post?')) {
  return;
  }
  setActionStatus(` Archiving space listing: ${listingId}...`);
  try {
  const res = await fetch('/api/admin/channel', {
  method: 'POST',
- headers: { 'Content-Type': 'application/json' },
+ headers: getAdminHeaders({ 'Content-Type': 'application/json' }),
  body: JSON.stringify({ action: 'delete_post', listingId }),
  });
  const data = await res.json();
  if (data.success) {
- setActionStatus(` Space archived successfully!`);
+ setActionStatus(` Space archived and channel post removed!`);
  fetchAdminData();
  } else {
- setActionStatus(` Delete failed: ${data.error || data.message}`);
+ setActionStatus(` Archive failed: ${data.error || data.message}`);
+ }
+ } catch (err: any) {
+ setActionStatus(` Error: ${err.message}`);
+ }
+ };
+
+ const handleDeleteDb = async (listingId: string) => {
+ if (!confirm('Permanently delete this space and all associated images/orders from the database? This cannot be undone.')) {
+ return;
+ }
+ setActionStatus(` Permanently deleting space listing: ${listingId}...`);
+ try {
+ const res = await fetch('/api/admin/channel', {
+ method: 'POST',
+ headers: getAdminHeaders({ 'Content-Type': 'application/json' }),
+ body: JSON.stringify({ action: 'delete_space_db', listingId }),
+ });
+ const data = await res.json();
+ if (data.success) {
+ setActionStatus(` Space permanently deleted from database.`);
+ fetchAdminData();
+ } else {
+ setActionStatus(` DB delete failed: ${data.error || data.message}`);
  }
  } catch (err: any) {
  setActionStatus(` Error: ${err.message}`);
@@ -355,7 +392,7 @@ export default function AdminPage() {
  try {
  const res = await fetch('/api/admin/channel', {
  method: 'POST',
- headers: { 'Content-Type': 'application/json' },
+ headers: getAdminHeaders({ 'Content-Type': 'application/json' }),
  body: JSON.stringify({
  action: 'custom_post',
  text: customText,
@@ -383,6 +420,7 @@ export default function AdminPage() {
  const filteredUsers = usersList.filter((u) => {
  if (userFilter === 'verified') return u.fayda_status === 'verified';
  if (userFilter === 'pending') return u.fayda_status === 'pending';
+ if (userFilter === 'unverified') return u.fayda_status === 'unverified';
  return true;
  });
 
@@ -445,7 +483,7 @@ export default function AdminPage() {
  <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
  <div className="flex items-center gap-3">
  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold text-lg">
- 
+ SM
  </div>
  <div>
  <h1 className="font-bold text-lg text-white">SpaceMatch Admin Portal</h1>
@@ -476,9 +514,10 @@ export default function AdminPage() {
  <span>{actionStatus}</span>
  <button
  onClick={() => setActionStatus(null)}
- className="text-xs text-slate-400 hover:text-white"
+ aria-label="Dismiss alert"
+ className="text-xs text-slate-400 hover:text-white px-1.5"
  >
- 
+ ✕
  </button>
  </div>
  )}
@@ -654,9 +693,15 @@ export default function AdminPage() {
  </button>
  <button
  onClick={() => handleDeletePost(space.id)}
- className="py-2 px-3 bg-rose-950/80 hover:bg-rose-950 text-rose-300 border border-rose-800/50 font-medium text-xs rounded-xl transition flex items-center justify-center gap-1.5"
+ className="py-2 px-3 bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800/50 font-medium text-xs rounded-xl transition flex items-center justify-center gap-1.5"
  >
- Delete Post
+ Archive
+ </button>
+ <button
+ onClick={() => handleDeleteDb(space.id)}
+ className="py-2 px-3 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/50 font-medium text-xs rounded-xl transition flex items-center justify-center gap-1.5"
+ >
+ Delete DB
  </button>
  </div>
  </div>
@@ -753,7 +798,7 @@ export default function AdminPage() {
 
  {/* Status Filter Chips */}
  <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs">
- {(['all', 'verified', 'pending'] as const).map((f) => (
+ {(['all', 'verified', 'pending', 'unverified'] as const).map((f) => (
  <button
  key={f}
  onClick={() => setUserFilter(f)}
@@ -763,7 +808,7 @@ export default function AdminPage() {
  : 'text-slate-400 hover:text-slate-200'
  }`}
  >
- {f === 'all' ? 'All Residents' : f === 'verified' ? ' Verified' : '⏳ Pending'}
+ {f === 'all' ? 'All Residents' : f === 'verified' ? 'Verified' : f === 'pending' ? 'Pending' : 'Unverified'}
  </button>
  ))}
  </div>
@@ -1060,9 +1105,12 @@ export default function AdminPage() {
  </select>
  <input type="number" value={rmBudgetMin} onChange={(e) => setRmBudgetMin(e.target.value)} placeholder="Budget Min (ETB)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
  <input type="number" value={rmBudgetMax} onChange={(e) => setRmBudgetMax(e.target.value)} placeholder="Budget Max (ETB) *" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ <input type="number" min="18" max="99" value={rmAge} onChange={(e) => setRmAge(e.target.value)} placeholder="Age (optional)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ <input value={rmOccupation} onChange={(e) => setRmOccupation(e.target.value)} placeholder="Occupation / Job (optional)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ <input value={rmReligion} onChange={(e) => setRmReligion(e.target.value)} placeholder="Religion (optional)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
  <input value={rmPhone} onChange={(e) => setRmPhone(e.target.value)} placeholder="Phone (optional)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
  <input value={rmTelegram} onChange={(e) => setRmTelegram(e.target.value)} placeholder="Telegram @handle" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
- <input value={rmDisplayCode} onChange={(e) => setRmDisplayCode(e.target.value)} placeholder="Display Code (auto if blank)" className="col-span-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+ <input value={rmDisplayCode} onChange={(e) => setRmDisplayCode(e.target.value)} placeholder="Display Code (auto if blank)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
  </div>
  <div className="flex flex-wrap gap-1.5">
  {ADDIS_SUBCITIES.map((sub) => {

@@ -15,9 +15,18 @@
  */
 
 import crypto from 'crypto';
-import { writeBarcode } from 'zxing-wasm/writer';
+import nodeFs from 'fs';
+import nodePath from 'path';
+import { prepareZXingModule, writeBarcode } from 'zxing-wasm/writer';
 import { decodeImage, decodePayload, type FaydaFields } from 'fayda-decoder';
 import { verifySignature, FAYDA_V4_PUBLIC_KEY_PEM, type SignatureVerification } from 'fayda-decoder/verify';
+
+const localWriterWasm = nodePath.resolve(process.cwd(), 'node_modules/zxing-wasm/dist/writer/zxing_writer.wasm');
+if (nodeFs.existsSync(localWriterWasm)) {
+  const buf = nodeFs.readFileSync(localWriterWasm);
+  const wasmBinary = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  prepareZXingModule({ overrides: { wasmBinary }, fireImmediately: true });
+}
 
 export interface SyntheticFaydaOptions {
   fullName?: string;

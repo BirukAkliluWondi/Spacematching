@@ -7,10 +7,11 @@ import { FaydaQRScannerModal } from '@/components/FaydaQRScannerModal';
 
 export default function Home() {
   const [telegramUser, setTelegramUser] = useState<any>(null);
-  const [faydaStatus, setFaydaStatus] = useState<string>('pending');
+  const [faydaStatus, setFaydaStatus] = useState<string>('unverified');
   const [spaces, setSpaces] = useState<SpaceSummary[]>([]);
   const [seekers, setSeekers] = useState<RoommateSeekerSummary[]>([]);
   const [isLoadingSpaces, setIsLoadingSpaces] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedSpace, setSelectedSpace] = useState<SpaceSummary | null>(null);
   const [isFaydaModalOpen, setIsFaydaModalOpen] = useState<boolean>(false);
 
@@ -43,7 +44,7 @@ export default function Home() {
           const data = await res.json();
           if (data.success && data.user) {
             setTelegramUser(data.user);
-            setFaydaStatus(data.user.fayda_status || 'pending');
+            setFaydaStatus(data.user.fayda_status || 'unverified');
           } else if (unsafeUser) {
             setTelegramUser({
               telegram_id: unsafeUser.id,
@@ -69,31 +70,40 @@ export default function Home() {
   }, []);
 
   // Fetch Public Curated Spaces & Roommates List from Server
-  useEffect(() => {
-    async function fetchAppData() {
-      try {
-        setIsLoadingSpaces(true);
-        const [spacesRes, roommatesRes] = await Promise.all([
-          fetch('/api/spaces'),
-          fetch('/api/roommates'),
-        ]);
+  const fetchAppData = async () => {
+    try {
+      setIsLoadingSpaces(true);
+      setFetchError(null);
+      const [spacesRes, roommatesRes] = await Promise.all([
+        fetch('/api/spaces'),
+        fetch('/api/roommates'),
+      ]);
 
-        const spacesData = await spacesRes.json();
-        if (spacesData.success && Array.isArray(spacesData.spaces) && spacesData.spaces.length > 0) {
-          setSpaces(spacesData.spaces);
-        }
+      const [spacesData, roommatesData] = await Promise.all([
+        spacesRes.json().catch(() => ({ success: false })),
+        roommatesRes.json().catch(() => ({ success: false })),
+      ]);
 
-        const roommatesData = await roommatesRes.json();
-        if (roommatesData.success && Array.isArray(roommatesData.seekers) && roommatesData.seekers.length > 0) {
-          setSeekers(roommatesData.seekers);
-        }
-      } catch (err) {
-        console.error('Failed to fetch live app data:', err);
-      } finally {
-        setIsLoadingSpaces(false);
+      if (!spacesRes.ok || !spacesData.success) {
+        setFetchError('Unable to load some listings right now. Tap Retry to refresh.');
+      } else if (Array.isArray(spacesData.spaces)) {
+        setSpaces(spacesData.spaces);
       }
-    }
 
+      if (!roommatesRes.ok || !roommatesData.success) {
+        setFetchError('Unable to load roommate seekers right now. Tap Retry to refresh.');
+      } else if (Array.isArray(roommatesData.seekers)) {
+        setSeekers(roommatesData.seekers);
+      }
+    } catch (err) {
+      console.error('Failed to fetch live app data:', err);
+      setFetchError('Network error loading listings. Please check your connection and retry.');
+    } finally {
+      setIsLoadingSpaces(false);
+    }
+  };
+
+  useEffect(() => {
     fetchAppData();
   }, []);
 
@@ -141,13 +151,15 @@ export default function Home() {
   const currentTelegramId = telegramUser?.telegram_id || telegramUser?.id || 0;
 
   return (
-    <div className="min-h-screen bg-[#EBECEF] text-slate-900 flex justify-center selection:bg-rose-500 selection:text-white">
-      <div className="w-full max-w-md sm:max-w-lg min-h-screen bg-[#F5F5F7] shadow-2xl border-x border-slate-300/60 relative flex flex-col">
+    <div className="min-h-screen bg-[#050811] text-slate-100 flex justify-center selection:bg-[#0088CC] selection:text-white">
+      <div className="w-full max-w-md sm:max-w-lg min-h-screen bg-[#080D1A] shadow-2xl border-x border-white/10 relative flex flex-col">
         {/* Main Feed View */}
         <FeedView
           spaces={spaces}
           seekers={seekers}
           isLoading={isLoadingSpaces}
+          fetchError={fetchError}
+          onRetry={fetchAppData}
           onSelectSpace={handleSelectSpace}
           botUsername={process.env.NEXT_PUBLIC_BOT_USERNAME || 'Spacematchaddis_bot'}
           onOpenFaydaModal={() => setIsFaydaModalOpen(true)}

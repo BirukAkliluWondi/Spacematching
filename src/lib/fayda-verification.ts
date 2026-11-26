@@ -218,15 +218,24 @@ export async function verifyFaydaFan(
 
   const cleanFan = structureCheck.fanNumber;
 
-  // 2. Uniqueness check in Supabase: ensure another Telegram user hasn't claimed this FAN
+  // 2. Uniqueness check in Supabase: ensure another Telegram user hasn't claimed this FAN (fail closed on DB error)
   if (telegramId) {
     try {
-      const { data: existingUser } = await supabaseAdmin
+      const { data: existingUser, error: uniquenessErr } = await supabaseAdmin
         .from('users')
         .select('id, telegram_id, fayda_status')
         .eq('fayda_id_number', cleanFan)
         .neq('telegram_id', telegramId)
+        .limit(1)
         .maybeSingle();
+
+      if (uniquenessErr) {
+        console.error('[fayda-verification] Uniqueness DB error:', uniquenessErr.message);
+        return {
+          valid: false,
+          error: 'Unable to validate Fayda uniqueness right now. Please try again.',
+        };
+      }
 
       if (existingUser) {
         return {
@@ -235,7 +244,11 @@ export async function verifyFaydaFan(
         };
       }
     } catch (err) {
-      console.warn('[fayda-verification] Uniqueness check warning:', err);
+      console.error('[fayda-verification] Uniqueness check exception:', err);
+      return {
+        valid: false,
+        error: 'Unable to validate Fayda uniqueness right now. Please try again.',
+      };
     }
   }
 
@@ -245,6 +258,7 @@ export async function verifyFaydaFan(
       .from('users')
       .select('id, telegram_id, first_name, last_name, fayda_status, fayda_id_number, fayda_verified_at')
       .or(`fayda_id_number.eq.${cleanFan}${telegramId ? `,telegram_id.eq.${telegramId}` : ''}`)
+      .limit(1)
       .maybeSingle();
 
     if (matchedUser && matchedUser.fayda_status === 'verified' && matchedUser.fayda_id_number === cleanFan) {
@@ -553,8 +567,10 @@ export async function persistFaydaVerification(
     } else {
       const profileUpdates: Record<string, any> = {
         kyc_status: 'verified',
-        status: 'active',
       };
+      if (!existingProf.status || existingProf.status === 'onboarding') {
+        profileUpdates.status = 'active';
+      }
       if (resolvedFullName) {
         profileUpdates.full_name = resolvedFullName;
       }

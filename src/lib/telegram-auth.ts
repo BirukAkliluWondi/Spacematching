@@ -86,8 +86,8 @@ export function validateTelegramInitData(initData: string): ValidatedTelegramDat
   const currentTime = Math.floor(Date.now() / 1000);
   const maxAgeInSeconds = 2 * 60 * 60; // 2 hours
 
-  if (currentTime - authDate > maxAgeInSeconds) {
-    throw new Error('Telegram authentication failed: Session expired (auth_date is older than 2 hours)');
+  if (!Number.isFinite(authDate) || authDate <= 0 || authDate > currentTime + 300 || currentTime - authDate > maxAgeInSeconds) {
+    throw new Error('Telegram authentication failed: Session expired or invalid auth_date');
   }
 
   // 6. Parse & Validate User Object with Zod

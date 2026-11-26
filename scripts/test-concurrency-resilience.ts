@@ -114,7 +114,7 @@ async function runConcurrencyTests() {
 
   // ── Test 4: Telegram Webhook Update ID Deduplication ──
   console.log('\n▶ [Test 4] Telegram Webhook Update ID Deduplication...');
-  const testUpdateId = 998877665;
+  const testUpdateId = 800000000 + Math.floor(Math.random() * 90000000);
   const isFirst = await deduplicateUpdate(testUpdateId);
   assert(isFirst === true, 'First arrival of update_id is marked as new');
 
@@ -126,8 +126,9 @@ async function runConcurrencyTests() {
 
   // ── Test 5: Webhook Double-Tap Execution Guard ──
   console.log('\n▶ [Test 5] Webhook POST Route Double-Tap Protection...');
+  const baseTest5Id = 810000000 + Math.floor(Math.random() * 80000000);
   const webhookPayload = {
-    update_id: 112233445,
+    update_id: baseTest5Id,
     callback_query: {
       id: 'cb_test_concurrency_1',
       from: { id: 800701176, first_name: 'Biruk', username: 'birukadiyee' },
@@ -143,7 +144,7 @@ async function runConcurrencyTests() {
   });
 
   const webhookPayloadDuplicate = {
-    update_id: 112233446, // Distinct update_id, same rapid button tap
+    update_id: baseTest5Id + 1, // Distinct update_id, same rapid button tap
     callback_query: {
       id: 'cb_test_concurrency_2',
       from: { id: 800701176, first_name: 'Biruk', username: 'birukadiyee' },
@@ -202,8 +203,12 @@ async function runConcurrencyTests() {
   assert(loadedSession.draft_data.budget_max === 8000, 'Persisted session retains budget_max');
   assert(loadedSession.draft_data.lang === 'am', 'Persisted session retains user language preference');
 
-  // Clean up
+  // Clean up test session & sequence test sentinel inflation
   await clearSession(testTgId);
+  try {
+    const { supabaseAdmin } = await import('../src/lib/supabase-server');
+    await supabaseAdmin.from('bot_sessions').delete().in('telegram_id', [-5000001, -5000002]);
+  } catch {}
 
   console.log('\n========================================================================');
   console.log(' 🎉 ALL CONCURRENCY & RESILIENCE PROBES PASSED (100% SUCCESS RATE)');

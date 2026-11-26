@@ -601,9 +601,11 @@ export async function verifyFaydaPhotoUpload(
   }
 
   // ── Strategy A: Try fayda-decoder (handles synthetic / draft V4 JWS RS256 cards) ──
+  let strategyASignatureError = false;
   try {
     await ensureZXingReady();
-    const uint8 = new Uint8Array(buffer);
+    const rotatedBuf = await sharp(buffer).rotate().toBuffer().catch(() => buffer);
+    const uint8 = new Uint8Array(rotatedBuf);
     const decodeResult: FaydaResult = await decodeImage(uint8, { includeFace: true });
 
     if (decodeResult.ok && decodeResult.fields?.fan) {
@@ -612,6 +614,7 @@ export async function verifyFaydaPhotoUpload(
         publicKeyPem: options?.customPublicKeyPem || process.env.FAYDA_PUBLIC_KEY_PEM,
       });
       if (!sigCheck.verified) {
+        strategyASignatureError = true;
         return {
           success: false,
           errorCode: 'INVALID_SIGNATURE',
@@ -623,12 +626,14 @@ export async function verifyFaydaPhotoUpload(
       }
 
       const cleanFan = String(decodeResult.fields.fan).replace(/[\s-]/g, '').trim();
-      const struct = validateFaydaStructure(cleanFan);
+      const isSignedDigitsValid =
+        (cleanFan.length === 12 || cleanFan.length === 16) &&
+        !/^(\d)\1+$/.test(cleanFan);
 
-      if (struct.valid) {
-        // Uniqueness check
-        const isDuplicate = await checkDatabaseFanUniqueness(cleanFan, chatId);
-        if (isDuplicate) {
+      if (isSignedDigitsValid) {
+        // Uniqueness check (fail closed on DB error)
+        const uniq = await checkDatabaseFanUniqueness(cleanFan, chatId);
+        if (uniq === 'duplicate') {
           return {
             success: false,
             errorCode: 'DUPLICATE_FAN',
@@ -636,6 +641,16 @@ export async function verifyFaydaPhotoUpload(
             messageEn: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en,
             message: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.bilingual,
             error: 'This Fayda National ID is already registered to another SpaceMatch account.',
+          };
+        }
+        if (uniq === 'error') {
+          return {
+            success: false,
+            errorCode: 'QR_UNREADABLE',
+            messageAm: '<b>የሲስተም ጊዜያዊ ችግር</b>\n\n<blockquote>የፋይዳ መታወቂያዎን አሁን ማረጋገጥ አልተቻለም። እባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።</blockquote>',
+            messageEn: '<b>Temporary Verification Error</b>\n\n<blockquote>Unable to verify Fayda ID uniqueness right now. Please try again shortly.</blockquote>',
+            message: 'Temporary verification error. Please try again shortly.',
+            error: 'Uniqueness check failed due to database error.',
           };
         }
 
@@ -649,7 +664,7 @@ export async function verifyFaydaPhotoUpload(
 
         return {
           success: true,
-          fan: struct.fanNumber || cleanFan,
+          fan: cleanFan,
           fullName: decodeResult.fields.full_name || '',
           dob: decodeResult.fields.date_of_birth || '',
           gender: normalizedGender,
@@ -659,7 +674,8 @@ export async function verifyFaydaPhotoUpload(
         };
       }
     }
-  } catch {
+  } catch (err) {
+    if (strategyASignatureError) throw err;
     // Continue to Strategy B
   }
 
@@ -672,9 +688,9 @@ export async function verifyFaydaPhotoUpload(
     if (decoded.success && decoded.faydaNumber) {
       const cleanFan = decoded.faydaNumber.replace(/\D/g, '').trim();
 
-      // Database uniqueness check across users and roommate_profiles
-      const isDuplicate = await checkDatabaseFanUniqueness(cleanFan, chatId);
-      if (isDuplicate) {
+      // Database uniqueness check across users (fail closed on DB error)
+      const uniq = await checkDatabaseFanUniqueness(cleanFan, chatId);
+      if (uniq === 'duplicate') {
         return {
           success: false,
           errorCode: 'DUPLICATE_FAN',
@@ -682,6 +698,16 @@ export async function verifyFaydaPhotoUpload(
           messageEn: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en,
           message: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.bilingual,
           error: 'This Fayda National ID is already registered to another SpaceMatch account.',
+        };
+      }
+      if (uniq === 'error') {
+        return {
+          success: false,
+          errorCode: 'QR_UNREADABLE',
+          messageAm: '<b>የሲስተም ጊዜያዊ ችግር</b>\n\n<blockquote>የፋይዳ መታወቂያዎን አሁን ማረጋገጥ አልተቻለም። እባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።</blockquote>',
+          messageEn: '<b>Temporary Verification Error</b>\n\n<blockquote>Unable to verify Fayda ID uniqueness right now. Please try again shortly.</blockquote>',
+          message: 'Temporary verification error. Please try again shortly.',
+          error: 'Uniqueness check failed due to database error.',
         };
       }
 
@@ -710,8 +736,8 @@ export async function verifyFaydaPhotoUpload(
   try {
     const ocrResult = await extractFaydaCardViaOcr(buffer);
     if (ocrResult && ocrResult.success && ocrResult.fan) {
-      const isDuplicate = await checkDatabaseFanUniqueness(ocrResult.fan, chatId);
-      if (isDuplicate) {
+      const uniq = await checkDatabaseFanUniqueness(ocrResult.fan, chatId);
+      if (uniq === 'duplicate') {
         return {
           success: false,
           errorCode: 'DUPLICATE_FAN',
@@ -719,6 +745,16 @@ export async function verifyFaydaPhotoUpload(
           messageEn: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.en,
           message: FAYDA_ERROR_GUIDANCE.DUPLICATE_FAN.bilingual,
           error: 'This Fayda National ID is already registered to another SpaceMatch account.',
+        };
+      }
+      if (uniq === 'error') {
+        return {
+          success: false,
+          errorCode: 'QR_UNREADABLE',
+          messageAm: '<b>የሲስተም ጊዜያዊ ችግር</b>\n\n<blockquote>የፋይዳ መታወቂያዎን አሁን ማረጋገጥ አልተቻለም። እባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።</blockquote>',
+          messageEn: '<b>Temporary Verification Error</b>\n\n<blockquote>Unable to verify Fayda ID uniqueness right now. Please try again shortly.</blockquote>',
+          message: 'Temporary verification error. Please try again shortly.',
+          error: 'Uniqueness check failed due to database error.',
         };
       }
 
@@ -785,7 +821,7 @@ export async function extractFaydaCardViaOcr(buffer: Buffer): Promise<{
     ];
     const receiptIndicators = ['telebirr', 'total paid', 'service fee', 'credited party', 'cbe', 'abyssinia', 'dashen', 'etb'];
 
-    for (const angle of [0, 90, 270]) {
+    for (const angle of [0, 180, 90, 270]) {
       const pipeline = sharp(baseRotated);
       if (angle > 0) pipeline.rotate(angle);
       const ocrBuf = await pipeline
@@ -807,21 +843,23 @@ export async function extractFaydaCardViaOcr(buffer: Buffer): Promise<{
         return { success: false };
       }
 
-      // Detect specific Ethiopian Fayda ID markers (avoid false short-token matches)
+      // Detect specific Ethiopian Fayda ID markers: require >= 1 core Fayda marker + >= 2 markers total
+      const coreMarkers = ['fayda', 'nidp', 'ethiopia', 'ethiopian', 'nationality', 'fin', 'fan'];
+      const hasCoreMarker = coreMarkers.some((m) => lower.includes(m));
       const matchedMarkers = markers.filter((m) => lower.includes(m));
-      if (matchedMarkers.length < 2) continue;
+      if (!hasCoreMarker || matchedMarkers.length < 2) continue;
 
-      // Extract phone number and strip phone numbers before FIN/FAN candidate matching
+      // Extract phone number with boundary so digits inside a 12-digit FIN never match as phone numbers
       let phone: string | undefined;
-      const phonePattern = /(?:\+?251|0)\s*[97][0-9\s-]{7,12}/g;
+      const phonePattern = /(?:^|[\s:;,(])((?:\+?251|0)\s*[97][0-9\s-]{7,12})/g;
       const phoneMatch = cleanText.match(phonePattern);
       if (phoneMatch) {
-        phone = phoneMatch[0].replace(/\s+/g, ' ').trim();
+        phone = phoneMatch[0].trim();
       }
       const textWithoutPhones = cleanText.replace(phonePattern, ' ');
 
       const candidates: string[] = [];
-      const labeledRegex = /(?:FIN|FAN|LIN|LRN|F[I|R|1]N|FYN|F[A|4]N|NID)[:\s-]*([A-Za-z0-9\s-]{10,25})/gi;
+      const labeledRegex = /(?:FIN|FAN|LIN|LRN|F[I|R|1]N|FYN|F[A|4]N|NID)[: \t-]*([A-Za-z0-9 \t-]{10,25})/gi;
       let match: RegExpExecArray | null;
       while ((match = labeledRegex.exec(textWithoutPhones)) !== null) {
         candidates.push(match[1]);
@@ -889,7 +927,10 @@ export async function extractFaydaCardViaOcr(buffer: Buffer): Promise<{
 /**
  * Checks whether a FAN / FIN is already registered by another SpaceMatch user.
  */
-async function checkDatabaseFanUniqueness(fan: string, chatId?: number): Promise<boolean> {
+async function checkDatabaseFanUniqueness(
+  fan: string,
+  chatId?: number
+): Promise<'unique' | 'duplicate' | 'error'> {
   try {
     let query = supabaseAdmin
       .from('users')
@@ -898,13 +939,18 @@ async function checkDatabaseFanUniqueness(fan: string, chatId?: number): Promise
     if (chatId) {
       query = query.neq('telegram_id', chatId);
     }
-    const { data: existingUsers } = await query.limit(1);
+    const { data: existingUsers, error } = await query.limit(1);
 
-    if (existingUsers && existingUsers.length > 0) return true;
+    if (error) {
+      console.error('[fayda-photo-verifier] Supabase uniqueness check error:', error.message);
+      return 'error';
+    }
+    if (existingUsers && existingUsers.length > 0) return 'duplicate';
+    return 'unique';
   } catch (err) {
-    console.warn('[fayda-photo-verifier] Supabase uniqueness guard check warning:', err);
+    console.error('[fayda-photo-verifier] Supabase uniqueness check exception:', err);
+    return 'error';
   }
-  return false;
 }
 
 /**
@@ -916,12 +962,10 @@ export async function applyVerifiedFayda(
   result: FaydaSuccessResult,
   from?: any
 ): Promise<boolean> {
-  await persistFaydaVerification(chatId, result.fan, result.fullName, {
+  return await persistFaydaVerification(chatId, result.fan, result.fullName, {
     gender: result.gender || undefined,
     dob: result.dob || undefined,
     verifiedSource: result.verifiedSource || 'telegram_photo_rs256_qr',
     from,
   });
-
-  return true;
 }

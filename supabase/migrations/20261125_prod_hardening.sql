@@ -16,6 +16,5 @@ CREATE INDEX IF NOT EXISTS idx_orders_buyer_completed_created
 CREATE INDEX IF NOT EXISTS idx_profiles_status_step
   ON public.profiles (status, onboarding_step);
 
-CREATE INDEX IF NOT EXISTS idx_pending_roommate_drafts_code
-  ON public.pending_roommate_drafts (display_code)
-  WHERE display_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pending_roommate_drafts_status_user
+  ON public.pending_roommate_drafts (status, user_telegram_id);

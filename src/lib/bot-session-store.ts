@@ -338,8 +338,8 @@ export async function acquireActionLock(lockKey: string, ttlMs = 5000): Promise<
         return false;
       }
     }
-  } catch {
-    // Non-fatal fallback to process lock
+  } catch (err) {
+    console.warn(`[acquireActionLock] DB lock fallback (${lockKey}):`, err instanceof Error ? err.message : err);
   }
   return true;
 }
@@ -644,7 +644,7 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
 
     if (!match) {
       const tgNum = Number(cleanId);
-      if (!isNaN(tgNum) && tgNum > 0) {
+      if (!isNaN(tgNum) && tgNum !== 0) {
         const { data: s } = await supabase
           .from('bot_sessions')
           .select('*')
@@ -839,22 +839,23 @@ export async function removeManagedChannel(channelId: string | number): Promise<
   }
 }
 
-// In-process sequence tracker to guarantee zero-collision codes during concurrent invocations
+// In-process sequence tracker to prevent collisions within the same instance
 const _lastAllocatedSequence = { seeker: 0, space_available: 0 };
 
 /**
  * Generates the next sequential listing code.
  * - Roommate Search (Seekers - Roommate Before Room): #SPMARBR5, #SPMARBR6...
  * - Have a Room (Space Available - Roommate With Room): #SPMARWR1, #SPMARWR2...
- * Optimized for high concurrency: queries only the latest 30 rows + in-process atomic sequence allocation.
+ * Coordinates across serverless instances via a dedicated bot_sessions sequence sentinel row.
  */
 export async function getNextSpmarbrCode(category: 'seeker' | 'space_available' = 'seeker'): Promise<string> {
   const prefix = category === 'space_available' ? 'SPMARWR' : 'SPMARBR';
   const minStart = category === 'space_available' ? 1 : 5;
   const catKey = category === 'space_available' ? 'space_available' : 'seeker';
+  const seqSentinelId = category === 'space_available' ? -5000002 : -5000001;
 
   try {
-    const [{ data: profileCodes }, { data: draftIds }] = await Promise.all([
+    const [{ data: profileCodes }, { data: draftIds }, { data: seqRow }] = await Promise.all([
       supabase
         .from('profiles')
         .select('display_code')
@@ -867,9 +868,14 @@ export async function getNextSpmarbrCode(category: 'seeker' | 'space_available' 
         .ilike('id', `${prefix}%`)
         .order('created_at', { ascending: false })
         .limit(200),
+      supabase
+        .from('bot_sessions')
+        .select('draft_data')
+        .eq('telegram_id', seqSentinelId)
+        .maybeSingle(),
     ]);
 
-    let dbMax = 0;
+    let dbMax = Number(seqRow?.draft_data?.last_seq || 0);
     const scanCodes = [
       ...(profileCodes || []).map((r: any) => r.display_code),
       ...(draftIds || []).map((r: any) => r.id),
@@ -890,6 +896,19 @@ export async function getNextSpmarbrCode(category: 'seeker' | 'space_available' 
     const currentMax = Math.max(dbMax, _lastAllocatedSequence[catKey], minStart - 1);
     const nextNum = currentMax + 1;
     _lastAllocatedSequence[catKey] = nextNum;
+
+    try {
+      await supabase.from('bot_sessions').upsert(
+        {
+          telegram_id: seqSentinelId,
+          step: `seq_${catKey}`,
+          draft_data: { last_seq: nextNum },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'telegram_id' }
+      );
+    } catch {}
+
     return `${prefix}${nextNum}`;
   } catch (err) {
     console.error('[getNextSpmarbrCode] error generating code:', err);
@@ -952,9 +971,7 @@ export async function getUserMembershipStatus(telegramId: number): Promise<Membe
     }
 
     if (!order) {
-      const res: MembershipStatus = { isActive: false, expiresAt: null, daysRemaining: 0 };
-      membershipCache.set(telegramId, { status: res, cachedAt: Date.now() });
-      return res;
+      return { isActive: false, expiresAt: null, daysRemaining: 0 };
     }
 
     const baseDate = new Date(order.verified_at || order.created_at);
@@ -970,7 +987,9 @@ export async function getUserMembershipStatus(telegramId: number): Promise<Membe
       lastPaymentRef: order.transaction_reference,
       orderId: order.id,
     };
-    membershipCache.set(telegramId, { status: res, cachedAt: Date.now() });
+    if (isActive) {
+      membershipCache.set(telegramId, { status: res, cachedAt: Date.now() });
+    }
     return res;
   } catch (err) {
     console.error('[getUserMembershipStatus] error checking membership:', err);

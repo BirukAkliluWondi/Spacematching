@@ -33,8 +33,8 @@ export function normalizeCanonicalTransactionRef(input: string): string {
   const extracted = extractTransactionReference(input);
   if (!extracted) return '';
   if (/^https?:\/\//i.test(extracted)) {
-    const cbeId = extracted.match(/[?&]id=([A-Z0-9_-]{6,32})/i);
-    if (cbeId?.[1]) return cbeId[1].toUpperCase();
+    const queryId = extracted.match(/[?&](?:id|trx|ref)=([A-Z0-9_-]{6,32})/i);
+    if (queryId?.[1]) return queryId[1].toUpperCase();
     const pathTail = extracted.match(/\/(?:receipt|verify|tx)\/([A-Z0-9_-]{6,32})(?:[/?#]|$)/i);
     if (pathTail?.[1]) return pathTail[1].toUpperCase();
     return extracted.trim();
@@ -50,7 +50,7 @@ export function extractTransactionReference(input: string): string {
 
   // 1. Official Ethiopian bank/Telebirr receipt URL extraction (never hijack on promo/footer URLs)
   const receiptUrlMatch = cleaned.match(
-    /https?:\/\/(?:[a-z0-9-]+\.)*(?:cbe\.com\.et|ethiotelecom\.et\/receipt|transactioninfo\.ethiotelecom\.et|bankofabyssinia\.com|dashenbanksc\.com|verify\.et)[^\s<>'"`]+[A-Za-z0-9]/i
+    /https?:\/\/(?:[a-z0-9-]+\.)*(?:cbe\.com\.et|ethiotelecom\.et\/receipt|transactioninfo\.ethiotelecom\.et|bankofabyssinia\.com|dashenbanksc\.com|dashensuperapp\.com|verify\.et)[^\s<>'"`]+[A-Za-z0-9]/i
   );
   if (receiptUrlMatch) {
     return receiptUrlMatch[0].trim().replace(/[.,;)]+$/, '');
@@ -61,7 +61,7 @@ export function extractTransactionReference(input: string): string {
     return 'FT' + digits.replace(/[\s\-_.:/]/g, '').toUpperCase();
   });
 
-  // 3. CBE FT Reference (e.g., FT2412345678 or FT260920042)
+  // 3. CBE / BoA FT Reference (e.g., FT2412345678 or FT260920042)
   const ftRegex = /\b(FT[0-9A-Z]{6,16})\b/i;
   const ftMatch = cleaned.match(ftRegex);
   if (ftMatch && ftMatch[1] && /\d/.test(ftMatch[1])) {
@@ -82,19 +82,7 @@ export function extractTransactionReference(input: string): string {
     return boaMatch[1].trim().toUpperCase();
   }
 
-  // 3d. Telebirr 10-char Alphanumeric Reference (e.g., DKM7J1EXAP, DK29M7PCJT, DL..., DA..., CJA...)
-  const tbRegex = /\b((?:D[A-LN-Z]|C[A-Z])[A-Z0-9]{8})\b/i;
-  let tbMatch: RegExpExecArray | null;
-  const tbGlobal = new RegExp(tbRegex.source, 'gi');
-  while ((tbMatch = tbGlobal.exec(cleaned)) !== null) {
-    const token = tbMatch[1].trim().toUpperCase();
-    if (/\d/.test(token) && !token.startsWith('DTS')) {
-      return token;
-    }
-  }
-
-  // 4. Amharic labeled pattern
-  // Matches: የግብይት ቁጥር, የደረሰኝ ቁጥር, የማጣቀሻ ቁጥር, የክፍያ መለያ, ትራንዛክሽን ቁጥር, etc.
+  // 4. Amharic labeled pattern (checked BEFORE generic heuristics so labels win over word-like tokens)
   const amharicRegex =
     /(?:የ(?:ግብይት|ደረሰኝ|ማጣቀሻ|ክፍያ)\s*(?:ቁጥር|መለያ)?|መለያ\s*ቁጥር|ትራንዛክሽን\s*(?:ቁጥር|መለያ)?)\s*[:=\-#፡፦\s]*([A-Za-z0-9_-]+)/u;
   const amharicMatch = cleaned.match(amharicRegex);
@@ -105,7 +93,7 @@ export function extractTransactionReference(input: string): string {
     }
   }
 
-  // 5. English labeled pattern: requires explicit punctuation/is delimiter & digit presence (blocks "Transaction Status", "Reference Code")
+  // 5. English labeled pattern: requires explicit punctuation/is delimiter & digit presence
   const labeledRegex =
     /(?:ref(?:erence)?(?:\s*no\.?|\s*id)?|txn(?:\s*ref|\s*id)?|transaction\s*(?:id|no\.?|number|ref(?:erence)?)|receipt\s*(?:no\.?|id)|tid|code)\s*(?:[:=\-#፡፦]+|\bis\b)\s*([A-Za-z0-9_-]{6,32})/i;
   const labeledMatch = cleaned.match(labeledRegex);
@@ -121,22 +109,65 @@ export function extractTransactionReference(input: string): string {
     }
   }
 
-  // 6. Alphanumeric transaction codes (TX..., TB..., DTS..., 9AC4827X19)
+  // 6a. Telebirr 10-char Alphanumeric Reference (e.g., DKM7J1EXAP, DK29M7PCJT, DM..., E..., CJA...)
+  const tbRegex = /\b((?:D[A-LN-Z]|C[A-Z]|E[A-Z])[A-Z0-9]{8})\b/i;
+  let tbMatch: RegExpExecArray | null;
+  const tbGlobal = new RegExp(tbRegex.source, 'gi');
+  while ((tbMatch = tbGlobal.exec(cleaned)) !== null) {
+    const token = tbMatch[1].trim().toUpperCase();
+    const digitCount = (token.match(/\d/g) || []).length;
+    if (
+      digitCount >= 2 &&
+      !token.startsWith('DTS') &&
+      !/^(?:DATE|DASHEN|CUSTOMER|DECEMBER|NOVEMBER|COMPLETED|CLEARING)/.test(token)
+    ) {
+      return token;
+    }
+  }
+
+  // 6b. Alphanumeric transaction codes (TX..., TB..., 9AC4827X19) — excluding dates & phone numbers
   const mixedTxMatch = cleaned.match(/\b((?:[A-Z]{1,3}[0-9]{6,15}|[0-9][A-Z0-9]{7,13})[A-Z0-9]*)\b/i);
   if (mixedTxMatch && mixedTxMatch[1]) {
     const tok = mixedTxMatch[1].trim().toUpperCase();
-    if (/\d/.test(tok) && /[A-Z]/i.test(tok) && !/^(?:2519|2517|09|07)\d{8}$/.test(tok)) {
+    if (
+      /\d/.test(tok) &&
+      /[A-Z]/i.test(tok) &&
+      !/^(?:2519|2517|09|07)\d{8}$/.test(tok) &&
+      !/^\d{1,2}(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\d{4}$/i.test(tok)
+    ) {
       return tok;
     }
   }
 
-  // 7. Standalone 8-16 digit numbers (telebirr transaction number or bank reference numbers)
+  // 7. Standalone 8-16 digit numbers excluding phones, YYYYMMDD/DDMMYYYY dates, and known settlement accounts
   const phoneRegex = /^(?:\+?251|0)?[97]\d{8}$/;
+  const isoDateRegex = /^(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d*$/;
+  const dmyDateRegex = /^(?:0[1-9]|[12]\d|3[01])(?:0[1-9]|1[0-2])(?:19|20)\d{2}$/;
+  const knownSettlementDigits = new Set(
+    [
+      '0987310978',
+      '256861771',
+      '2922175078411',
+      '1000054066094',
+      process.env.TELEBIRR_RECEIVER_PHONE || '',
+      process.env.ABYSSINIA_ACCOUNT_NUMBER || '',
+      process.env.DASHEN_ACCOUNT_NUMBER || '',
+      process.env.CBE_ACCOUNT_NUMBER || '',
+    ]
+      .map((s) => s.replace(/\D/g, ''))
+      .filter(Boolean)
+  );
   const numericTokens = cleaned.match(/\b\d{8,16}\b/g);
   if (numericTokens) {
-    const nonPhoneToken = numericTokens.find((token) => !phoneRegex.test(token));
-    if (nonPhoneToken) {
-      return nonPhoneToken;
+    const validToken = numericTokens.find(
+      (token) =>
+        !phoneRegex.test(token) &&
+        !isoDateRegex.test(token) &&
+        !dmyDateRegex.test(token) &&
+        !knownSettlementDigits.has(token)
+    );
+    if (validToken) {
+      return validToken;
     }
   }
 
@@ -405,38 +436,59 @@ export async function verifyTelebirrPayment(
   }
   const refUpper = cleanRef.toUpperCase();
   const refLower = cleanRef.toLowerCase();
-  const isCbeRef = refUpper.startsWith('FT') || refLower.includes('cbe.com.et');
+  const isExplicitCbeUrl = refLower.includes('cbe.com.et');
+  const isFtRef = refUpper.startsWith('FT');
   const isDashenRef = refUpper.startsWith('DTS') || refLower.includes('dashen');
   const isBoaRef = refUpper.startsWith('TX') || refLower.includes('abyssinia');
   const isTelebirrRef =
     refUpper.startsWith('DK') ||
     refUpper.startsWith('DL') ||
     (refUpper.startsWith('DT') && !refUpper.startsWith('DTS')) ||
+    refUpper.startsWith('DM') ||
     refLower.includes('ethiotelecom') ||
     refLower.includes('telebirr');
 
-  if (!normalizedBank) {
-    if (isCbeRef) {
-      normalizedBank = 'cbe';
-    } else if (isBoaRef) {
-      normalizedBank = 'boa';
-    } else if (isDashenRef) {
-      normalizedBank = 'dashen';
-    } else if (isTelebirrRef) {
-      normalizedBank = 'telebirr';
-    }
-  }
-
-  // Strictly target identified bank, or evaluate all banks (Telebirr, CBE, BoA, Dashen)
+  // Strictly target identified bank, or evaluate CBE + BoA together for ambiguous bare FT... codes
   let bankConfigs: typeof allConfigs;
   if (normalizedBank) {
     bankConfigs = allConfigs.filter((c) => c.bank === normalizedBank);
     if (bankConfigs.length === 0) {
       bankConfigs = [{ bank: normalizedBank, settlementAccount: receiverPhone.trim() || '0987310978' }];
     }
+  } else if (isExplicitCbeUrl) {
+    bankConfigs = allConfigs.filter((c) => c.bank === 'cbe');
+  } else if (isFtRef) {
+    // Bank of Abyssinia receipts also start with FT... when bank keywords weren't detected
+    bankConfigs = allConfigs.filter((c) => c.bank === 'cbe' || c.bank === 'boa');
+  } else if (isBoaRef) {
+    bankConfigs = allConfigs.filter((c) => c.bank === 'boa');
+  } else if (isDashenRef) {
+    bankConfigs = allConfigs.filter((c) => c.bank === 'dashen');
+  } else if (isTelebirrRef) {
+    bankConfigs = allConfigs.filter((c) => c.bank === 'telebirr');
   } else {
     bankConfigs = allConfigs;
   }
+
+  const toSafeStr = (v: unknown): string => {
+    if (typeof v === 'string') return v;
+    if (Array.isArray(v)) return v.map(toSafeStr).filter(Boolean).join(' ');
+    if (v && typeof v === 'object') {
+      const m = (v as Record<string, unknown>).message ?? (v as Record<string, unknown>).error;
+      return typeof m === 'string' ? m : JSON.stringify(v);
+    }
+    return v == null ? '' : String(v);
+  };
+
+  const priorityRank = (code?: string): number => {
+    if (code === 'ACCOUNT_MISMATCH' || code === 'INSUFFICIENT_AMOUNT') return 3;
+    if (code === 'RATE_LIMITED' || code === 'NETWORK_ERROR' || code === 'CONFIG_ERROR') return 2;
+    return 1;
+  };
+  const updateFailure = (
+    current: { message: string; messageAm: string; errorCode: string } | null,
+    next: { message: string; messageAm: string; errorCode: string }
+  ) => (!current || priorityRank(next.errorCode) >= priorityRank(current.errorCode) ? next : current);
 
   let lastFailure: { message: string; messageAm: string; errorCode: string } | null = null;
   let lastRawResponse: unknown = null;
@@ -461,7 +513,7 @@ export async function verifyTelebirrPayment(
         try {
           rawErrorText = await response.text();
           const parsed = JSON.parse(rawErrorText);
-          extractedMsg = parsed.message || parsed.error?.message || parsed.error || '';
+          extractedMsg = toSafeStr(parsed.message || parsed.error?.message || parsed.error || '');
         } catch {
           extractedMsg = rawErrorText;
         }
@@ -471,7 +523,7 @@ export async function verifyTelebirrPayment(
           rawErrorText || response.statusText
         );
 
-        lastFailure = mapVerifyError(extractedMsg || rawErrorText, response.status, config.bank);
+        lastFailure = updateFailure(lastFailure, mapVerifyError(extractedMsg || rawErrorText, response.status, config.bank));
         lastRawResponse = rawErrorText;
         continue;
       }
@@ -485,11 +537,15 @@ export async function verifyTelebirrPayment(
         data.statusUrl ||
         (data.requestId ? `/api/verify/${data.requestId}` : null);
 
+      const rootStatusLower = String(data.status || '').toLowerCase();
+      const verStatusLower = String(data.verification?.status || '').toLowerCase();
+      const procStatusLower = String(data.verification?.processingStatus || '').toLowerCase();
+
       if (
         (response.status === 202 ||
-          data.status === 'pending' ||
-          data.verification?.processingStatus === 'queued' ||
-          data.verification?.status === 'pending' ||
+          rootStatusLower === 'pending' ||
+          procStatusLower === 'queued' ||
+          verStatusLower === 'pending' ||
           data.message === 'Verification queued.') &&
         pollUrlPath
       ) {
@@ -509,24 +565,33 @@ export async function verifyTelebirrPayment(
             const pollData = await pollRes.json();
             lastRawResponse = pollData;
 
+            const pRootStatus = String(pollData.status || '').toLowerCase();
+            const pVerStatus = String(pollData.verification?.status || '').toLowerCase();
+            const pProcStatus = String(pollData.verification?.processingStatus || '').toLowerCase();
+            const pDataStatus = Array.isArray(pollData.data)
+              ? String(pollData.data[0]?.status || '').toLowerCase()
+              : String(pollData.data?.status || '').toLowerCase();
+
             const isPolledVerified =
               pollData.verification?.verified === true ||
-              pollData.verification?.status === 'success' ||
+              pVerStatus === 'success' ||
+              pVerStatus === 'verified' ||
+              pVerStatus === 'completed' ||
               pollData.verified === true ||
-              pollData.status === 'success' ||
-              pollData.status === 'verified' ||
+              pRootStatus === 'success' ||
+              pRootStatus === 'verified' ||
+              pRootStatus === 'completed' ||
               pollData.message === 'Verification completed.' ||
               (Array.isArray(pollData.data)
-                ? pollData.data[0]?.verified === true || pollData.data[0]?.status === 'success'
-                : pollData.data?.verified === true || pollData.data?.status === 'success') ||
+                ? pollData.data[0]?.verified === true || pDataStatus === 'success' || pDataStatus === 'completed'
+                : pollData.data?.verified === true || pDataStatus === 'success' || pDataStatus === 'completed') ||
               pollData.data?.result?.verified === true;
 
-            if (isPolledVerified || pollData.verification?.processingStatus === 'completed') {
+            if (isPolledVerified || pProcStatus === 'completed') {
               data = pollData;
               break;
             }
-            const procStatus = String(pollData.verification?.processingStatus || pollData.status || '').toLowerCase();
-            if (procStatus === 'failed' || procStatus === 'rejected' || procStatus === 'error') {
+            if (pProcStatus === 'failed' || pProcStatus === 'rejected' || pProcStatus === 'error') {
               data = pollData;
               break;
             }
@@ -548,82 +613,140 @@ export async function verifyTelebirrPayment(
       const verificationObj =
         data.verification && typeof data.verification === 'object' ? data.verification : {};
 
-      // 1. Evaluate response verification status across both root and nested schemas (respect explicit verified === false)
+      // 1. Evaluate response verification status across both root and nested schemas (case-insensitive)
+      const dataSt = String(data.status || '').toLowerCase();
+      const recSt = String(record?.status || '').toLowerCase();
+      const verSt = String(verificationObj?.status || '').toLowerCase();
+      const verProcSt = String(verificationObj?.processingStatus || '').toLowerCase();
+
       const explicitRejected =
         data.verified === false ||
         record?.verified === false ||
         verificationObj?.verified === false ||
-        data.status === 'failed' ||
-        data.status === 'rejected' ||
-        record?.status === 'failed' ||
-        record?.status === 'rejected';
+        dataSt === 'failed' ||
+        dataSt === 'rejected' ||
+        dataSt === 'not_found' ||
+        recSt === 'failed' ||
+        recSt === 'rejected' ||
+        recSt === 'not_found' ||
+        verSt === 'failed' ||
+        verSt === 'rejected';
       const isStatusVerified =
         !explicitRejected &&
-        (data.status === 'verified' ||
-          data.status === 'success' ||
+        (dataSt === 'verified' ||
+          dataSt === 'success' ||
+          dataSt === 'completed' ||
           data.verified === true ||
-          record?.status === 'verified' ||
-          record?.status === 'success' ||
+          recSt === 'verified' ||
+          recSt === 'success' ||
+          recSt === 'completed' ||
           record?.verified === true ||
-          verificationObj?.status === 'success' ||
-          verificationObj?.status === 'verified' ||
+          verSt === 'success' ||
+          verSt === 'verified' ||
+          verSt === 'completed' ||
+          verProcSt === 'completed' ||
           verificationObj?.verified === true);
 
       if (!isStatusVerified) {
-        const upstreamMsg =
+        const upstreamMsg = toSafeStr(
           data.error?.message ||
-          record?.error?.message ||
-          data.message ||
-          record?.message ||
-          '';
+            record?.error?.message ||
+            data.message ||
+            record?.message ||
+            ''
+        );
 
         console.warn(`[verify-et] Payment not verified for ${config.bank}:`, upstreamMsg || data);
 
-        lastFailure = mapVerifyError(upstreamMsg, response.status, config.bank);
+        lastFailure = updateFailure(lastFailure, mapVerifyError(upstreamMsg, response.status, config.bank));
         continue;
       }
 
-      // 2. Confirm settlement account matching if present
+      // 2. Confirm settlement account matching if present (handles masked values like 0987****78)
       const returnedSettlementAccount =
         record?.settlementAccount ||
         record?.receiverAccount ||
-        data.settlementAccount;
+        record?.creditedPartyAccountNo ||
+        record?.creditedAccount ||
+        record?.receiverAccountNumber ||
+        record?.toAccount ||
+        record?.receiverPhone ||
+        data.settlementAccount ||
+        data.receiverAccount ||
+        data.creditedPartyAccountNo ||
+        data.receiverPhone;
       if (returnedSettlementAccount) {
         const cleanSettlement = config.settlementAccount.replace(/\D/g, '');
-        const cleanReturned = String(returnedSettlementAccount).replace(/\D/g, '');
-        const last4 = cleanSettlement.slice(-4);
-        const isMatched =
-          cleanSettlement === cleanReturned ||
-          (cleanReturned.length >= 4 && last4.length === 4 && cleanReturned.endsWith(last4));
+        const settlementVariants = new Set<string>([cleanSettlement]);
+        if (/^0[79]\d{8}$/.test(cleanSettlement)) {
+          settlementVariants.add('251' + cleanSettlement.slice(1));
+          settlementVariants.add(cleanSettlement.slice(1));
+        } else if (/^251[79]\d{8}$/.test(cleanSettlement)) {
+          settlementVariants.add('0' + cleanSettlement.slice(3));
+          settlementVariants.add(cleanSettlement.slice(3));
+        }
+
+        const rawStr = String(returnedSettlementAccount);
+        const cleanReturned = rawStr.replace(/\D/g, '');
+        let isMatched = false;
+
+        if (/[*xX]/.test(rawStr)) {
+          const prefixDigits = (rawStr.split(/[*xX]/)[0] || '').replace(/\D/g, '');
+          const suffixDigits = (rawStr.split(/[*xX]/).pop() || '').replace(/\D/g, '');
+          isMatched = Array.from(settlementVariants).some((variant) => {
+            const prefixOk = !prefixDigits || variant.startsWith(prefixDigits);
+            const suffixOk = suffixDigits.length >= 2 && variant.endsWith(suffixDigits);
+            return prefixOk && suffixOk;
+          });
+        } else {
+          isMatched = Array.from(settlementVariants).some((variant) => {
+            const vLast4 = variant.slice(-4);
+            return (
+              variant === cleanReturned ||
+              (cleanReturned.length >= 4 && vLast4.length === 4 && cleanReturned.endsWith(vLast4))
+            );
+          });
+        }
+
         if (!isMatched) {
           console.warn(
             `[verify-et] Settlement account mismatch for ${config.bank}: expected ${config.settlementAccount}, got ${returnedSettlementAccount}`
           );
-          lastFailure = {
+          lastFailure = updateFailure(lastFailure, {
             message:
               'Payment was sent to a different account number. Please ensure payment was transferred to our designated account.',
             messageAm:
               'ክፍያው የተላከው ወደ ሌላ የባንክ/ቴሌብር ሂሳብ ነው። እባክዎ ክፍያው ወደ ተሰጠው ትክክለኛ የሂሳብ ቁጥር መላኩን ያረጋግጡ።',
             errorCode: 'ACCOUNT_MISMATCH',
-          };
+          });
           continue;
         }
       }
 
-      // 3. Ensure paid amount matches or exceeds expected fee
+      // 3. Ensure paid amount matches or exceeds expected fee (take first valid positive number)
       const rawAmtCandidate =
         record?.amount ??
         record?.paidAmount ??
+        record?.totalPaidAmount ??
+        record?.totalAmount ??
+        record?.transferAmount ??
+        record?.transactionAmount ??
         record?.settledAmountValue ??
         record?.settledAmount ??
         data.amount ??
         data.paidAmount ??
+        data.totalPaidAmount ??
+        data.totalAmount ??
+        data.transferAmount ??
         0;
-      const parsedAmtNum =
-        typeof rawAmtCandidate === 'number'
-          ? rawAmtCandidate
-          : parseFloat(String(rawAmtCandidate).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-      const paidAmount = Number.isFinite(parsedAmtNum) ? parsedAmtNum : 0;
+      let parsedAmtNum = NaN;
+      if (typeof rawAmtCandidate === 'number') {
+        parsedAmtNum = rawAmtCandidate;
+      } else {
+        const amtMatch = String(rawAmtCandidate).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+        if (amtMatch) parsedAmtNum = parseFloat(amtMatch[0]);
+      }
+      const paidAmount = Number.isFinite(parsedAmtNum) && parsedAmtNum > 0 ? parsedAmtNum : 0;
 
       if (paidAmount < expectedFee) {
         return {

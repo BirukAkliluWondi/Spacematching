@@ -104,16 +104,21 @@ export async function POST(request: Request) {
       finalCode = await getNextSpmarbrCode('seeker');
     }
 
-    // Extract digits for synthetic ID allocation
-    const codeDigitsMatch = finalCode.match(/\d+/);
-    const codeDigits = codeDigitsMatch ? parseInt(codeDigitsMatch[0], 10) : Math.floor(Math.random() * 899999 + 100000);
-    // Negative synthetic ID ensures zero collision with authentic Telegram chat IDs
-    const synTgId = -(1000000000 + codeDigits);
+    // Extract collision-free deterministic negative synthetic ID from canonical finalCode
+    let hashVal = 2166136261;
+    for (let i = 0; i < finalCode.length; i++) {
+      hashVal ^= finalCode.charCodeAt(i);
+      hashVal = Math.imul(hashVal, 16777619);
+    }
+    const synDigits = (hashVal >>> 0) % 899999999;
+    const synTgId = -(1000000000 + synDigits);
 
     const nameParts = fullName.trim().split(/\s+/);
     const firstName = nameParts[0] || 'Roommate';
     const lastName = nameParts.slice(1).join(' ') || '';
-    const cleanUsername = (telegramHandle || '').replace(/^@/, '').trim() || 'WWEHID';
+    const rawHandle = (telegramHandle || '').replace(/^@/, '').trim();
+    const cleanUsername = /^[a-zA-Z0-9_]{5,32}$/.test(rawHandle) ? rawHandle : 'WWEHID';
+    const safePrefGender = ['Male', 'Female', 'Any'].includes(preferredGender) ? preferredGender : 'Any';
 
     // 2. Step A: Upsert synthetic user record (required by foreign key)
     const { error: userError } = await supabaseAdmin.from('users').upsert(
@@ -125,7 +130,7 @@ export async function POST(request: Request) {
         phone_number: phone?.trim() || null,
         role: 'renter',
         fayda_status: 'verified',
-        fayda_id_number: `SYN-${codeDigits}`,
+        fayda_id_number: `SYN-${synDigits}`,
         gender: gender,
         created_at: new Date().toISOString(),
       },
@@ -166,7 +171,7 @@ export async function POST(request: Request) {
     const { error: rmError } = await supabaseAdmin.from('roommate_profiles').insert({
       user_telegram_id: synTgId,
       my_gender: gender,
-      preferred_gender: preferredGender,
+      preferred_gender: safePrefGender,
       preferred_subcity: Array.isArray(locations) && locations.length > 0 ? locations : ['Addis Ababa'],
       budget_min: parsedBudgetMin,
       budget_max: parsedBudgetMax,
@@ -177,32 +182,35 @@ export async function POST(request: Request) {
     });
 
     if (rmError) {
-      console.warn('[admin/roommates] roommate_profiles insert warning:', rmError.message);
+      console.error('[admin/roommates] roommate_profiles insert error:', rmError.message);
+      return NextResponse.json({ success: false, error: `Failed to register roommate profile: ${rmError.message}` }, { status: 500 });
     }
 
-    // 5. Step D: Cache draft in pending_roommate_drafts and memory for instant matchmaker discovery
+    // 5. Step D: Persist draft in pending_roommate_drafts and memory using exact schema fields
+    const nowIso = new Date().toISOString();
     await saveRoommateDraft({
-      id: `draft_${synTgId}`,
+      id: finalCode,
+      display_code: finalCode,
       user_telegram_id: synTgId,
-      first_name: firstName,
-      last_name: lastName,
-      full_name: fullName.trim(),
-      gender,
-      preferred_gender: preferredGender,
+      user_name: fullName.trim(),
+      username: cleanUsername,
+      contact_phone: phone?.trim() || undefined,
+      phone_number: phone?.trim() || undefined,
+      age: age ? Number(age) : 24,
+      job: occupation?.trim() || undefined,
+      religion: religion?.trim() || undefined,
+      my_gender: gender,
+      preferred_gender: safePrefGender,
+      preferred_subcity: Array.isArray(locations) && locations.length > 0 ? locations : ['Addis Ababa'],
       budget_min: parsedBudgetMin,
       budget_max: parsedBudgetMax,
-      locations: Array.isArray(locations) && locations.length > 0 ? locations : ['Addis Ababa'],
-      bio: bio.trim(),
-      age: age ? Number(age) : null,
-      occupation: occupation?.trim() || null,
-      religion: religion?.trim() || null,
-      phone_number: phone?.trim() || null,
-      username: cleanUsername,
-      display_code: finalCode,
+      lifestyle_bio: bio.trim(),
+      unlock_fee: 100,
       fayda_status: 'verified',
-      is_admin_listing: true,
-      registered_by_admin: true,
-    } as any);
+      status: 'approved',
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
 
     return NextResponse.json({
       success: true,

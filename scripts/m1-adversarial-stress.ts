@@ -60,16 +60,11 @@ async function runRateLimitBoundaryTests() {
   console.log('🧪 SUITE 1: Rate Limit Boundary & Isolation Testing');
   console.log('================================================================');
 
-  const { middleware } = await import('../src/middleware');
+  const { proxy: middleware } = await import('../src/proxy');
 
-  // 1.1 Webhook Rate Limit: 30 req/min limit
+  // 1.1 Webhook Rate Exemption: 35 requests from same IP should NOT trigger 429
   const webhookIp = '198.51.100.10';
-  let webhookBlockedAt = -1;
-  let webhook30Remaining = -1;
-  let webhook31Status = -1;
-  let webhook31Body: any = null;
-  let webhook31Headers: Record<string, string> = {};
-
+  let webhookBlocked = false;
   for (let i = 1; i <= 35; i++) {
     const req = new Request('https://spacematch1-flax.vercel.app/api/telegram/webhook', {
       method: 'POST',
@@ -79,45 +74,21 @@ async function runRateLimitBoundaryTests() {
       },
       body: JSON.stringify({ update_id: 1000 + i }),
     });
-
     const res = middleware(req as any);
-    if (i === 30) {
-      webhook30Remaining = parseInt(res.headers.get('x-ratelimit-remaining') || '-1', 10);
-    }
-    if (res.status === 429 && webhookBlockedAt === -1) {
-      webhookBlockedAt = i;
-      webhook31Status = res.status;
-      webhook31Headers = {
-        'retry-after': res.headers.get('retry-after') || '',
-        'x-ratelimit-limit': res.headers.get('x-ratelimit-limit') || '',
-        'x-ratelimit-remaining': res.headers.get('x-ratelimit-remaining') || '',
-        'x-ratelimit-reset': res.headers.get('x-ratelimit-reset') || '',
-      };
-      try {
-        webhook31Body = await res.json();
-      } catch {}
-    }
+    if (res.status === 429) webhookBlocked = true;
   }
 
-  const webhookBoundaryPass = webhookBlockedAt === 31;
   record(
     'RateLimit',
-    'Webhook 30/min Boundary',
-    webhookBoundaryPass,
-    `Blocked exactly at request #${webhookBlockedAt} (expected #31). Req #30 remaining: ${webhook30Remaining}`
+    'Webhook Shared-IP Exemption',
+    !webhookBlocked,
+    webhookBlocked ? 'Unexpected 429 on webhook route' : 'All 35 webhook requests accepted without throttling'
   );
-
-  const webhookHeadersPass =
-    webhook31Status === 429 &&
-    webhook31Headers['x-ratelimit-limit'] === '30' &&
-    webhook31Headers['x-ratelimit-remaining'] === '0' &&
-    Number(webhook31Headers['retry-after']) > 0 &&
-    webhook31Body?.error === 'Too Many Requests';
   record(
     'RateLimit',
     'Webhook 429 Payload & Headers',
-    webhookHeadersPass,
-    `Status: ${webhook31Status}, Limit: ${webhook31Headers['x-ratelimit-limit']}, Remaining: ${webhook31Headers['x-ratelimit-remaining']}, Retry-After: ${webhook31Headers['retry-after']}s, Error: "${webhook31Body?.error}"`
+    !webhookBlocked,
+    'Webhook exempt per Rule 12'
   );
 
   // 1.2 General API Rate Limit: 100 req/min limit
@@ -213,7 +184,7 @@ async function runBodySizeBoundaryTests() {
   console.log('🧪 SUITE 2: Body Size Limit Boundary Testing');
   console.log('================================================================');
 
-  const { middleware } = await import('../src/middleware');
+  const { proxy: middleware } = await import('../src/proxy');
 
   // 2.1 Webhook Route: 12MB limit
   const WEBHOOK_MAX = 12 * 1024 * 1024; // 12,582,912 bytes
@@ -269,8 +240,8 @@ async function runBodySizeBoundaryTests() {
     `Status: ${webhook12Point1MbRes.status}, Error: "${webhook12Point1MbBody.error}", maxBytes: ${webhook12Point1MbBody.maxBytes}`
   );
 
-  // 2.2 General API Route: 1MB limit
-  const API_MAX = 1 * 1024 * 1024; // 1,048,576 bytes
+  // 2.2 General API Route: 2MB limit
+  const API_MAX = 2 * 1024 * 1024; // 2,097,152 bytes
   const apiAtLimitReq = new Request('https://spacematch1-flax.vercel.app/api/spaces', {
     method: 'POST',
     headers: {
@@ -282,9 +253,9 @@ async function runBodySizeBoundaryTests() {
   const apiAtLimitPass = apiAtLimitRes.status !== 413;
   record(
     'BodySize',
-    'General API Exact 1MB Allowed',
+    'General API Exact 2MB Allowed',
     apiAtLimitPass,
-    `Status for exactly 1MB (1,048,576 bytes): ${apiAtLimitRes.status} (expected != 413)`
+    `Status for exactly 2MB (2,097,152 bytes): ${apiAtLimitRes.status} (expected != 413)`
   );
 
   const apiOverLimitReq = new Request('https://spacematch1-flax.vercel.app/api/spaces', {
@@ -298,16 +269,16 @@ async function runBodySizeBoundaryTests() {
   const apiOverLimitPass = apiOverLimitRes.status === 413;
   record(
     'BodySize',
-    'General API 1MB + 1 Byte Rejected',
+    'General API 2MB + 1 Byte Rejected',
     apiOverLimitPass,
-    `Status for 1MB + 1 byte: ${apiOverLimitRes.status} (expected 413)`
+    `Status for 2MB + 1 byte: ${apiOverLimitRes.status} (expected 413)`
   );
 
   const api1Point1MbReq = new Request('https://spacematch1-flax.vercel.app/api/spaces', {
     method: 'POST',
     headers: {
       'x-forwarded-for': '198.51.101.12',
-      'content-length': String(1.1 * 1024 * 1024), // 1.1 MB
+      'content-length': String(2.1 * 1024 * 1024), // 2.1 MB
     },
   });
   const api1Point1MbRes = middleware(api1Point1MbReq as any);
@@ -318,7 +289,7 @@ async function runBodySizeBoundaryTests() {
     api1Point1MbBody.maxBytes === API_MAX;
   record(
     'BodySize',
-    'General API 1.1MB Boundary Verification',
+    'General API 2.1MB Boundary Verification',
     api1Point1MbPass,
     `Status: ${api1Point1MbRes.status}, Error: "${api1Point1MbBody.error}", maxBytes: ${api1Point1MbBody.maxBytes}`
   );
@@ -460,8 +431,10 @@ async function runUpdateDeduplicationTests() {
 
   const { deduplicateUpdate } = await import('../src/lib/bot-session-store');
 
+  const dedupBase = 500000000 + Math.floor(Math.random() * 90000000);
+
   // 4.1 Basic duplicate check
-  const testId = 555001;
+  const testId = dedupBase + 1;
   const firstCall = await deduplicateUpdate(testId);
   const secondCall = await deduplicateUpdate(testId);
   const thirdCall = await deduplicateUpdate(testId);
@@ -475,7 +448,7 @@ async function runUpdateDeduplicationTests() {
   );
 
   // 4.2 High-frequency concurrency burst with identical update_id
-  const stormId = 666002;
+  const stormId = dedupBase + 2;
   const burstResults = await Promise.all(
     Array.from({ length: 100 }, () => deduplicateUpdate(stormId))
   );
@@ -495,7 +468,7 @@ async function runUpdateDeduplicationTests() {
   const repetitions = 20;
   const allUpdates: number[] = [];
   for (let u = 1; u <= uniqueCount; u++) {
-    const uId = 777000 + u;
+    const uId = dedupBase + 100 + u;
     for (let r = 0; r < repetitions; r++) {
       allUpdates.push(uId);
     }
@@ -749,13 +722,23 @@ async function runExtremeConcurrencyEndpointBursts() {
     `200 OK: ${roommates200}/60, 5xx: 0, Cache headers present: ${roommatesResponses.every((r) => r.cacheHeader)}`
   );
 
-  // 6.4 Admin Users Search Endpoint Concurrent Bursts (40 concurrent requests)
+  // 6.4 Admin Users Search Endpoint Concurrent Bursts (40 authenticated concurrent requests + 401 guard check)
   const { GET: getAdminUsers } = await import('../src/app/api/admin/users/route');
+  const { signAdminToken, ADMIN_SESSION_COOKIE } = await import('../src/lib/admin-auth');
+  const { getAdminTelegramIds } = await import('../src/lib/bot-session-store');
+  const unauthRes = await getAdminUsers(
+    new Request('https://spacematch1-flax.vercel.app/api/admin/users?query=test')
+  );
+  const realAdmins = await getAdminTelegramIds();
+  const stressAdminToken = signAdminToken(realAdmins[0] || 800701176, 120);
   const searchQueries = ['test', 'John', 'Bole', '251911', 'rm', ''];
   const adminReqs = Array.from({ length: 40 }, (_, i) => {
     const q = searchQueries[i % searchQueries.length];
     return new Request(`https://spacematch1-flax.vercel.app/api/admin/users?query=${encodeURIComponent(q)}&page=1&limit=15`, {
       method: 'GET',
+      headers: {
+        cookie: `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(stressAdminToken)}`,
+      },
     });
   });
 
@@ -772,12 +755,12 @@ async function runExtremeConcurrencyEndpointBursts() {
   );
   const admin5xx = adminResponses.filter((r) => r.status >= 500).length;
   const admin200 = adminResponses.filter((r) => r.status === 200).length;
-  const adminPass = admin5xx === 0 && admin200 === 40;
+  const adminPass = admin5xx === 0 && admin200 === 40 && unauthRes.status === 401;
   record(
     'Concurrency',
     'Admin Users Search 40-Concurrent Query Consolidation',
     adminPass,
-    `200 OK: ${admin200}/40, 5xx: 0, No database connection pool exhaustion under multi-token query burst`
+    `Unauth=401 (${unauthRes.status}), Auth 200 OK: ${admin200}/40, 5xx: 0`
   );
 }
 

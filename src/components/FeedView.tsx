@@ -66,6 +66,8 @@ interface FeedViewProps {
   spaces: SpaceSummary[];
   seekers?: RoommateSeekerSummary[];
   isLoading: boolean;
+  fetchError?: string | null;
+  onRetry?: () => void;
   onSelectSpace: (spaceId: string) => void;
   botUsername?: string;
   onOpenFaydaModal?: () => void;
@@ -76,10 +78,12 @@ export function FeedView({
   spaces,
   seekers = [],
   isLoading,
+  fetchError,
+  onRetry,
   onSelectSpace,
   botUsername = 'Spacematchaddis_bot',
   onOpenFaydaModal,
-  faydaStatus = 'pending',
+  faydaStatus = 'unverified',
 }: FeedViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMainTab, setActiveMainTab] = useState<'seekers' | 'spaces'>('seekers');
@@ -87,6 +91,25 @@ export function FeedView({
   const [activeTab, setActiveTab] = useState<'home' | 'wishlist' | 'orders' | 'account'>('home');
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [selectedSubcityFilter, setSelectedSubcityFilter] = useState<string>('All');
+
+  const openBotUrl = (e: React.MouseEvent, url: string) => {
+    if (faydaStatus !== 'verified') {
+      e.preventDefault();
+      e.stopPropagation();
+      onOpenFaydaModal?.();
+      return;
+    }
+    const tg = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp : null;
+    if (tg && typeof tg.openTelegramLink === 'function') {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        tg.openTelegramLink(url);
+      } catch {
+        window.open(url, '_blank');
+      }
+    }
+  };
 
   const handleGatedAction = (e: React.MouseEvent) => {
     if (faydaStatus !== 'verified') {
@@ -119,7 +142,10 @@ export function FeedView({
     }
 
     if (selectedSubcityFilter !== 'All') {
-      list = list.filter((s) => s.preferred_subcity.includes(selectedSubcityFilter));
+      const subLower = selectedSubcityFilter.toLowerCase();
+      list = list.filter((s) =>
+        s.preferred_subcity.some((sub) => String(sub).toLowerCase().includes(subLower))
+      );
     }
 
     if (sortOrder === 'price_asc') {
@@ -200,11 +226,11 @@ export function FeedView({
             href={`${cleanBotUrl}?start=seeker_flow`}
             target="_blank"
             rel="noreferrer"
-            onClick={(e) => handleGatedAction(e)}
-            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#0088CC] via-[#0099FF] to-[#00B4D8] hover:opacity-95 text-white font-black text-xs shadow-lg shadow-[#0088CC]/35 transition-all active:scale-95 flex items-center gap-1.5"
+            onClick={(e) => openBotUrl(e, `${cleanBotUrl}?start=seeker_flow`)}
+            className="px-3 py-2 rounded-xl bg-gradient-to-r from-[#0088CC] via-[#0099FF] to-[#00B4D8] hover:opacity-95 text-white font-black text-[11px] shadow-lg shadow-[#0088CC]/35 transition-all active:scale-95 flex items-center gap-1"
           >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            <span>Post Seeker</span>
+            <Plus className="w-3.5 h-3.5 stroke-[3]" />
+            <span>Post / ለጥፍ</span>
           </a>
         </div>
 
@@ -212,26 +238,26 @@ export function FeedView({
         <div className="grid grid-cols-2 p-1 rounded-2xl bg-white/[0.06] border border-white/10 text-xs font-bold">
           <button
             onClick={() => setActiveMainTab('seekers')}
-            className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 ${
+            className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
               activeMainTab === 'seekers'
                 ? 'bg-gradient-to-r from-[#0088CC] via-[#0099FF] to-[#00B4D8] text-white shadow-lg shadow-[#0088CC]/30 font-black'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Users className="w-4 h-4" />
-            <span>Roommate Seekers ({seekers.length})</span>
+            <Users className="w-3.5 h-3.5" />
+            <span>Seekers / አጋሮች ({seekers.length})</span>
           </button>
 
           <button
             onClick={() => setActiveMainTab('spaces')}
-            className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 ${
+            className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
               activeMainTab === 'spaces'
                 ? 'bg-gradient-to-r from-[#0088CC] via-[#0099FF] to-[#00B4D8] text-white shadow-lg shadow-[#0088CC]/30 font-black'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Home className="w-4 h-4" />
-            <span>Spaces to Rent ({spaces.length})</span>
+            <Home className="w-3.5 h-3.5" />
+            <span>Spaces / ክፍሎች ({spaces.length})</span>
           </button>
         </div>
 
@@ -287,6 +313,20 @@ export function FeedView({
 
       {/* Main Content Area */}
       <main className="px-4 pt-4 space-y-4 relative z-10">
+        {fetchError && (
+          <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/35 flex items-center justify-between gap-3">
+            <span className="text-xs text-rose-200">{fetchError}</span>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="px-3 py-1.5 rounded-xl bg-rose-500/30 hover:bg-rose-500/40 text-xs font-bold text-white shrink-0"
+              >
+                Retry / ድጋሚ ሞክር
+              </button>
+            )}
+          </div>
+        )}
         {/* Fayda ID Verification Gate / Status Banner */}
         {faydaStatus !== 'verified' ? (
           <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-blue-500/15 to-[#0088CC]/15 border border-amber-500/35 flex items-center justify-between gap-3 shadow-lg backdrop-blur-xl">
@@ -331,19 +371,34 @@ export function FeedView({
               </span>
             </div>
 
-            {filteredSeekers.length === 0 ? (
+            {isLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((idx) => (
+                  <div key={idx} className="luxury-card rounded-3xl p-4 animate-pulse space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-white/10" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-3.5 w-32 bg-white/10 rounded" />
+                        <div className="h-2.5 w-44 bg-white/5 rounded" />
+                      </div>
+                    </div>
+                    <div className="h-10 bg-white/5 rounded-xl" />
+                  </div>
+                ))}
+              </div>
+            ) : filteredSeekers.length === 0 ? (
               <div className="py-16 text-center space-y-3 luxury-card rounded-3xl p-6 text-slate-300">
                 <Users className="w-10 h-10 text-[#0088CC] mx-auto" />
-                <h4 className="font-black text-base text-white">No Roommate Seekers Found</h4>
+                <h4 className="font-black text-base text-white">No Roommate Seekers Found / አጋር አልተገኘም</h4>
                 <p className="text-xs text-slate-400">Be the first to post your roommate preference on the channel!</p>
                 <a
                   href={`${cleanBotUrl}?start=seeker_flow`}
                   target="_blank"
                   rel="noreferrer"
-                  onClick={(e) => handleGatedAction(e)}
+                  onClick={(e) => openBotUrl(e, `${cleanBotUrl}?start=seeker_flow`)}
                   className="inline-block mt-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#0088CC] to-[#00A3FF] hover:opacity-95 text-white font-black text-xs shadow-lg shadow-[#0088CC]/30"
                 >
-                  Post Your Seeker Profile
+                  Post Seeker Profile / መረጃዬን ልለጥፍ
                 </a>
               </div>
             ) : (
@@ -403,16 +458,16 @@ export function FeedView({
                     )}
                   </div>
 
-                  {/* Unlock Contact Button with shaking animated icon */}
+                  {/* Connect Request Button (Double-Blind Mutual Consent) */}
                   <a
-                    href={`${cleanBotUrl}?start=unlock_seeker_${seeker.id}`}
+                    href={`${cleanBotUrl}?start=req_${seeker.display_code || seeker.id}`}
                     target="_blank"
                     rel="noreferrer"
-                    onClick={(e) => handleGatedAction(e)}
+                    onClick={(e) => openBotUrl(e, `${cleanBotUrl}?start=req_${seeker.display_code || seeker.id}`)}
                     className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all active:scale-95 group"
                   >
                     <Unlock className="w-4 h-4 stroke-[2.5] animate-icon-shake" />
-                    <span>Unlock Contact Info ({seeker.unlock_fee || 100} ETB · 3-Month Pass)</span>
+                    <span>Connect / ተገናኝ ({seeker.unlock_fee || 100} ETB · 3-Month Pass)</span>
                   </a>
                 </div>
               ))
@@ -422,7 +477,19 @@ export function FeedView({
           /* ================================================================= */
           /* SECONDARY TAB: SPACES FOR RENT (HOMEOWNERS)                       */
           /* ================================================================= */
-          filteredSpaces.length === 0 ? (
+          isLoading ? (
+            <div className="grid grid-cols-2 gap-3">
+              {[1, 2, 3, 4].map((idx) => (
+                <div key={idx} className="luxury-card rounded-3xl overflow-hidden animate-pulse">
+                  <div className="aspect-[4/3] w-full bg-white/10" />
+                  <div className="p-3 space-y-2">
+                    <div className="h-3 w-24 bg-white/10 rounded" />
+                    <div className="h-2.5 w-32 bg-white/5 rounded" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredSpaces.length === 0 ? (
             <div className="py-16 text-center space-y-3 luxury-card rounded-3xl p-6 text-slate-300">
               <Home className="w-10 h-10 text-[#0088CC] mx-auto" />
               <h4 className="font-black text-base text-white">
@@ -495,18 +562,20 @@ export function FeedView({
                         <span className="text-[9px] font-normal text-slate-400">/mo</span>
                       </span>
 
-                      <a
-                        href={`${cleanBotUrl}?start=order_${space.id}`}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleGatedAction(e);
+                          if (faydaStatus !== 'verified') {
+                            onOpenFaydaModal?.();
+                            return;
+                          }
+                          onSelectSpace(space.id);
                         }}
                         className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-[11px] shadow-md shadow-emerald-500/25 transition-all active:scale-95"
                       >
-                        Unlock
-                      </a>
+                        Connect / ተገናኝ
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -518,8 +587,8 @@ export function FeedView({
       </main>
 
       {/* Bottom Floating Navigation Dock */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 luxury-dock border-t border-[#0088CC]/20 bg-[#080D1A]/95 backdrop-blur-2xl">
-        <div className="max-w-2xl mx-auto px-6 py-3 flex items-center justify-around">
+      <nav className="fixed bottom-0 left-0 right-0 z-40">
+        <div className="max-w-md sm:max-w-lg mx-auto luxury-dock border-t border-[#0088CC]/20 bg-[#080D1A]/95 backdrop-blur-2xl px-6 py-3 flex items-center justify-around">
         <button
           onClick={() => {
             setActiveTab('home');
@@ -532,7 +601,7 @@ export function FeedView({
           }`}
         >
           <Home className="w-5 h-5" />
-          <span className="text-[10px]">Explore</span>
+          <span className="text-[10px]">Explore / አስስ</span>
         </button>
 
         <button
@@ -545,7 +614,7 @@ export function FeedView({
           }`}
         >
           <Heart className="w-5 h-5" />
-          <span className="text-[10px]">Saved</span>
+          <span className="text-[10px]">Saved / የተቀመጡ</span>
           {savedIds.length > 0 && (
             <span className="absolute -top-1 -right-1.5 w-4 h-4 rounded-full bg-[#0088CC] text-white text-[9px] font-black flex items-center justify-center">
               {savedIds.length}
@@ -558,17 +627,18 @@ export function FeedView({
           className="flex flex-col items-center gap-1 text-slate-400 hover:text-[#0088CC] transition-all"
         >
           <ShieldCheck className="w-5 h-5 text-[#0088CC]" />
-          <span className="text-[10px] text-[#0088CC] font-bold">Fayda ID</span>
+          <span className="text-[10px] text-[#0088CC] font-bold">Fayda / ፋይዳ</span>
         </button>
 
         <a
           href={`${cleanBotUrl}?start=my_orders`}
           target="_blank"
           rel="noreferrer"
+          onClick={(e) => openBotUrl(e, `${cleanBotUrl}?start=my_orders`)}
           className="flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-all"
         >
           <Unlock className="w-5 h-5" />
-          <span className="text-[10px]">Unlocked</span>
+          <span className="text-[10px]">My Pass / አባልነት</span>
         </a>
         </div>
       </nav>

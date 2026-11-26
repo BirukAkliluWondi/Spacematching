@@ -21,6 +21,7 @@ import {
   Send,
   Building,
   CreditCard,
+  Upload,
   Sparkles,
 } from 'lucide-react';
 import { SpaceSummary } from './FeedView';
@@ -31,14 +32,9 @@ interface SpaceDetailSheetProps {
   telegramId: number;
 }
 
-export interface UnlockedDetails {
-  exact_address: string;
-  latitude: number;
-  longitude: number;
-  contact_name: string;
-  contact_phone: string;
-  contact_telegram?: string;
-  google_maps_url?: string;
+export interface ConnectReadyDetails {
+  bot_connect_url: string;
+  days_remaining?: number;
 }
 
 export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailSheetProps) {
@@ -49,13 +45,15 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
   const [abyssiniaAccount, setAbyssiniaAccount] = useState<string>('256861771');
   const [dashenAccount, setDashenAccount] = useState<string>('2922175078411');
   const [txRefInput, setTxRefInput] = useState<string>('');
+  const [receiptBase64, setReceiptBase64] = useState<string | null>(null);
+  const [receiptFileName, setReceiptFileName] = useState<string | null>(null);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedAbyssinia, setCopiedAbyssinia] = useState(false);
   const [copiedDashen, setCopiedDashen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [unlockedData, setUnlockedData] = useState<UnlockedDetails | null>(null);
+  const [connectDetails, setConnectDetails] = useState<ConnectReadyDetails | null>(null);
   const [botPayUrl, setBotPayUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,8 +61,10 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
       setStep('details');
       setOrderId(null);
       setTxRefInput('');
+      setReceiptBase64(null);
+      setReceiptFileName(null);
       setErrorMsg(null);
-      setUnlockedData(null);
+      setConnectDetails(null);
       setBotPayUrl(null);
       setCurrentImageIndex(0);
     }
@@ -115,8 +115,11 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
         throw new Error(data.error || 'Failed to initialize unlock order.');
       }
 
-      if (data.already_unlocked && data.unlocked_details) {
-        setUnlockedData(data.unlocked_details);
+      if (data.already_unlocked || data.double_blind_ready) {
+        setConnectDetails({
+          bot_connect_url: data.bot_connect_url || `https://t.me/${cleanBotUsername}?start=order_${space.id}`,
+          days_remaining: data.days_remaining,
+        });
         setStep('unlocked');
         return;
       }
@@ -132,17 +135,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
         setDashenAccount(data.dashen_account);
       }
 
-      const payUrl = `https://t.me/${cleanBotUsername}?start=order_${space.id}`;
-      setBotPayUrl(payUrl);
-
-      if (tg && typeof tg.openTelegramLink === 'function') {
-        try {
-          tg.openTelegramLink(payUrl);
-        } catch (e) {
-          console.error('Error in tg.openTelegramLink:', e);
-        }
-      }
-
+      setBotPayUrl(`https://t.me/${cleanBotUsername}?start=order_${space.id}`);
       setStep('payment');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -152,9 +145,27 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
     }
   };
 
+  const handleReceiptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      setErrorMsg('Receipt screenshot must be smaller than 8 MB.');
+      return;
+    }
+    setReceiptFileName(file.name);
+    setErrorMsg(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setReceiptBase64(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleVerifyReceipt = async () => {
-    if (!orderId || !txRefInput.trim()) {
-      setErrorMsg('Please enter your Telebirr, Abyssinia, or Dashen transaction reference number.');
+    if (!orderId || (!txRefInput.trim() && !receiptBase64)) {
+      setErrorMsg('Please upload your payment receipt screenshot or enter your transaction reference code.');
       return;
     }
 
@@ -173,7 +184,8 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
         body: JSON.stringify({
           order_id: orderId,
           telegram_id: telegramId,
-          transaction_reference: txRefInput.trim(),
+          ...(txRefInput.trim() ? { transaction_reference: txRefInput.trim() } : {}),
+          ...(receiptBase64 ? { receipt_image: receiptBase64 } : {}),
           initData,
         }),
       });
@@ -184,7 +196,9 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
         throw new Error(data.error || 'Transaction verification failed.');
       }
 
-      setUnlockedData(data.unlocked_details);
+      setConnectDetails({
+        bot_connect_url: data.bot_connect_url || `https://t.me/${cleanBotUsername}?start=order_${space.id}`,
+      });
       setStep('unlocked');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -312,7 +326,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                   <p className="text-xs text-slate-300 leading-relaxed">{space.description}</p>
                 </div>
 
-                {/* Unlock Contact Call to Action */}
+                {/* Connect Call to Action */}
                 <button
                   onClick={handleStartUnlock}
                   disabled={isCreatingOrder}
@@ -321,12 +335,12 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                   {isCreatingOrder ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                      <span>Initializing Order...</span>
+                      <span>Initializing...</span>
                     </>
                   ) : (
                     <>
                       <Unlock className="w-4 h-4 stroke-[3]" />
-                      <span>Unlock Contact Information ({space.unlock_fee || 100} ETB)</span>
+                      <span>Connect with Host ({space.unlock_fee || 100} ETB Pass)</span>
                     </>
                   )}
                 </button>
@@ -337,9 +351,9 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
             {step === 'payment' && (
               <div className="space-y-4">
                 <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-1">
-                  <h3 className="font-extrabold text-sm text-emerald-300">Payment Verification Required</h3>
+                  <h3 className="font-extrabold text-sm text-emerald-300">Payment Verification Required / ክፍያ ያረጋግጡ</h3>
                   <p className="text-xs text-slate-300">
-                    Transfer <strong>{space.unlock_fee || 100} ETB</strong> via Telebirr, Abyssinia, or Dashen to activate your 3-Month Pass and unlock homeowner details instantly.
+                    Transfer <strong>{space.unlock_fee || 100} ETB</strong> via Telebirr, Abyssinia, or Dashen to activate your 3-Month All-Access Pass, then upload your receipt screenshot or enter your transaction code.
                   </p>
                 </div>
 
@@ -397,26 +411,35 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                   </div>
                 </div>
 
-                {/* Payment Receipt Reference Guide */}
+                {/* Upload Receipt Screenshot (In-Memory OCR) */}
                 <div className="space-y-1.5">
-                  <span className="text-[11px] text-slate-400 font-bold uppercase">Receipt Reference Guide (where to find FT...)</span>
-                  <div className="rounded-2xl overflow-hidden border border-white/10 bg-slate-950/50 shadow-inner">
-                    <img
-                      src="https://plusmfmlzzumzsqtlixb.supabase.co/storage/v1/object/public/spaces-public/payment_receipt_guide.png"
-                      alt="CBE Receipt and SMS Reference Guide"
-                      className="w-full h-auto object-cover"
+                  <label className="text-xs font-bold text-slate-300">
+                    Upload Payment Receipt Screenshot / የክፍያ ደረሰኝ ፎቶ ይላኩ:
+                  </label>
+                  <label className="flex items-center justify-between gap-2 p-3.5 rounded-2xl bg-emerald-500/10 border border-dashed border-emerald-500/40 cursor-pointer hover:bg-emerald-500/15 transition-colors">
+                    <span className="text-xs text-emerald-200 font-semibold truncate">
+                      {receiptFileName || 'Tap to upload Telebirr / CBE / BoA / Dashen screenshot'}
+                    </span>
+                    <Upload className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleReceiptFileChange}
+                      className="hidden"
                     />
-                  </div>
+                  </label>
                 </div>
 
                 {/* Receipt Ref Input */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300">Enter Transaction Reference (Txn Ref / FT...):</label>
+                  <label className="text-xs font-bold text-slate-300">
+                    Or Enter Transaction Reference / የግብይት ቁጥር (Txn Ref / FT...):
+                  </label>
                   <input
                     type="text"
                     value={txRefInput}
                     onChange={(e) => setTxRefInput(e.target.value)}
-                    placeholder="e.g. 9AC4827X19 or FT24..."
+                    placeholder="e.g. DKM7J1EXAP or FT26092..."
                     className="w-full p-3.5 rounded-2xl bg-white/[0.06] border border-white/15 text-xs text-white placeholder-slate-500 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                   />
                 </div>
@@ -434,61 +457,50 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                   ) : (
                     <>
                       <ShieldCheck className="w-4 h-4 stroke-[3]" />
-                      <span>Submit & Verify Receipt</span>
+                      <span>Verify Receipt & Activate Pass</span>
                     </>
                   )}
                 </button>
+                {botPayUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tg = (window as any).Telegram?.WebApp;
+                      if (tg?.openTelegramLink) tg.openTelegramLink(botPayUrl);
+                      else window.open(botPayUrl, '_blank');
+                    }}
+                    className="w-full py-2.5 px-4 rounded-2xl bg-white/[0.06] hover:bg-white/10 text-xs font-bold text-slate-200 border border-white/10 flex items-center justify-center gap-2"
+                  >
+                    <Send className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Or verify via @{cleanBotUsername}</span>
+                  </button>
+                )}
               </div>
             )}
 
-            {/* STEP 3: UNLOCKED DETAILS VIEW */}
-            {step === 'unlocked' && unlockedData && (
+            {/* STEP 3: DOUBLE-BLIND CONSENT READY VIEW (ZERO UNCONSENTED PII) */}
+            {step === 'unlocked' && connectDetails && (
               <div className="space-y-4">
-                <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-center space-y-1">
+                <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-center space-y-1.5">
                   <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
-                  <h3 className="font-black text-base text-white">Contact Details Unlocked!</h3>
-                  <p className="text-xs text-slate-300">You can now contact the homeowner directly.</p>
+                  <h3 className="font-black text-base text-white">3-Month Pass Active / አባልነትዎ ነቅቷል!</h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    SpaceMatch uses Double-Blind Mutual Consent to protect host privacy. Send your connection request in the bot — direct contact info is shared automatically once the host accepts.
+                  </p>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3">
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Homeowner Name</span>
-                    <p className="text-sm font-bold text-white">{unlockedData.contact_name}</p>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Phone Number</span>
-                    <p className="text-sm font-mono font-bold text-emerald-400">{unlockedData.contact_phone}</p>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Exact Address</span>
-                    <p className="text-xs text-slate-300">{unlockedData.exact_address}</p>
-                  </div>
-                </div>
-
-                {/* Direct Action Buttons */}
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <a
-                    href={`tel:${unlockedData.contact_phone}`}
-                    className="py-3 px-4 rounded-2xl bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
-                  >
-                    <Phone className="w-4 h-4" />
-                    <span>Call Homeowner</span>
-                  </a>
-
-                  {unlockedData.google_maps_url && (
-                    <a
-                      href={unlockedData.google_maps_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="py-3 px-4 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center justify-center gap-2 border border-white/10"
-                    >
-                      <MapPin className="w-4 h-4 text-emerald-400" />
-                      <span>Google Maps</span>
-                    </a>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tg = (window as any).Telegram?.WebApp;
+                    if (tg?.openTelegramLink) tg.openTelegramLink(connectDetails.bot_connect_url);
+                    else window.open(connectDetails.bot_connect_url, '_blank');
+                  }}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <MessageCircle className="w-4 h-4 stroke-[2.5]" />
+                  <span>Send Connection Request in Bot / ጥያቄ ላክ</span>
+                </button>
               </div>
             )}
           </div>

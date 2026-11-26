@@ -87,13 +87,20 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Back webhook update deduplication (`deduplicateUpdate`) and critical action/payment locks (`acquireActionLock`) with persistent Supabase state rather than process-local memory alone, and never clear/overwrite another user's `bot_sessions` row during admin mutations.
 
 ## 14. Vercel Serverless OCR & Asset Tracing Invariant
-- Always verify compiled `.next/server/app/api/telegram/webhook/route.js.nft.json` includes `tesseract.js/src/**/*`, `wasm-feature-detect`, `bmp-js`, `tesseract.js-core` wasm/js files, `eng.traineddata`, `zxing_reader.wasm`, and sample card assets (`public/images/fayda_sample_back.png`) scoped strictly to the routes that use them.
+- Trace `./node_modules/tesseract.js-core/**/*` (including `*-lstm*` / `*-relaxedsimd*` `.js` and `.wasm` files), `tesseract.js/src/**/*`, `wasm-feature-detect`, `bmp-js`, `eng.traineddata`, `zxing_reader.wasm`, and `public/images/fayda_sample_back.png` in `next.config.ts` and verify compiled `.nft.json` bundles after build.
+- Always pass an `errorHandler` and initialization timeout to `tesseract.js` `createWorker()`, and set `cacheMethod: 'none', gzip: false` when loading bundled `eng.traineddata` from `process.cwd()` (never copy into `/tmp` redundantly).
+- Declare `export const maxDuration = 60;` explicitly inside every long-running `route.ts` file (re-exporting `{ POST }` does NOT propagate Next.js segment config), and use `src/proxy.ts` rather than deprecated `src/middleware.ts` on Next.js 16+.
 - In Sharp pipelines, always call `.rotate()` *before* reading `.metadata()` dimensions on mobile uploads, never hardcode secret fallback keys in source files, and guard all inline keyboard `callback_data` payloads strictly within Telegram's 64-byte limit while escaping HTML with entity-safe `truncateTelegramHtml`.
 
 ## 15. Authorization, Double-Blind Mutual Consent & Anti-Spoof Validation
 - Enforce explicit admin/owner checks on every admin publishing, closing, accept/decline, and user-auth handler—synthetic concierge targets (`telegram_id <= 0`) require verified Super Admin authorization for `match_accept`, `/remove_admin` must purge `pending_admin_usernames`, and `my_chat_member` or `/api/auth/telegram` must never auto-promote admins from external channels or mutable `@username` handles.
 - Require Fayda verification, active 100 ETB 3-Month Pass, gender compatibility, open listing status, and mutual target/host consent across both Roommate Seekers and Space Listings (`?start=req_...` / `?start=order_...`).
 - Never accept unauthenticated arbitrary 12-digit `regex_fayda` QR codes, empty `:SIGN:` stubs, or unsupported V4 raw maps without signature validation, and never overwrite `users.first_name`/`profiles.full_name` with OCR card-back field labels.
+
+## 16. Payment Verification, Receipt Routing & Mini App Parity
+- In `receipt-extractor.ts` and `verify-et.ts`, detect explicit bank keywords (`abyssinia`, `boa`, `dashen`, `telebirr`, `cbe`) **before** generic `FT...` prefix heuristics, and try `['cbe', 'boa']` for unattributed `FT...` codes.
+- Reject non-transaction matches (`Date...`, month/status words, receiver settlement account numbers), persist & check replay on both normalized user references and Verify.ET's canonical `transactionNumber`, and always re-verify requester active 100 ETB pass before revealing contacts on `pending_payment` matches.
+- Keep payment, Fayda crypto-signature (`verifySignature` trusted for RS256 V4 16-digit FANs; reject unsigned `:A:` / unverified `COSE_Sign1` / JSON / plain-text QRs), gender completeness (fail closed when `profiles.gender` is `null`), and Double-Blind mutual consent strictly consistent between Telegram bot handlers and Mini App `/api/orders/*` endpoints.
 
 
 

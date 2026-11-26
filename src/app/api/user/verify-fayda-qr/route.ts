@@ -55,19 +55,21 @@ export async function POST(request: Request) {
         publicKeyPem: process.env.FAYDA_PUBLIC_KEY_PEM,
       });
       const cleanFanForCheck = String(decoded.fields.fan).replace(/\D/g, '');
-      const structCheck = validateFaydaStructure(cleanFanForCheck);
+      const isSignedDigitsValid =
+        (cleanFanForCheck.length === 12 || cleanFanForCheck.length === 16) &&
+        !/^(\d)\1+$/.test(cleanFanForCheck);
 
-      if (!signatureVerification.verified || !structCheck.valid) {
+      if (!signatureVerification.verified || !isSignedDigitsValid) {
         return NextResponse.json(
           {
             success: false,
-            error: `Cryptographic signature verification failed: ${signatureVerification.reason || structCheck.error || 'Invalid digital signature'}.`,
+            error: `Cryptographic signature verification failed: ${signatureVerification.reason || (!isSignedDigitsValid ? 'Invalid FAN format' : 'Invalid digital signature')}.`,
           },
           { status: 400 }
         );
       }
 
-      fan = structCheck.fanNumber || cleanFanForCheck;
+      fan = cleanFanForCheck;
       fullName = decoded.fields.full_name || undefined;
       gender = decoded.fields.gender === 'M' ? 'Male' : decoded.fields.gender === 'F' ? 'Female' : (decoded.fields.gender || undefined);
       dob = decoded.fields.date_of_birth || undefined;
@@ -111,13 +113,20 @@ export async function POST(request: Request) {
       verifiedSource = `offline_${fallbackDecoded.rawType || 'qr'}`;
     }
 
-    // 2. Uniqueness check: Ensure Fayda number is not claimed by another Telegram user
-    const { data: existingUsers } = await supabaseAdmin
+    // 2. Uniqueness check: Ensure Fayda number is not claimed by another Telegram user (fail closed on DB error)
+    const { data: existingUsers, error: uniquenessErr } = await supabaseAdmin
       .from('users')
       .select('id, telegram_id')
       .eq('fayda_id_number', fan)
       .neq('telegram_id', telegram_id)
       .limit(1);
+
+    if (uniquenessErr) {
+      return NextResponse.json(
+        { success: false, error: 'Unable to validate Fayda ID uniqueness right now. Please try again.' },
+        { status: 500 }
+      );
+    }
 
     if (existingUsers && existingUsers.length > 0) {
       return NextResponse.json(
@@ -129,11 +138,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. Persist verified Fayda status to users and profiles tables
+    // 3. Persist verified Fayda status to users and profiles tables (pass validated Telegram user metadata)
     const persisted = await persistFaydaVerification(telegram_id, fan, fullName, {
       gender,
       dob,
       verifiedSource,
+      from: validatedTg.user,
     });
     if (!persisted) {
       return NextResponse.json(
@@ -176,7 +186,8 @@ ${safeName ? `• <b>Name / ስም:</b> <b>${safeName}</b>\n` : ''}${gender ? `�
         const { data: admins } = await supabaseAdmin
           .from('users')
           .select('telegram_id')
-          .eq('role', 'admin');
+          .eq('role', 'admin')
+          .gt('telegram_id', 0);
 
         const adminNotice = `
 <b>New Fayda Verification (QR Scan)</b>

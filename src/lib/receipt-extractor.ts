@@ -57,13 +57,38 @@ export async function getOcrWorker() {
         const path = await import('path');
         const localTrainedData = path.resolve(process.cwd(), 'eng.traineddata');
         const hasLocalLang = fs.existsSync(/*turbopackIgnore: true*/ localTrainedData);
-        const worker = await createWorker(
+        const workerPromise = createWorker(
           'eng',
           1,
           hasLocalLang
-            ? { langPath: process.cwd(), cachePath: '/tmp', gzip: false }
-            : { cachePath: '/tmp' }
+            ? {
+                langPath: process.cwd(),
+                cachePath: '/tmp',
+                cacheMethod: 'none',
+                gzip: false,
+                errorHandler: (err) => {
+                  console.error('[ReceiptOCR Worker Error]', err);
+                  _ocrWorkerPromise = null;
+                },
+              }
+            : {
+                cachePath: '/tmp',
+                errorHandler: (err) => {
+                  console.error('[ReceiptOCR Worker Error]', err);
+                  _ocrWorkerPromise = null;
+                },
+              }
         );
+        const worker = await Promise.race([
+          workerPromise,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Receipt OCR worker init timeout (18s)')), 18000)
+          ),
+        ]).catch(async (err) => {
+          _ocrWorkerPromise = null;
+          workerPromise.then((w) => w.terminate().catch(() => {})).catch(() => {});
+          throw err;
+        });
         return worker;
       } catch (err) {
         _ocrWorkerPromise = null;
@@ -106,15 +131,24 @@ function detectBankHint(text: string, reference?: string): 'telebirr' | 'cbe' | 
   const lower = text.toLowerCase();
   const refUpper = (reference || '').toUpperCase();
 
-  if (refUpper.startsWith('FT') || lower.includes('cbe') || lower.includes('commercial bank') || lower.includes('ንግድ ባንክ')) {
-    return 'cbe';
+  // Check explicit bank text keywords FIRST because Bank of Abyssinia (BoA) also uses FT... references
+  if (lower.includes('telebirr') || lower.includes('ethio telecom') || lower.includes('ቴሌብር')) {
+    return 'telebirr';
   }
-  if (refUpper.startsWith('DTS') || lower.includes('dashen') || lower.includes('ዳሸን') || lower.includes('amole')) {
-    return 'dashen';
-  }
-  if (refUpper.startsWith('TX') || lower.includes('abyssinia') || lower.includes('አቢሲንያ') || lower.includes('boa')) {
+  if (lower.includes('abyssinia') || lower.includes('አቢሲንያ') || /\bboa\b/.test(lower)) {
     return 'boa';
   }
+  if (lower.includes('dashen') || lower.includes('ዳሸን') || lower.includes('amole')) {
+    return 'dashen';
+  }
+  if (lower.includes('cbe') || lower.includes('commercial bank') || lower.includes('ንግድ ባንክ')) {
+    return 'cbe';
+  }
+
+  // Fallback to reference prefix only when text did not identify the bank
+  if (refUpper.startsWith('DTS')) return 'dashen';
+  if (refUpper.startsWith('TX')) return 'boa';
+  if (refUpper.startsWith('FT')) return 'cbe';
   if (
     refUpper.startsWith('DK') ||
     refUpper.startsWith('DL') ||
@@ -133,10 +167,11 @@ function detectBankHint(text: string, reference?: string): 'telebirr' | 'cbe' | 
  * Extracts amount from receipt text if present (e.g., "100.00 ETB", "104.00 ETB", "100 ብር")
  */
 function detectAmount(text: string): number | undefined {
-  const match = text.match(/(?:[-+]?\s*|ETB\s*|ብር\s*)(\d{2,5}(?:\.\d{1,2})?)\s*(?:ETB|ብር|\.00)/i) ||
-                text.match(/\b(\d{2,5}\.00)\b/);
+  const match =
+    text.match(/(?:[-+]?\s*|ETB\s*|ብር\s*)(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d{2,5}(?:\.\d{1,2})?)\s*(?:ETB|ብር|\.00)/i) ||
+    text.match(/\b(\d{1,3}(?:,\d{3})*\.00|\d{2,5}\.00)\b/);
   if (match && match[1]) {
-    const num = parseFloat(match[1]);
+    const num = parseFloat(match[1].replace(/,/g, ''));
     if (!isNaN(num) && num >= 50 && num <= 100000) {
       return num;
     }
@@ -177,6 +212,8 @@ export async function extractTransactionReferenceFromImage(
         } as any,
         {
           tryHarder: true,
+          tryRotate: true,
+          tryInvert: true,
           formats: ['QRCode', 'DataMatrix', 'PDF417'],
         }
       );
@@ -250,13 +287,14 @@ export async function extractTransactionReferenceFromImage(
         };
       }
 
-      // Direct token search for CBE FT / Dashen DTS / BoA TX / Telebirr codes
+      // Direct token search for CBE/BoA FT / Dashen DTS / BoA TX / Telebirr codes
       const ftTokenMatch = line.match(/\b(FT[0-9A-Z]{6,16})\b/i);
-      if (ftTokenMatch?.[1]) {
+      if (ftTokenMatch?.[1] && /\d/.test(ftTokenMatch[1])) {
+        const ref = ftTokenMatch[1].toUpperCase();
         return {
           success: true,
-          reference: ftTokenMatch[1].toUpperCase(),
-          bankHint: 'cbe',
+          reference: ref,
+          bankHint: detectBankHint(ocrText, ref),
           amountDetected: amount,
           rawText: ocrText,
           source: 'ocr',
@@ -265,7 +303,7 @@ export async function extractTransactionReferenceFromImage(
       }
 
       const dtsTokenMatch = line.match(/\b(DTS[A-Z0-9]{5,14})\b/i);
-      if (dtsTokenMatch?.[1]) {
+      if (dtsTokenMatch?.[1] && /\d/.test(dtsTokenMatch[1])) {
         return {
           success: true,
           reference: dtsTokenMatch[1].toUpperCase(),
@@ -277,8 +315,12 @@ export async function extractTransactionReferenceFromImage(
         };
       }
 
-      const tbTokenMatch = line.match(/\b((?:D[A-LN-Z]|C[A-Z])[A-Z0-9]{8})\b/i);
-      if (tbTokenMatch?.[1] && /\d/.test(tbTokenMatch[1])) {
+      const tbTokenMatch = line.match(/\b((?:D[A-LN-Z]|C[A-Z]|E[A-Z])[A-Z0-9]{8})\b/i);
+      if (
+        tbTokenMatch?.[1] &&
+        (tbTokenMatch[1].match(/\d/g) || []).length >= 2 &&
+        !/^(?:DATE|DASHEN|CUSTOMER|DECEMBER|NOVEMBER|COMPLETED)/i.test(tbTokenMatch[1])
+      ) {
         return {
           success: true,
           reference: tbTokenMatch[1].toUpperCase(),

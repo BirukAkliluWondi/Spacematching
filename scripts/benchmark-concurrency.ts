@@ -307,27 +307,27 @@ async function main() {
   if (await deduplicateUpdate(uId)) throw new Error('Duplicate update was not detected');
   console.log('  ✅ Update deduplication window verified');
 
-  // 3. Middleware checks
-  const { middleware } = await import('../src/middleware');
+  // 3. Proxy / Middleware checks
+  const { proxy } = await import('../src/proxy');
   const sizeCheckReq = new Request('https://spacematch1-flax.vercel.app/api/spaces', {
     method: 'POST',
-    headers: { 'content-length': String(2 * 1024 * 1024) },
+    headers: { 'content-length': String(3 * 1024 * 1024) },
   });
-  const sizeCheckRes = middleware(sizeCheckReq as any);
-  if (sizeCheckRes.status !== 413) throw new Error(`Middleware failed payload size check, expected 413, got ${sizeCheckRes.status}`);
-  console.log('  ✅ Middleware payload limit (HTTP 413) verified');
+  const sizeCheckRes = proxy(sizeCheckReq as any);
+  if (sizeCheckRes.status !== 413) throw new Error(`Proxy failed payload size check, expected 413, got ${sizeCheckRes.status}`);
+  console.log('  ✅ Proxy payload limit (HTTP 413) verified');
 
   // Rate limiting check
   let rlRes: any;
-  for (let i = 0; i < 35; i++) {
-    const rlReq = new Request('https://spacematch1-flax.vercel.app/api/telegram/webhook', {
-      method: 'POST',
-      headers: { 'x-forwarded-for': '10.99.88.77' },
+  for (let i = 0; i < 105; i++) {
+    const rlReq = new Request('https://spacematch1-flax.vercel.app/api/spaces', {
+      method: 'GET',
+      headers: { 'x-real-ip': '10.99.88.77' },
     });
-    rlRes = middleware(rlReq as any);
+    rlRes = proxy(rlReq as any);
   }
-  if (rlRes.status !== 429) throw new Error(`Middleware failed rate limit check, expected 429, got ${rlRes.status}`);
-  console.log('  ✅ Middleware sliding window rate limiter (HTTP 429) verified');
+  if (rlRes.status !== 429) throw new Error(`Proxy failed rate limit check, expected 429, got ${rlRes.status}`);
+  console.log('  ✅ Proxy sliding window rate limiter (HTTP 429) verified');
 
   console.log('\n🎉 ALL MILESTONE 1 VERIFICATIONS AND LOAD BENCHMARKS PASSED!\n');
 }
