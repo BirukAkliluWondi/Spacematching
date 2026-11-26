@@ -524,12 +524,12 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
             { style: { display: 'flex', flexDirection: 'column' } },
             React.createElement(
               'span',
-              { style: { fontSize: '22px', fontWeight: 'bold', color: '#ffffff', letterSpacing: '0.5px' } },
+              { style: { fontSize: '24px', fontWeight: 'bold', color: '#ffffff', letterSpacing: '0.5px' } },
               'SPACEMATCH ADDIS'
             ),
             React.createElement(
               'span',
-              { style: { fontSize: '13px', fontWeight: 'bold', color: '#9ecaff', letterSpacing: '1px' } },
+              { style: { fontSize: '14px', fontWeight: 'bold', color: '#9ecaff', letterSpacing: '0.8px' } },
               'VERIFIED RESIDENCE NETWORK · አዲስ አበባ'
             )
           )
@@ -553,7 +553,7 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
           }),
           React.createElement(
             'span',
-            { style: { fontSize: '14px', fontWeight: 'bold', color: config.badgeColor, letterSpacing: '0.8px' } },
+            { style: { fontSize: '15px', fontWeight: 'bold', color: config.badgeColor, letterSpacing: '0.6px' } },
             config.badgeText
           )
         )
@@ -562,17 +562,17 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
       // Hero Center
       React.createElement(
         'div',
-        { style: { display: 'flex', flexDirection: 'column', marginTop: '12px', marginBottom: '12px' } },
+        { style: { display: 'flex', flexDirection: 'column', marginTop: '10px', marginBottom: '10px' } },
         config.greeting ? React.createElement(
           'span',
-          { style: { fontSize: '19px', color: '#94a3b8', marginBottom: '6px' } },
+          { style: { fontSize: '21px', color: '#cbd5e1', marginBottom: '6px' } },
           config.greeting
         ) : null,
         React.createElement(
           'span',
           {
             style: {
-              fontSize: '46px',
+              fontSize: '48px',
               fontWeight: 'bold',
               color: '#9ecaff',
               letterSpacing: '-0.5px',
@@ -583,7 +583,7 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
         ),
         React.createElement(
           'span',
-          { style: { fontSize: '22px', fontWeight: 'bold', color: '#dbe3f1', marginTop: '6px' } },
+          { style: { fontSize: '23px', fontWeight: 'bold', color: '#e2e8f0', marginTop: '6px' } },
           config.subheadline
         )
       ),
@@ -603,7 +603,7 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
               backgroundColor: 'rgba(20, 28, 38, 0.9)',
               borderRadius: '16px',
               border: '1.2px solid #2d3540',
-              padding: '18px 20px',
+              padding: '16px 18px',
             },
           },
           React.createElement(
@@ -613,11 +613,11 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
             React.createElement(
               'div',
               { style: { display: 'flex', flexDirection: 'column' } },
-              React.createElement('span', { style: { fontSize: '15px', fontWeight: 'bold', color: '#ffffff' } }, config.pillar1.title),
-              React.createElement('span', { style: { fontSize: '12px', color: '#9ecaff' } }, config.pillar1.amharic)
+              React.createElement('span', { style: { fontSize: '18px', fontWeight: 'bold', color: '#ffffff' } }, config.pillar1.title),
+              React.createElement('span', { style: { fontSize: '14px', color: '#9ecaff' } }, config.pillar1.amharic)
             )
           ),
-          React.createElement('span', { style: { fontSize: '13px', color: '#94a3b8', lineHeight: 1.3 } }, config.pillar1.desc)
+          React.createElement('span', { style: { fontSize: '15px', color: '#cbd5e1', lineHeight: 1.35 } }, config.pillar1.desc)
         ),
 
         // Feature 2
@@ -631,7 +631,7 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
               backgroundColor: 'rgba(20, 28, 38, 0.9)',
               borderRadius: '16px',
               border: '1.2px solid #2d3540',
-              padding: '18px 20px',
+              padding: '16px 18px',
             },
           },
           React.createElement(
@@ -641,11 +641,11 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
             React.createElement(
               'div',
               { style: { display: 'flex', flexDirection: 'column' } },
-              React.createElement('span', { style: { fontSize: '15px', fontWeight: 'bold', color: '#ffffff' } }, config.pillar2.title),
-              React.createElement('span', { style: { fontSize: '12px', color: '#4ae176' } }, config.pillar2.amharic)
+              React.createElement('span', { style: { fontSize: '18px', fontWeight: 'bold', color: '#ffffff' } }, config.pillar2.title),
+              React.createElement('span', { style: { fontSize: '14px', color: '#4ae176' } }, config.pillar2.amharic)
             )
           ),
-          React.createElement('span', { style: { fontSize: '13px', color: '#94a3b8', lineHeight: 1.3 } }, config.pillar2.desc)
+          React.createElement('span', { style: { fontSize: '15px', color: '#cbd5e1', lineHeight: 1.35 } }, config.pillar2.desc)
         ),
 
         // Feature 3
@@ -659,7 +659,7 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
               backgroundColor: 'rgba(20, 28, 38, 0.9)',
               borderRadius: '16px',
               border: '1.2px solid #2d3540',
-              padding: '18px 20px',
+              padding: '16px 18px',
             },
           },
           React.createElement(
@@ -669,11 +669,11 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
             React.createElement(
               'div',
               { style: { display: 'flex', flexDirection: 'column' } },
-              React.createElement('span', { style: { fontSize: '15px', fontWeight: 'bold', color: '#ffffff' } }, config.pillar3.title),
-              React.createElement('span', { style: { fontSize: '12px', color: '#a4caf6' } }, config.pillar3.amharic)
+              React.createElement('span', { style: { fontSize: '18px', fontWeight: 'bold', color: '#ffffff' } }, config.pillar3.title),
+              React.createElement('span', { style: { fontSize: '14px', color: '#a4caf6' } }, config.pillar3.amharic)
             )
           ),
-          React.createElement('span', { style: { fontSize: '13px', color: '#94a3b8', lineHeight: 1.3 } }, config.pillar3.desc)
+          React.createElement('span', { style: { fontSize: '15px', color: '#cbd5e1', lineHeight: 1.35 } }, config.pillar3.desc)
         )
       ),
 
@@ -683,7 +683,7 @@ export function buildUniversalCardElement(type: CardScreenType, params: DynamicC
         { style: { display: 'flex', justifyContent: 'center', width: '100%', marginTop: '6px' } },
         React.createElement(
           'span',
-          { style: { fontSize: '12px', color: '#64748b', letterSpacing: '0.5px' } },
+          { style: { fontSize: '14px', color: '#94a3b8', letterSpacing: '0.4px' } },
           'SpaceMatch Addis Ababa · Developed by @birukadiyee'
         )
       )

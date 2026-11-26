@@ -746,7 +746,7 @@ export async function handleOnboardingMessage(
       // 6. Confirmation message
       await sendMessage(
         chatId,
-        `<b>Listing Live / ማስታወቂያዎ ተለጥፏል</b>\n\n<blockquote><b>Listing Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>${publishedMsgId ? 'Verified & Live / የጸደቀ' : 'Pending Review / በግምገማ ላይ'}</b>\n• <b>Budget / በጀት:</b> <code>${updatedProfile.budget_min || 0} – ${updatedProfile.budget_max || 0} ETB</code>\n• <b>Areas / ሰፈሮች:</b> <code>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</code>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
+        `<b>Listing Live / ማስታወቂያዎ ተለጥፏል</b>\n\n<blockquote><b>Listing Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>${publishedMsgId ? 'Verified & Live / የጸደቀ' : 'Pending Review / በግምገማ ላይ'}</b>\n• <b>Budget / በጀት:</b> <b>${updatedProfile.budget_min || 0} – ${updatedProfile.budget_max || 0} ETB</b>\n• <b>Areas / ሰፈሮች:</b> <b>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</b>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
             ...(chUrl ? [[{ text: 'View on Channel / በቻናል ላይ እይ >', url: chUrl }]] : []),
