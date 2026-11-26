@@ -861,7 +861,7 @@ House rules: ${escapeHtml(houseRulesDisplay)}
 
 SpaceMatch Addis — Find your roommate first, then find your space together! / መጀመሪያ የቤት አጋርዎን ያግኙ፣ በመቀጠል አብራችሁ ቤታችሁን ፈልጉ!
 
-📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ
+📢 Want to post your profile? Tap "Post My Profile" below! / መረጃዎን ለመለጠፍ ከታች "መረጃዬን ልለጥፍ" የሚለውን ይጫኑ!
 
 ${hashtags}
 `.trim();
@@ -991,12 +991,12 @@ House rules: ${escapeHtml(rules)}
 
 ${slogan}
 
-📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ
+📢 Want to post your profile? Tap "Post My Profile" below! / መረጃዎን ለመለጠፍ ከታች "መረጃዬን ልለጥፍ" የሚለውን ይጫኑ!
 
 ${hashtags}
 `.trim();
 
-  // Keep under Telegram's 1024-char photo caption limit while preserving @WWEHID footer, ABOUT ME excerpt & hashtags (Decision 3)
+  // Keep under Telegram's 1024-char photo caption limit while preserving footer, ABOUT ME excerpt & hashtags (Decision 3)
   let out = renderSpaceHtml(detailsText, cleanBio);
   if (out.length > 1000) {
     const compactAmen = amenitiesDisplay.length > 60 ? amenitiesDisplay.slice(0, 57).trimEnd() + '…' : amenitiesDisplay;

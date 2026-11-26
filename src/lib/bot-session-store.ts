@@ -1,4 +1,6 @@
+import nodeCrypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+import { normalizeCanonicalTransactionRef } from './verify-et';
 
 // ---------------------------------------------------------------------------
 // Supabase client (service role — safe for server-side only)
@@ -1050,6 +1052,175 @@ export async function getAdminTelegramIds(): Promise<number[]> {
   _adminIdsCache = { ids: result, expiresAt: now + 60 * 1000 };
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Payment Anti-Replay & Screenshot SHA-256 Fingerprint Helpers (Fail-Closed)
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes a volatile in-memory SHA-256 fingerprint of an uploaded receipt image buffer.
+ * Zero raw image bytes are ever persisted (enforcing Invariant 1).
+ */
+export function computeReceiptImageSha256(imageBuffer: Buffer): string {
+  return nodeCrypto.createHash('sha256').update(imageBuffer).digest('hex');
+}
+
+function escapePostgrestLike(val: string): string {
+  return val.replace(/[%_\\,()]/g, '\\$&');
+}
+
+function receiptHashToSentinelId(sha256Hex: string): string {
+  const numPart = parseInt(sha256Hex.slice(0, 10), 16);
+  const safeNum = Number.isFinite(numPart) ? numPart : 0;
+  return String(-(6000000000000 + safeNum));
+}
+
+/**
+ * Checks if a transaction reference (raw code, URL, or canonical ID) has already
+ * been redeemed by ANY user on a completed order.
+ * Matches both bare canonical codes and legacy/URL forms (e.g. .../receipt/CODE or ?id=CODE).
+ * Fails closed on database errors so replays can never slip past transient errors.
+ */
+export async function findRedeemedOrderByCanonicalRef(
+  rawOrCanonRef: string
+): Promise<{ redeemed: boolean; dbError?: boolean; orderId?: string; buyerTelegramId?: number; matchedRef?: string }> {
+  const rawUpper = String(rawOrCanonRef || '').trim().toUpperCase();
+  const canon = (normalizeCanonicalTransactionRef(rawOrCanonRef) || rawUpper).trim().toUpperCase();
+  if (!canon) return { redeemed: false };
+
+  const escapedCanon = escapePostgrestLike(canon);
+  const filters: string[] = [`transaction_reference.ilike.${escapedCanon}`];
+
+  // Match URL-stored forms safely without arbitrary short substring false positives
+  if (canon.length >= 6 && /^[A-Z0-9_-]{6,32}$/.test(canon)) {
+    filters.push(
+      `transaction_reference.ilike.%/${escapedCanon}`,
+      `transaction_reference.ilike.%=${escapedCanon}`,
+      `transaction_reference.ilike.%/${escapedCanon}?%`,
+      `transaction_reference.ilike.%=${escapedCanon}&%`
+    );
+  }
+  if (rawUpper && rawUpper !== canon && !/[:/]/.test(rawUpper)) {
+    filters.push(`transaction_reference.ilike.${escapePostgrestLike(rawUpper)}`);
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id, buyer_telegram_id, transaction_reference')
+      .eq('payment_status', 'completed')
+      .or(filters.join(','))
+      .limit(1);
+
+    if (error) {
+      console.error('[anti-replay] orders lookup failed (failing closed):', error.message);
+      return { redeemed: true, dbError: true };
+    }
+
+    if (data && data.length > 0) {
+      return {
+        redeemed: true,
+        orderId: data[0].id,
+        buyerTelegramId: Number(data[0].buyer_telegram_id || 0),
+        matchedRef: data[0].transaction_reference,
+      };
+    }
+    return { redeemed: false };
+  } catch (err) {
+    console.error('[anti-replay] orders lookup exception (failing closed):', err);
+    return { redeemed: true, dbError: true };
+  }
+}
+
+/**
+ * Checks whether an uploaded receipt image's SHA-256 fingerprint was previously recorded
+ * AFTER a successful verified payment completion. Failed verifications never lock a hash.
+ */
+export async function isReceiptHashRedeemed(
+  sha256Hex: string
+): Promise<{ redeemed: boolean; dbError?: boolean; ref?: string; payerTgId?: number }> {
+  if (!sha256Hex || !/^[a-f0-9]{64}$/i.test(sha256Hex)) return { redeemed: false };
+  const sentinelId = receiptHashToSentinelId(sha256Hex);
+  try {
+    const { data, error } = await supabase
+      .from('bot_sessions')
+      .select('step, draft_data')
+      .eq('telegram_id', sentinelId)
+      .limit(1);
+
+    if (error) {
+      console.error('[anti-replay] receipt hash lookup failed (failing closed):', error.message);
+      return { redeemed: true, dbError: true };
+    }
+    if (!data || data.length === 0 || data[0].step !== 'redeemed_receipt_hash') {
+      return { redeemed: false };
+    }
+    const meta = data[0].draft_data || {};
+    const entry = meta.hashes?.[sha256Hex] || (meta.sha256 === sha256Hex ? meta : null);
+    if (entry) {
+      return {
+        redeemed: true,
+        ref: typeof entry.ref === 'string' ? entry.ref : undefined,
+        payerTgId: typeof entry.payer_tg === 'number' ? entry.payer_tg : undefined,
+      };
+    }
+    return { redeemed: false };
+  } catch (err) {
+    console.error('[anti-replay] receipt hash lookup exception (failing closed):', err);
+    return { redeemed: true, dbError: true };
+  }
+}
+
+/**
+ * Records a receipt image SHA-256 fingerprint strictly AFTER Verify.ET succeeds and the
+ * completed order has been committed to Postgres.
+ */
+export async function recordRedeemedReceiptHash(
+  sha256Hex: string,
+  canonicalRef: string,
+  payerTelegramId: number
+): Promise<void> {
+  if (!sha256Hex || !/^[a-f0-9]{64}$/i.test(sha256Hex)) return;
+  const sentinelId = receiptHashToSentinelId(sha256Hex);
+  const nowIso = new Date().toISOString();
+  try {
+    const { data: existingRows } = await supabase
+      .from('bot_sessions')
+      .select('draft_data')
+      .eq('telegram_id', sentinelId)
+      .limit(1);
+
+    const existingDraft = (existingRows && existingRows[0]?.draft_data) || {};
+    const existingHashes =
+      existingDraft.hashes && typeof existingDraft.hashes === 'object' ? existingDraft.hashes : {};
+
+    await supabase.from('bot_sessions').upsert(
+      {
+        telegram_id: sentinelId,
+        step: 'redeemed_receipt_hash',
+        draft_data: {
+          sha256: sha256Hex,
+          ref: canonicalRef,
+          payer_tg: payerTelegramId,
+          redeemed_at: nowIso,
+          hashes: {
+            ...existingHashes,
+            [sha256Hex]: {
+              ref: canonicalRef,
+              payer_tg: payerTelegramId,
+              redeemed_at: nowIso,
+            },
+          },
+        },
+        updated_at: nowIso,
+      },
+      { onConflict: 'telegram_id' }
+    );
+  } catch (err) {
+    console.warn('[anti-replay] Failed to persist redeemed receipt hash sentinel:', err);
+  }
+}
+
 
 
 

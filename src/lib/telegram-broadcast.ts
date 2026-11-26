@@ -857,8 +857,8 @@ export async function postCustomToChannel(
     : `https://t.me/${botUsername}?start=seeker_flow`;
 
   const footerNote =
-    '\n\n📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ';
-  const finalText = text.includes('@WWEHID') ? text : `${text}${footerNote}`;
+    '\n\n📢 Want to post your profile? Tap "Post My Profile" below! / መረጃዎን ለመለጠፍ ከታች "መረጃዬን ልለጥፍ" የሚለውን ይጫኑ!';
+  const finalText = text.includes('መረጃዬን ልለጥፍ') || text.includes('Post My Profile') ? text : `${text}${footerNote}`;
 
   const inlineKeyboard = {
     inline_keyboard: [

@@ -33,6 +33,10 @@ import {
  deduplicateUpdate,
  acquireActionLock,
  releaseActionLock,
+ computeReceiptImageSha256,
+ findRedeemedOrderByCanonicalRef,
+ isReceiptHashRedeemed,
+ recordRedeemedReceiptHash,
 } from '@/lib/bot-session-store';
 import { signAdminToken } from '@/lib/admin-auth';
 import { verifyTelebirrPayment, extractTransactionReference, normalizeCanonicalTransactionRef } from '@/lib/verify-et';
@@ -2770,7 +2774,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       updated_at: new Date().toISOString(),
     });
 
-    const text = '<b>Post Profile / መረጃ መለጠፊያ</b>\n\n<blockquote>Select your situation / ሁኔታዎን ይምረጡ:\n\n• <b>Need Roommate (Look Together):</b> Complete your profile & find someone to search a room with together.\n• <b>Have a Room & Need Roommate:</b> Connect directly with Admin Wahid (@WWEHID) to finish & post your room.</blockquote>';
+    const text = '<b>Post Profile / መረጃ መለጠፊያ</b>\n\n<blockquote>Select your situation / ሁኔታዎን ይምረጡ:\n\n• <b>Need Roommate (Look Together):</b> Complete your profile & find a roommate to search together.\n• <b>Have a Room & Need Roommate:</b> Option for hosts who already have a room ready to share.</blockquote>';
 
     // Strict Grid Symmetry: Hero CTA on Top + 2-Column Action Grid
     const inlineKeyboard = [
@@ -2836,11 +2840,11 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     messageIdToEdit?: number
   ) => {
     await clearSession(chatId);
-    const text = `<b>Have a Room &amp; Need a Roommate? / ክፍል አለዎት እና የቤት አጋር ይፈልጋሉ?</b>
+    const text = `<b>Contact with the Admin to Post Your Profile / መረጃዎን ለመለጠፍ አድሚንን ያነጋግሩ</b>
 
-<blockquote>Room/space listings are handled directly with Admin Wahid so your space details and photos can be reviewed and posted quickly.
+<blockquote>Please contact with the admin (@WWEHID) to post your profile and room details on the channel.
 
-የክፍል ወይም የቤት ማስታወቂያዎች በቀጥታ ከአድሚን ዋሂድ (@WWEHID) ጋር በመነጋገር ይጠናቀቃሉ። እባክዎ ከታች ያለውን ቁልፍ ተጭነው @WWEHID በቀጥታ ያነጋግሩ!</blockquote>
+መረጃዎን እና የክፍል ዝርዝርዎን ቻናሉ ላይ ለመለጠፍ እባክዎ ከታች ያለውን ቁልፍ ተጭነው ከአድሚን @WWEHID ጋር በቀጥታ ይገናኙ!</blockquote>
 
 <b>Admin / አድሚን:</b> @WWEHID`;
 
@@ -10400,22 +10404,18 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  }
 
  try {
- const escapedRef = reference.replace(/[%_\\]/g, '\\$&');
- // 1. Check if reference already used in orders (case-insensitive)
- const { data: existingOrder } = await supabaseAdmin
- .from('orders')
- .select('id')
- .ilike('transaction_reference', escapedRef)
- .eq('payment_status', 'completed')
- .limit(1)
- .maybeSingle();
-
- if (existingOrder) {
+ // 1. Check if reference (bare code, URL variant, or legacy URL row) already used in completed orders
+ const preReplayHit = await findRedeemedOrderByCanonicalRef(reference);
+ if (preReplayHit.redeemed) {
  await tgSend(
  chatId,
- payerIsAm
- ? `<b>ይህ የደረሰኝ ቁጥር አስቀድሞ ጥቅም ላይ ውሏል</b>\n\nይህ የግብይት ደረሰኝ ቁጥር ቀደም ሲል ተመዝግቧል። እባክዎ ትክክለኛውን የደረሰኝ ቁጥር ያስገቡ።`
- : `<b>Reference Already Used</b>\n\nThis transaction reference has already been submitted. Please use a different reference number.`
+ preReplayHit.dbError
+ ? (payerIsAm
+ ? `<b>ጊዜያዊ የስርዓት ችግር</b>\n\nእባክዎ ጥቂት ሰከንዶች ቆይተው እንደገና ይሞክሩ።`
+ : `<b>Temporary Verification Error</b>\n\nPlease retry in a few moments.`)
+ : (payerIsAm
+ ? `<b>ይህ የደረሰኝ ቁጥር አስቀድሞ ጥቅም ላይ ውሏል</b>\n\nይህ የግብይት ደረሰኝ ቁጥር ቀደም ሲል ተመዝግቧል፤ በሌላ ሰውም ሆነ በድጋሚ ሊያገለግል አይችልም።`
+ : `<b>Reference Already Used</b>\n\nThis transaction reference has already been redeemed and cannot be reused by you or another person.`)
  );
  return NextResponse.json({ ok: true });
  }
@@ -10446,6 +10446,25 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  return NextResponse.json({ ok: true });
  }
 
+ const canonicalVerifiedRef = (
+ normalizeCanonicalTransactionRef(verifyResult.transactionNumber || reference) || reference
+ ).toUpperCase();
+
+ if (canonicalVerifiedRef !== reference.toUpperCase()) {
+ const canonHit = await findRedeemedOrderByCanonicalRef(canonicalVerifiedRef);
+ if (canonHit.redeemed) {
+ await tgSend(
+ chatId,
+ canonHit.dbError
+ ? (payerIsAm ? `<b>ጊዜያዊ የስርዓት ችግር</b>\n\nእባክዎ እንደገና ይሞክሩ።` : `<b>Temporary Verification Error</b>\n\nPlease retry in a few moments.`)
+ : (payerIsAm
+ ? `<b>ይህ የደረሰኝ ቁጥር አስቀድሞ ጥቅም ላይ ውሏል</b>\n\nይህ የግብይት ቁጥር (${escapeHtml(canonicalVerifiedRef)}) ቀደም ሲል ተመዝግቧል።`
+ : `<b>Reference Already Used</b>\n\nThis verified transaction reference (<code>${escapeHtml(canonicalVerifiedRef)}</code>) has already been redeemed.`)
+ );
+ return NextResponse.json({ ok: true });
+ }
+ }
+
  // 4. Record order (fail closed on replay or DB error)
  let orderId = `ord_mem_${Date.now()}`;
  try {
@@ -10466,7 +10485,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  target_type: 'membership_90d',
  target_id: 'pass_90d',
  amount: verifyResult.paidAmount ?? 100.0,
- transaction_reference: reference,
+ transaction_reference: canonicalVerifiedRef,
  payment_status: 'completed',
  verified_at: new Date().toISOString(),
  })
@@ -10494,7 +10513,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  }
 
  // 5. Activate 3-Month Unified Membership Pass
- await activateUserMembership(chatId, orderId, reference);
+ await activateUserMembership(chatId, orderId, canonicalVerifiedRef);
 
  // 6. Check if there's an accepted pending_payment match ready to unlock
  let activeMatch: any = null;
@@ -11272,6 +11291,7 @@ All administrators of this channel can now use bot admin features, and approved 
  }
 
  // ── Universal Photo / Image Handler (Fayda QR Code Verification & Payment Receipts) ───
+ let uploadedReceiptSha256: string | undefined;
  const uploadedMedia = extractMediaFileFromMessage(message);
  if (
  uploadedMedia &&
@@ -11307,6 +11327,22 @@ All administrators of this channel can now use bot admin features, and approved 
 
  try {
  const buffer = await downloadTelegramFile(uploadedMedia.fileId);
+ const sha256Hex = computeReceiptImageSha256(buffer);
+ const hashCheck = await isReceiptHashRedeemed(sha256Hex);
+ if (hashCheck.redeemed) {
+ if (scanNoticeId) {
+ sendTelegram('deleteMessage', { chat_id: chatId, message_id: scanNoticeId }).catch(() => {});
+ }
+ await sendTelegram('sendMessage', {
+ chat_id: chatId,
+ text: hashCheck.dbError
+ ? `<b>Verification Error / የማረጋገጫ ስህተት</b>\n\n<blockquote>Unable to verify receipt uniqueness right now. Please try again in a moment.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።</blockquote>`
+ : `<b>Payment Already Used / ይህ ደረሰኝ ቀደም ሲል ጥቅም ላይ ውሏል</b>\n\n<blockquote>This payment receipt screenshot has already been verified and redeemed earlier. It cannot be reused by you or another person.\n\nይህ የክፍያ ደረሰኝ ፎቶ ቀደም ሲል ተረጋግጦ ጥቅም ላይ ውሏል፤ በሌላ ሰውም ሆነ በድጋሚ ሊያገለግል አይችልም።</blockquote>`,
+ parse_mode: 'HTML',
+ });
+ return NextResponse.json({ ok: true });
+ }
+ uploadedReceiptSha256 = sha256Hex;
  const extraction = await extractTransactionReferenceFromImage(buffer);
 
  if (scanNoticeId) {
@@ -11418,10 +11454,24 @@ All administrators of this channel can now use bot admin features, and approved 
  if (!('error' in uploadedMedia)) {
  try {
  const buffer = await downloadTelegramFile(uploadedMedia.fileId);
+ const sha256Hex = computeReceiptImageSha256(buffer);
+ const hashCheck = await isReceiptHashRedeemed(sha256Hex);
+ if (hashCheck.redeemed) {
+ await sendTelegram('sendMessage', {
+ chat_id: chatId,
+ text: hashCheck.dbError
+ ? `<b>Verification Error / የማረጋገጫ ስህተት</b>\n\n<blockquote>Unable to verify receipt uniqueness right now. Please try again in a moment.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።</blockquote>`
+ : `<b>Payment Already Used / ይህ ደረሰኝ ቀደም ሲል ጥቅም ላይ ውሏል</b>\n\n<blockquote>This payment receipt screenshot has already been verified and redeemed earlier. It cannot be reused by you or another person.\n\nይህ የክፍያ ደረሰኝ ፎቶ ቀደም ሲል ተረጋግጦ ጥቅም ላይ ውሏል፤ በሌላ ሰውም ሆነ በድጋሚ ሊያገለግል አይችልም።</blockquote>`,
+ parse_mode: 'HTML',
+ });
+ return NextResponse.json({ ok: true });
+ }
+
  const receiptExt = await extractTransactionReferenceFromImage(buffer);
  if (receiptExt.success && receiptExt.reference) {
  const mem = await getUserMembershipStatus(chatId);
  if (!mem.isActive) {
+ uploadedReceiptSha256 = sha256Hex;
  text = receiptExt.reference;
  const newDraftData: Record<string, any> = {
  membership_purpose: 'connect_request',
@@ -11436,6 +11486,16 @@ All administrators of this channel can now use bot admin features, and approved 
  });
  session.step = 'awaiting_payment_for_membership:general';
  session.draft_data = newDraftData;
+ } else {
+ const idleReplay = await findRedeemedOrderByCanonicalRef(receiptExt.reference);
+ await sendTelegram('sendMessage', {
+ chat_id: chatId,
+ text: idleReplay.redeemed
+ ? `<b>Payment Already Used / ይህ ደረሰኝ ቀደም ሲል ጥቅም ላይ ውሏል</b>\n\n<blockquote>This payment receipt screenshot or transaction reference has already been redeemed.\nይህ የክፍያ ደረሰኝ ፎቶ ወይም ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል።</blockquote>`
+ : `<b>3-Month Pass Already Active / የ3 ወር አባልነትዎ ንቁ ነው</b>\n\n<blockquote>Your membership pass is already active (${mem.daysRemaining} days remaining).\nየአባልነት ፓስዎ ቀድሞውኑ ንቁ ነው (${mem.daysRemaining} ቀናት ቀርተዋል)።</blockquote>`,
+ parse_mode: 'HTML',
+ });
+ return NextResponse.json({ ok: true });
  }
  }
  } catch {}
@@ -12717,20 +12777,14 @@ All administrators of this channel can now use bot admin features, and approved 
  parse_mode: 'HTML',
  });
 
- // Check if reference already used in orders (case-insensitive) BEFORE calling Verify.ET
- const escapedTxRef = txRef.replace(/[%_\\]/g, '\\$&');
- const { data: existingOrder } = await supabaseAdmin
- .from('orders')
- .select('id')
- .ilike('transaction_reference', escapedTxRef)
- .eq('payment_status', 'completed')
- .limit(1)
- .maybeSingle();
-
- if (existingOrder) {
+ // Check if reference (bare code, URL, or legacy URL row) already used in orders BEFORE calling Verify.ET
+ const preReplayHit = await findRedeemedOrderByCanonicalRef(txRef);
+ if (preReplayHit.redeemed) {
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `<b>Reference Already Used! / ይህ የደረሰኝ ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል!</b>\n\n<blockquote>This transaction reference has already been submitted. Please use your own new transaction reference.\nይህ የግብይት ቁጥር ቀደም ሲል ተመዝግቧል። እባክዎ ትክክለኛውን አዲስ የደረሰኝ ቁጥር ያስገቡ።</blockquote>`,
+ text: preReplayHit.dbError
+ ? `<b>Verification Error / የማረጋገጫ ስህተት</b>\n\n<blockquote>Unable to validate transaction uniqueness right now. Please try again in a moment.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።</blockquote>`
+ : `<b>Reference Already Used! / ይህ የደረሰኝ ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል!</b>\n\n<blockquote>This transaction reference has already been verified and redeemed. It cannot be reused by you or another person.\n\nይህ የግብይት ቁጥር ቀደም ሲል ተመዝግቧል፤ በሌላ ሰውም ሆነ በድጋሚ ሊያገለግል አይችልም።</blockquote>`,
  parse_mode: 'HTML',
  });
  return NextResponse.json({ ok: true });
@@ -12765,18 +12819,13 @@ All administrators of this channel can now use bot admin features, and approved 
  normalizeCanonicalTransactionRef(verifyRes.transactionNumber || txRef) || txRef
  ).toUpperCase();
  if (canonicalVerifiedRef !== txRef.toUpperCase()) {
- const escapedCanon = canonicalVerifiedRef.replace(/[%_\\]/g, '\\$&');
- const { data: canonExistingOrder } = await supabaseAdmin
- .from('orders')
- .select('id')
- .ilike('transaction_reference', escapedCanon)
- .eq('payment_status', 'completed')
- .limit(1)
- .maybeSingle();
- if (canonExistingOrder) {
+ const canonExistingOrder = await findRedeemedOrderByCanonicalRef(canonicalVerifiedRef);
+ if (canonExistingOrder.redeemed) {
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `<b>Reference Already Used! / ይህ የደረሰኝ ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል!</b>\n\n<blockquote>This verified transaction reference (<code>${escapeHtml(canonicalVerifiedRef)}</code>) has already been redeemed.\nይህ የግብይት ቁጥር ቀደም ሲል ተመዝግቧል።</blockquote>`,
+ text: canonExistingOrder.dbError
+ ? `<b>Verification Error / የማረጋገጫ ስህተት</b>\n\n<blockquote>Unable to confirm canonical transaction uniqueness. Please try again.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።</blockquote>`
+ : `<b>Reference Already Used! / ይህ የደረሰኝ ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል!</b>\n\n<blockquote>This verified transaction reference (<code>${escapeHtml(canonicalVerifiedRef)}</code>) has already been redeemed and cannot be reused.\n\nይህ የግብይት ቁጥር ቀደም ሲል ተመዝግቧል።</blockquote>`,
  parse_mode: 'HTML',
  });
  return NextResponse.json({ ok: true });
@@ -12831,6 +12880,9 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
 
+ if (uploadedReceiptSha256) {
+ await recordRedeemedReceiptHash(uploadedReceiptSha256, canonicalVerifiedRef, chatId);
+ }
  await activateUserMembership(chatId, orderId, canonicalVerifiedRef);
 
  const purpose = session.draft_data?.membership_purpose;
@@ -12957,19 +13009,13 @@ All administrators of this channel can now use bot admin features, and approved 
  }
 
  try {
- const escapedRef = txRef.replace(/[%_\\]/g, '\\$&');
- const { data: existingUnlockOrder } = await supabaseAdmin
- .from('orders')
- .select('id')
- .ilike('transaction_reference', escapedRef)
- .eq('payment_status', 'completed')
- .limit(1)
- .maybeSingle();
-
- if (existingUnlockOrder) {
+ const preUnlockHit = await findRedeemedOrderByCanonicalRef(txRef);
+ if (preUnlockHit.redeemed) {
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `<b>Reference Already Used! / ይህ የደረሰኝ ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል!</b>\n\n<blockquote>This transaction reference has already been redeemed. Please submit your own new receipt reference.\nይህ የግብይት ቁጥር ቀደም ሲል ተመዝግቧል።</blockquote>`,
+ text: preUnlockHit.dbError
+ ? `<b>Verification Error / የማረጋገጫ ስህተት</b>\n\n<blockquote>Unable to verify transaction uniqueness right now. Please try again.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።</blockquote>`
+ : `<b>Reference Already Used! / ይህ የደረሰኝ ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል!</b>\n\n<blockquote>This transaction reference has already been redeemed and cannot be reused by you or another person.\nይህ የግብይት ቁጥር ቀደም ሲል ተመዝግቧል።</blockquote>`,
  parse_mode: 'HTML',
  });
  return NextResponse.json({ ok: true });
@@ -12987,7 +13033,7 @@ All administrators of this channel can now use bot admin features, and approved 
  (upperUnlockRef.startsWith('FT') ? 'cbe'
  : upperUnlockRef.startsWith('TX') ? 'boa'
  : upperUnlockRef.startsWith('DTS') ? 'dashen'
- : (upperUnlockRef.startsWith('DK') || upperUnlockRef.startsWith('DT')) ? 'telebirr'
+ : (upperUnlockRef.startsWith('DK') || upperUnlockRef.startsWith('DT') || upperUnlockRef.startsWith('DM')) ? 'telebirr'
  : undefined);
  const verifyRes = await verifyTelebirrPayment(txRef, 100, bankHint);
 
@@ -13001,6 +13047,23 @@ All administrators of this channel can now use bot admin features, and approved 
  parse_mode: 'HTML',
  });
  return NextResponse.json({ ok: true });
+ }
+
+ const canonicalVerifiedRef = (
+ normalizeCanonicalTransactionRef(verifyRes.transactionNumber || txRef) || txRef
+ ).toUpperCase();
+ if (canonicalVerifiedRef !== txRef.toUpperCase()) {
+ const canonHit = await findRedeemedOrderByCanonicalRef(canonicalVerifiedRef);
+ if (canonHit.redeemed) {
+ await sendTelegram('sendMessage', {
+ chat_id: chatId,
+ text: canonHit.dbError
+ ? `<b>Verification Error / የማረጋገጫ ስህተት</b>\n\n<blockquote>Unable to confirm canonical transaction uniqueness. Please try again.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።</blockquote>`
+ : `<b>Reference Already Used! / ይህ የደረሰኝ ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል!</b>\n\n<blockquote>This verified transaction reference (<code>${escapeHtml(canonicalVerifiedRef)}</code>) has already been redeemed.\nይህ የግብይት ቁጥር ቀደም ሲል ተመዝግቧል።</blockquote>`,
+ parse_mode: 'HTML',
+ });
+ return NextResponse.json({ ok: true });
+ }
  }
 
  const targetId = session.draft_data?.target_id;
@@ -13025,7 +13088,7 @@ All administrators of this channel can now use bot admin features, and approved 
  target_type: targetType,
  target_id: String(targetId || 'pass_90d'),
  amount: verifyRes.paidAmount ?? 100.0,
- transaction_reference: txRef,
+ transaction_reference: canonicalVerifiedRef,
  payment_status: 'completed',
  verified_at: new Date().toISOString(),
  })
@@ -13054,7 +13117,10 @@ All administrators of this channel can now use bot admin features, and approved 
  return NextResponse.json({ ok: true });
  }
 
- await activateUserMembership(chatId, unlockOrderId, txRef);
+ if (uploadedReceiptSha256) {
+ await recordRedeemedReceiptHash(uploadedReceiptSha256, canonicalVerifiedRef, chatId);
+ }
+ await activateUserMembership(chatId, unlockOrderId, canonicalVerifiedRef);
 
  if (!(await isUserFaydaVerified(chatId))) {
  await saveSession({

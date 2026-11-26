@@ -52,8 +52,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Under `Post My Profile`, present 2 options: **Need Roommate (Look Together)** (full Seeker workflow -> admin review) and **Have a Room & Need Roommate** (zero questionnaire prompts; immediately present Admin Wahid `@WWEHID` / `https://t.me/WWEHID` direct contact card).
 - Public channel posts must omit candidate Age (revealing Age only inside connect/match requests), place `ABOUT ME / ስለ እኔ` between `WHAT I'M LOOKING FOR` and `ROOMMATE PREFERENCES`, and include user-submitted `House Rules`.
 - Never display developer credit (`@birukadiyee`) inside user-facing bot menus, image footers, or error messages.
-- All channel posts must feature the bilingual footer note directing users to the SpaceMatch Coordinator:
-  `📢 To post your profile on the channel, contact admin: @WWEHID / መረጃዎን ቻናሉ ላይ ለመለጠፍ አድሚን @WWEHID ያነጋግሩ`
+- Public channel posts and the `Post My Profile` branch selector must NOT tell Seekers to contact `@WWEHID` directly; channel posts must instead point readers to tap the **`Post My Profile / መረጃዬን ልለጥፍ >`** button below:
+  `📢 Want to post your profile? Tap "Post My Profile" below! / መረጃዎን ለመለጠፍ ከታች "መረጃዬን ልለጥፍ" የሚለውን ይጫኑ!`
+- Direct contact to Admin Wahid (`@WWEHID` / `https://t.me/WWEHID`, instructing *"Contact with the admin to post your profile"*) is displayed inside the bot **only** after clicking **Have a Room & Need Roommate**.
 
 ## 7. Subscription Duration & Pricing Invariant
 - The SpaceMatch All-Access Membership Pass is strictly **100 ETB for 3 Months (90 days)**.
@@ -75,6 +76,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Always enforce explicit minimum amount (`paidAmount >= expectedFee`); treat missing, zero, or non-numeric `amount` values as verification failure (`INSUFFICIENT_AMOUNT`), never defaulting to `expectedFee`.
 - Check duplicate `transaction_reference` against `orders` (`payment_status = 'completed'`) **before** calling Verify.ET, and always check `error` on `orders.insert()` / `orders.update()`. Never grant pass activation, listing submission, or contact reveals if a DB write fails (e.g., `23505`).
 - On OCR-extracted Telebirr/alphanumeric references where initial Verify.ET lookup returns `NOT_FOUND` / `VERIFICATION_FAILED`, retry bounded `O`↔`0` and `I`↔`1` ambiguity variants and enforce `orders` anti-replay on the resolved canonical `transactionNumber` returned by Verify.ET.
+- Check redeemed payment references across ALL payment endpoints (`/verify`, `awaiting_payment_for_membership`, `unlock_pay_`, `/api/orders/verify`) using canonical uppercase matching **plus** bank receipt URL suffix patterns (`%/${canon}`, `%=${canon}`), never `.maybeSingle()` without inspecting `{ error }` (always fail closed on DB errors), and store only canonical references into `orders.transaction_reference`.
+- Compute an in-memory `SHA-256` fingerprint of uploaded payment receipt images (never persisting raw bytes) and record both canonical reference and image `SHA-256` fingerprint **strictly after** Verify.ET confirmation and completed `orders` DB write succeed — failed verification attempts must never block retries, while previously redeemed codes and screenshots are uniformly blocked across all accounts.
 
 ## 11. Fayda Physical FIN vs. Signature & OCR Safety
 - Cryptographic signature verification (`verifySignature` in `fayda-decoder` and `/api/user/verify-fayda-qr`) must never be bypassed when a signature is present and fails verification.

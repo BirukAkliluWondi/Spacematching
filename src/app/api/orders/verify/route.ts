@@ -3,7 +3,15 @@ import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { verifyTelebirrPayment, normalizeCanonicalTransactionRef } from '@/lib/verify-et';
 import { extractTransactionReferenceFromImage } from '@/lib/receipt-extractor';
-import { acquireActionLock, releaseActionLock, activateUserMembership } from '@/lib/bot-session-store';
+import {
+  acquireActionLock,
+  releaseActionLock,
+  activateUserMembership,
+  computeReceiptImageSha256,
+  findRedeemedOrderByCanonicalRef,
+  isReceiptHashRedeemed,
+  recordRedeemedReceiptHash,
+} from '@/lib/bot-session-store';
 import { validateTelegramInitData } from '@/lib/telegram-auth';
 import { escapeHtml } from '@/lib/telegram';
 
@@ -50,6 +58,7 @@ export async function POST(request: Request) {
 
     let cleanTxRef = transaction_reference ? normalizeCanonicalTransactionRef(transaction_reference) : '';
     let ocrBankHint: string | undefined;
+    let receiptSha256: string | undefined;
 
     if (!cleanTxRef && receipt_image) {
       const base64Body = receipt_image.replace(/^data:image\/[a-z0-9+.-]+;base64,/i, '');
@@ -58,6 +67,18 @@ export async function POST(request: Request) {
         return NextResponse.json(
           { error: 'Invalid receipt image size. Upload a clear screenshot under 10 MB.' },
           { status: 400 }
+        );
+      }
+      receiptSha256 = computeReceiptImageSha256(imgBuf);
+      const hashCheck = await isReceiptHashRedeemed(receiptSha256);
+      if (hashCheck.redeemed) {
+        return NextResponse.json(
+          {
+            error: hashCheck.dbError
+              ? 'Unable to validate receipt uniqueness right now. Please try again.'
+              : 'Replay Security Alert: This payment receipt screenshot has already been used and cannot be reused.',
+          },
+          { status: hashCheck.dbError ? 500 : 409 }
         );
       }
       const ocr = await extractTransactionReferenceFromImage(imgBuf);
@@ -116,24 +137,15 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. Anti-Replay Check: Reject if transaction_reference is already attached to any completed order (fail closed on DB error)
-    const safeLikeRef = cleanTxRef.replace(/[%_\\]/g, '\\$&');
-    const { data: replayRows, error: replayError } = await supabaseAdmin
-      .from('orders')
-      .select('id')
-      .ilike('transaction_reference', safeLikeRef)
-      .eq('payment_status', 'completed')
-      .limit(1);
-
-    if (replayError) {
-      console.error('[orders/verify] Anti-replay check DB error:', replayError.message);
-      return NextResponse.json(
-        { error: 'Unable to validate transaction uniqueness right now. Please try again.' },
-        { status: 500 }
-      );
-    }
-
-    if (replayRows && replayRows.length > 0) {
+    // 2. Anti-Replay Check: Reject if transaction_reference (bare code OR URL form) is already attached to any completed order
+    const preReplay = await findRedeemedOrderByCanonicalRef(cleanTxRef);
+    if (preReplay.redeemed) {
+      if (preReplay.dbError) {
+        return NextResponse.json(
+          { error: 'Unable to validate transaction uniqueness right now. Please try again.' },
+          { status: 500 }
+        );
+      }
       return NextResponse.json(
         { error: 'Replay Security Alert: This transaction reference has already been used on a completed order.' },
         { status: 409 }
@@ -179,20 +191,14 @@ export async function POST(request: Request) {
     ).toUpperCase();
 
     if (canonicalTxRef !== cleanTxRef.toUpperCase()) {
-      const safeCanon = canonicalTxRef.replace(/[%_\\]/g, '\\$&');
-      const { data: canonReplay, error: canonReplayErr } = await supabaseAdmin
-        .from('orders')
-        .select('id')
-        .ilike('transaction_reference', safeCanon)
-        .eq('payment_status', 'completed')
-        .limit(1);
-      if (canonReplayErr) {
-        return NextResponse.json(
-          { error: 'Unable to confirm canonical transaction uniqueness.' },
-          { status: 500 }
-        );
-      }
-      if (canonReplay && canonReplay.length > 0) {
+      const canonReplay = await findRedeemedOrderByCanonicalRef(canonicalTxRef);
+      if (canonReplay.redeemed) {
+        if (canonReplay.dbError) {
+          return NextResponse.json(
+            { error: 'Unable to confirm canonical transaction uniqueness.' },
+            { status: 500 }
+          );
+        }
         return NextResponse.json(
           { error: 'Replay Security Alert: This verified transaction has already been redeemed.' },
           { status: 409 }
@@ -229,6 +235,9 @@ export async function POST(request: Request) {
       );
     }
 
+    if (receiptSha256) {
+      await recordRedeemedReceiptHash(receiptSha256, canonicalTxRef, telegram_id);
+    }
     await activateUserMembership(telegram_id, order.id, canonicalTxRef);
 
     // 5. Notify user in Telegram to trigger double-blind mutual consent (NO unconsented PII revealed)
