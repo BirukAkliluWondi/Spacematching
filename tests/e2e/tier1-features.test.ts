@@ -229,25 +229,23 @@ export async function runTier1Tests(collector: TestExecutionCollector): Promise<
     if (!hasGenderButtons) throw new Error('Expected dyn_gender buttons in response');
   });
 
-  await executeTest('Dynamic Card Registration', 'dyn_gender callback transitions to Step 3 Religion', async () => {
+  await executeTest('Dynamic Card Registration', 'dyn_gender callback transitions directly to Step 4 Job prompt', async () => {
     const chatId = 10022;
     const update = createTelegramCallbackUpdate(chatId, 'dyn_gender:Female');
     const res = await dispatchWebhookUpdate(update);
     if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
     const calls = getCapturedTelegramCalls();
+    const hasJobPrompt = calls.some((c) => {
+      const txt = String(c.payload?.text || '').toLowerCase();
+      return txt.includes('occupation') || txt.includes('ሙያ');
+    });
+    if (!hasJobPrompt) throw new Error('Expected occupation/job prompt after dyn_gender');
     const hasReligionButtons = calls.some((c) =>
       c.payload?.reply_markup?.inline_keyboard?.some((row: any[]) =>
         row.some((b) => b.callback_data && b.callback_data.startsWith('dyn_religion:'))
       )
     );
-    if (!hasReligionButtons) throw new Error('Expected dyn_religion buttons in response');
-  });
-
-  await executeTest('Dynamic Card Registration', 'dyn_religion callback transitions to Step 4 Job prompt', async () => {
-    const chatId = 10023;
-    const update = createTelegramCallbackUpdate(chatId, 'dyn_religion:Orthodox');
-    const res = await dispatchWebhookUpdate(update);
-    if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
+    if (hasReligionButtons) throw new Error('Religion step must not be prompted');
   });
 
   await executeTest('Dynamic Card Registration', 'Subcities multi-toggle and proceed triggers Step 9 Fayda gate', async () => {

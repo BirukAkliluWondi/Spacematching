@@ -169,13 +169,10 @@ async function runAdversarialTests() {
     // Step 3: Valid Age 24
     await stepAndRecord(createTelegramMessageUpdate(chatId, '24'), 'Submit valid age 24');
 
-    // Step 4: Gender Selection
+    // Step 4: Gender Selection (flows directly to Job; religion is never asked)
     await stepAndRecord(createTelegramCallbackUpdate(chatId, 'dyn_gender:Male'), 'Select Gender Male');
 
-    // Step 5: Religion Selection
-    await stepAndRecord(createTelegramCallbackUpdate(chatId, 'dyn_religion:Orthodox'), 'Select Religion Orthodox');
-
-    // Step 6: Invalid Job -> should re-prompt Job with error
+    // Step 5: Invalid Job -> should re-prompt Job with error
     await stepAndRecord(createTelegramMessageUpdate(chatId, 'x'), 'Submit short job "x"');
     const lastPrompt2 = promptHistory[promptHistory.length - 1];
     assert(
@@ -293,14 +290,16 @@ async function runAdversarialTests() {
     assert(unlockRes.status === 200, 'Unlock contact request returns 200');
 
     // The user has age, gender, budget, subcity in session draft.
-    // They are missing religion, job, and Fayda.
-    // So routeNextMissingSeekerStep should route directly to Step 3 Religion!
-    // It must NOT route to Step 1 Age or Step 2 Gender!
+    // They are missing job and Fayda (religion is no longer asked).
+    // So routeNextMissingSeekerStep should route directly to Job!
+    // It must NOT route to Step 1 Age or Step 2 Gender or Religion!
     const calls = getCapturedTelegramCalls();
     const allTexts = calls.map((c) => c.payload?.text || '').filter(Boolean).join('\n');
     assert(
-      allTexts.toLowerCase().includes('religion') || allTexts.includes('እምነት') || allTexts.includes('Step 3 of 9'),
-      'Search unlock seeds draft and routes to first missing field (Religion), skipping Age & Gender',
+      (allTexts.toLowerCase().includes('occupation') || allTexts.includes('ሙያ')) &&
+      !allTexts.toLowerCase().includes('religion') &&
+      !allTexts.includes('እምነት'),
+      'Search unlock seeds draft and routes to first missing field (Occupation/Job), skipping Age, Gender, and Religion',
       `Prompts were: [${calls.map(c => `${c.method}:${c.payload?.text?.slice(0, 30)}`).join(', ')}]`
     );
     assert(

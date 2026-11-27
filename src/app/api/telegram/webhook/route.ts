@@ -1741,41 +1741,6 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
  };
 
- // Step 3: Religion
- const sendDynamicCardStep3Religion = async (
-    chatId: number,
-    draft: Record<string, any>,
-    messageIdToEdit?: number
-  ) => {
-    const activeMsgId = messageIdToEdit || draft.card_msg_id;
-    const lang = getLanguage(draft, chatId);
-
-    await saveSession({
-      telegram_id: chatId,
-      step: 'dyn_card_religion',
-      draft_data: { ...draft, lang, card_msg_id: activeMsgId },
-      updated_at: new Date().toISOString(),
-    });
-
-    const text = '<b>Select Religion / እምነትዎን ይምረጡ</b>\n\n<blockquote>Select your religion:\nእምነትዎን ይምረጡ:</blockquote>';
-
- const inlineKeyboard = [
- [
- { text: 'Orthodox / ኦርቶዶክስ', callback_data: 'dyn_religion:Orthodox' },
- { text: 'Muslim / ሙስሊም', callback_data: 'dyn_religion:Muslim' },
- ],
- [
- { text: 'Protestant / ፕሮቴስታንት', callback_data: 'dyn_religion:Protestant' },
- { text: 'Other / Any / ሌላ ወይም ማንኛውም', callback_data: 'dyn_religion:Other' },
- ],
- [
- { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_gender' },
- { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
- ],
- ];
-
- await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
- };
 
  // Step 4: Job / Occupation (Text Input)
  const sendDynamicCardStep4Job = async (
@@ -1800,7 +1765,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
  const inlineKeyboard = [
  [
- { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_religion' },
+ { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_gender' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
  ],
  ];
@@ -2312,7 +2277,6 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const myGenderDisplay = myGender === 'Female' ? 'Female / ሴት' : myGender === 'Male' ? 'Male / ወንድ' : myGender;
     const prefGender = profileData.preferred_gender || 'Any';
     const prefGenderDisplay = prefGender === 'Female' ? 'Female Only / ሴት ብቻ' : prefGender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
-    const religionLine = profileData.religion ? `\n• <b>Religion / እምነት:</b> ${escapeHtml(String(profileData.religion))}` : '';
     const jobLine = profileData.job ? `\n• <b>Occupation / ሙያ:</b> ${escapeHtml(String(profileData.job))}` : '';
     const rawTraits = profileData.details || profileData.lifestyle_bio || profileData.description || profileData.roommate_traits || '';
     const extractedBio = rawTraits ? (extractUserDescription(String(rawTraits)) || String(rawTraits)) : '';
@@ -2324,7 +2288,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
 <blockquote>• <b>Target Areas / አካባቢ:</b> <b>${escapeHtml(areasDisplay)}</b>
 • <b>Budget Cap / በጀት:</b> <b>${escapeHtml(budgetDisplay)}</b>
-• <b>Candidate / ተፈላጊ:</b> ${escapeHtml(myGenderDisplay)}${religionLine}${jobLine}</blockquote>
+• <b>Candidate / ተፈላጊ:</b> ${escapeHtml(myGenderDisplay)}${jobLine}</blockquote>
 
 <b>ABOUT ME / ስለ እኔ</b>
 <blockquote>${userBio}</blockquote>
@@ -2399,7 +2363,6 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  const preferredSubs = draft.preferred_subcity || ['Bole'];
  const userAge = draft.age || 24;
  const userGender = draft.gender || 'Member';
- const userReligion = draft.religion || 'Any';
  const userJob = draft.job || 'Professional';
  const userPrefGender = draft.preferred_gender || 'Any';
  const userBudgetMin = Number(draft.budget_min || 0);
@@ -2410,7 +2373,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  const targetCode = draft.target_code;
 
  const cleanUserTraits = extractUserDescription(userTraits) || userTraits;
- const formattedTraits = `Age: ${userAge} | Job: ${userJob} | Religion: ${userReligion} | Prefers: ${userPrefGender} | Rules: ${userHouseRules} | ${cleanUserTraits}`;
+ const formattedTraits = `Age: ${userAge} | Job: ${userJob} | Prefers: ${userPrefGender} | Rules: ${userHouseRules} | ${cleanUserTraits}`;
  const tgFullName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || 'Verified Member';
  const resolvedProfileFullName = (draft.full_name || '').trim() || tgFullName;
 
@@ -2459,7 +2422,6 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  status: profileStatusForSave,
  age: userAge,
  job: userJob,
- religion: userReligion,
  preferred_gender: userPrefGender,
  };
 
@@ -2470,14 +2432,13 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  supabaseAdmin
  .from('profiles')
  .upsert(profilePayload, { onConflict: 'telegram_id' })
- .select('id, display_code, age, gender, job, religion, preferred_gender, locations, budget_min, budget_max, roommate_traits')
+ .select('id, display_code, age, gender, job, preferred_gender, locations, budget_min, budget_max, roommate_traits')
  .single(),
  ]);
 
  if (profRes.error) {
  delete profilePayload.age;
  delete profilePayload.job;
- delete profilePayload.religion;
  delete profilePayload.preferred_gender;
  const { data: fbData, error: fbErr } = await supabaseAdmin
  .from('profiles')
@@ -2547,7 +2508,6 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  my_gender: userGender,
  age: userAge,
  job: userJob,
- religion: userReligion,
  preferred_gender: userPrefGender,
  budget_min: userBudgetMin,
  budget_max: userBudgetMax,
@@ -2768,7 +2728,6 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  gender: userGender,
  age: userAge,
  job: userJob,
- religion: userReligion,
  preferred_gender: userPrefGender,
  budget_min: userBudgetMin,
  budget_max: userBudgetMax,
@@ -2812,7 +2771,6 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  normalizedDraft.edit_return_preview &&
  normalizedDraft.age &&
  normalizedDraft.gender &&
- normalizedDraft.religion &&
  normalizedDraft.job &&
  normalizedDraft.budget_max !== undefined &&
  normalizedDraft.preferred_gender &&
@@ -2833,10 +2791,6 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  }
  if (!normalizedDraft.gender) {
  await sendDynamicCardStep2Gender(chatId, normalizedDraft, activeMsgId);
- return;
- }
- if (!normalizedDraft.religion) {
- await sendDynamicCardStep3Religion(chatId, normalizedDraft, activeMsgId);
  return;
  }
  if (!normalizedDraft.job) {
@@ -5202,41 +5156,6 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  });
  };
 
- // Matchmaker Step 4: My Religion (In-Place Edit)
- const sendMatchmakerReligionStep = async (
-    chatId: number,
-    currentDraft: Record<string, any> = {},
-    messageIdToEdit?: number
-  ) => {
-    const lang = getLanguage(currentDraft, chatId);
-    const text = '<b>Select Religion / እምነትዎን ይምረጡ</b>\n\n<blockquote>Select your religion to improve compatibility matching:\nትክክለኛ የቤት አጋር ለማግኘት እምነትዎን ይምረጡ:</blockquote>';
-
- const keyboard = [
- [
- { text: 'Orthodox / ኦርቶዶክስ', callback_data: 'match_set_religion:Orthodox' },
- { text: 'Muslim / ሙስሊም', callback_data: 'match_set_religion:Muslim' },
- ],
- [
- { text: 'Protestant / ፕሮቴስታንት', callback_data: 'match_set_religion:Protestant' },
- { text: 'Other / Any / ሌላ ወይም ማንኛውም', callback_data: 'match_set_religion:Other' },
- ],
- [
- { text: 'Back to Age / ወደ ዕድሜ ተመለስ', callback_data: 'match_goto_age' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
- ];
-
- const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
- const activeMsgId = await sendOrEditCard(chatId, text, keyboard, targetMsgId);
- if (activeMsgId) currentDraft.card_msg_id = activeMsgId;
-
- await saveSession({
- telegram_id: chatId,
- step: 'awaiting_match_religion',
- draft_data: { ...currentDraft, lang },
- updated_at: new Date().toISOString(),
- });
- };
 
  // Matchmaker Step 5: My Occupation / Job (In-Place Edit)
  const sendMatchmakerJobStep = async (
@@ -5258,7 +5177,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  { text: 'Self-Employed / የግል ስራ', callback_data: 'match_set_job:Self-Employed' },
  ],
  [
- { text: 'Back to Religion / ወደ እምነት ተመለስ', callback_data: 'match_goto_religion' },
+ { text: 'Back to Age / ወደ ዕድሜ ተመለስ', callback_data: 'match_goto_age' },
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
  ];
@@ -5850,7 +5769,6 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  const prefGender = criteria.preferred_gender || 'Any';
  const myGender = criteria.my_gender || '';
  const myAge = criteria.age ? Number(criteria.age) : undefined;
- const myReligion = (criteria.religion || '').trim();
  const budgetMin = criteria.budget_min !== undefined ? Number(criteria.budget_min) : 0;
  const budgetMax = criteria.budget_max !== undefined ? Number(criteria.budget_max) : 100000;
  const ageBracket = criteria.age_bracket || '';
@@ -6102,14 +6020,6 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  score += 5;
  }
 
- if (
- myReligion &&
- !['other', 'any'].includes(myReligion.toLowerCase()) &&
- prof.religion &&
- String(prof.religion).trim().toLowerCase() === myReligion.toLowerCase()
- ) {
- score += 5;
- }
 
  if (prof.age && myAge) {
  const ageDiff = Math.abs(prof.age - myAge);
@@ -6169,14 +6079,13 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  const prefGenderDisplay = match.preferred_gender === 'Female' ? 'Female Only / ሴት ብቻ' : match.preferred_gender === 'Male' ? 'Male Only / ወንድ ብቻ' : 'Any Gender / ማንኛውም ጾታ';
  const matchDisplayCode = match.display_code ? `#${match.display_code.replace(/^#/, '')}` : `#${safeIndex + 1}`;
  const budgetDisplay = formatBudgetRangeLabel(match.budget_min, match.budget_max, 'Flexible');
- const religionLine = match.religion ? `\n• <b>Religion / እምነት:</b> ${escapeHtml(match.religion)}` : '';
  const jobLine = match.job ? `\n• <b>Occupation / ሙያ:</b> ${escapeHtml(match.job)}` : '';
 
  const matchCardText = `<b>Roommate Candidate ${escapeHtml(matchDisplayCode)}</b>
 <b>${match.matchScore}% Match · ${safeIndex + 1} of ${scoredMatches.length}</b>
 
 <blockquote>• <b>Preferred Areas / አካባቢ:</b> <b>${escapeHtml(subcitiesStr)}</b>
-• <b>Candidate / ተፈላጊ:</b> ${escapeHtml(genderDisplay)}${escapeHtml(ageDisplay)}${religionLine}${jobLine}
+• <b>Candidate / ተፈላጊ:</b> ${escapeHtml(genderDisplay)}${escapeHtml(ageDisplay)}${jobLine}
 • <b>Looking For / የሚፈልጉት:</b> ${escapeHtml(prefGenderDisplay)}
 • <b>Monthly Budget / በጀት:</b> <b>${escapeHtml(budgetDisplay)}</b>${houseRulesLine}
 • <b>Status / ሁኔታ:</b> <b>${escapeHtml(badge)}</b></blockquote>
@@ -7447,7 +7356,6 @@ ${res.message}
    savedProf.gender &&
    savedProf.gender !== 'Member' &&
    savedProf.age &&
-   savedProf.religion &&
    savedProf.job &&
    savedProf.preferred_gender &&
    Array.isArray(savedProf.locations) &&
@@ -7462,7 +7370,6 @@ ${res.message}
      my_gender: savedProf.gender,
      gender: savedProf.gender,
      age: savedProf.age,
-     religion: savedProf.religion,
      job: savedProf.job,
      preferred_gender: savedProf.preferred_gender,
      budget_min: savedProf.budget_min ?? 0,
@@ -7633,7 +7540,6 @@ ${res.message}
  : (existingDraft.preferred_subcity && existingDraft.preferred_subcity.length > 0)
  ? existingDraft.preferred_subcity
  : ['Bole'],
- religion: myProfile?.religion || existingDraft.religion || 'Any',
  job: myProfile?.job || existingDraft.job || 'Member',
  roommate_traits: myProfile?.roommate_traits || existingDraft.roommate_traits || existingDraft.lifestyle_bio,
  interstitial_seen: true,
@@ -7768,11 +7674,7 @@ ${res.message}
    } catch {}
  }
 
- if (!updatedDraft.religion) {
- await sendDynamicCardStep3Religion(chatId, updatedDraft, msgId);
- } else {
  await routeNextMissingSeekerStep(chatId, updatedDraft, msgId, callback.from);
- }
  return NextResponse.json({ ok: true });
  }
 
@@ -7867,7 +7769,6 @@ ${res.message}
        { text: 'Gender / ጾታ', callback_data: 'dyn_edit_field:gender' },
      ],
      [
-       { text: 'Religion / እምነት', callback_data: 'dyn_edit_field:religion' },
        { text: 'Occupation / ሙያ', callback_data: 'dyn_edit_field:job' },
      ],
      [
@@ -7894,7 +7795,6 @@ ${res.message}
  const editDraft = { ...(session.draft_data || {}), edit_return_preview: true, card_msg_id: msgId };
  if (field === 'age') await sendDynamicCardStep1Age(chatId, editDraft, msgId);
  else if (field === 'gender') await sendDynamicCardStep2Gender(chatId, editDraft, msgId);
- else if (field === 'religion') await sendDynamicCardStep3Religion(chatId, editDraft, msgId);
  else if (field === 'job') await sendDynamicCardStep4Job(chatId, editDraft, msgId);
  else if (field === 'budget') await sendDynamicCardStep5Budget(chatId, editDraft, msgId);
  else if (field === 'pref_gender') await sendDynamicCardStep6PrefGender(chatId, editDraft, msgId);
@@ -7917,20 +7817,18 @@ ${res.message}
  }
 
  if (callbackData.startsWith('dyn_religion:')) {
- const religion = callbackData.split(':')[1];
  const session = getSession(chatId);
- const updatedDraft: Record<string, any> = { ...session.draft_data, religion };
- if (!updatedDraft.job) {
- await sendDynamicCardStep4Job(chatId, updatedDraft, msgId);
+ if (!session.draft_data?.job) {
+ await sendDynamicCardStep4Job(chatId, session.draft_data, msgId);
  } else {
- await routeNextMissingSeekerStep(chatId, updatedDraft, msgId, callback.from);
+ await routeNextMissingSeekerStep(chatId, session.draft_data, msgId, callback.from);
  }
  return NextResponse.json({ ok: true });
  }
 
  if (callbackData === 'dyn_back_to_religion') {
  const session = getSession(chatId);
- await sendDynamicCardStep3Religion(chatId, session.draft_data, msgId);
+ await sendDynamicCardStep2Gender(chatId, session.draft_data, msgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -8810,15 +8708,13 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
 
  if (callbackData === 'match_goto_religion') {
  const session = getSession(chatId);
- await sendMatchmakerReligionStep(chatId, session.draft_data, msgId);
+ await sendMatchmakerAgeStep(chatId, session.draft_data, msgId);
  return NextResponse.json({ ok: true });
  }
 
  if (callbackData.startsWith('match_set_religion:')) {
- const religionVal = callbackData.split(':')[1];
  const session = getSession(chatId);
- const updatedDraft = { ...session.draft_data, religion: religionVal };
- await sendMatchmakerJobStep(chatId, updatedDraft, msgId);
+ await sendMatchmakerJobStep(chatId, session.draft_data, msgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -8888,7 +8784,7 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  const houseRulesVal = callbackData.split(':').slice(1).join(':');
  const session = getSession(chatId);
  const rawTraitsOnly = extractUserDescription(session.draft_data?.roommate_traits || session.draft_data?.lifestyle_bio) || session.draft_data?.roommate_traits || 'Clean & respectful';
- const packedTraits = `Job: ${session.draft_data?.job || 'Member'} | Religion: ${session.draft_data?.religion || 'Any'} | Prefers: ${session.draft_data?.preferred_gender || 'Any'} | Rules: ${houseRulesVal} | ${rawTraitsOnly}`;
+ const packedTraits = `Job: ${session.draft_data?.job || 'Member'} | Prefers: ${session.draft_data?.preferred_gender || 'Any'} | Rules: ${houseRulesVal} | ${rawTraitsOnly}`;
  const existingPhone = normalizeEthiopianPhone(session.draft_data?.phone_number || session.draft_data?.contact_phone) || (await getSavedUserPhone(chatId));
  const updatedDraft = {
  ...session.draft_data,
@@ -10346,7 +10242,6 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  gender: myProfile.gender,
  my_gender: myProfile.gender,
  age: myProfile.age,
- religion: myProfile.religion,
  job: myProfile.job,
  budget_min: myProfile.budget_min,
  budget_max: myProfile.budget_max,
@@ -10408,7 +10303,6 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
 • <b>Target / ተፈላጊ:</b> #${cleanTargetCode}${escapeHtml(targetAgeConnectStr)} ( <code>${targetLocations}</code>)${targetRulesConnectLine}
 • <b>Your Profile / የእርስዎ መገለጫ:</b> #${myCode} (${myProfile.gender || 'Member'} / ${myGenderStr}${myAgeStr})
 • <b>Occupation / ስራ:</b> ${escapeHtml(myProfile.job || 'Professional / ሙያተኛ')}
-• <b>Religion / ሃይማኖት:</b> ${escapeHtml(myProfile.religion || 'Any / ማንኛውም')}
 • <b>Preference / ምርጫ:</b> ${escapeHtml(myProfile.preferred_gender || 'Any')} Roommate / የቤት አጋር
 • <b>Your Budget / በጀት:</b> <code>${myBudgetStr}</code>
 • <b>Your Areas / አካባቢዎች:</b> <code>${escapeHtml(myLocations)}</code>
@@ -12730,7 +12624,7 @@ All administrators of this channel can now use bot admin features, and approved 
  }
 
  const updatedDraft = { ...session.draft_data, age: ageVal, lang };
- await sendMatchmakerReligionStep(chatId, updatedDraft, targetMsgId);
+ await sendMatchmakerJobStep(chatId, updatedDraft, targetMsgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -12870,7 +12764,7 @@ All administrators of this channel can now use bot admin features, and approved 
  }
 
  const rawTraitsOnly = extractUserDescription(session.draft_data?.roommate_traits || session.draft_data?.lifestyle_bio) || session.draft_data?.roommate_traits || 'Clean & respectful';
- const packedTraits = `Job: ${session.draft_data?.job || 'Member'} | Religion: ${session.draft_data?.religion || 'Any'} | Prefers: ${session.draft_data?.preferred_gender || 'Any'} | Rules: ${rulesVal} | ${rawTraitsOnly}`;
+ const packedTraits = `Job: ${session.draft_data?.job || 'Member'} | Prefers: ${session.draft_data?.preferred_gender || 'Any'} | Rules: ${rulesVal} | ${rawTraitsOnly}`;
  const existingPhone = normalizeEthiopianPhone(session.draft_data?.phone_number || session.draft_data?.contact_phone) || (await getSavedUserPhone(chatId));
  const updatedDraft = {
  ...session.draft_data,

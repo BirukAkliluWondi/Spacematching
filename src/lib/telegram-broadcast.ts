@@ -81,17 +81,12 @@ export async function broadcastRoommateProfileToChannel(
       }
 
       let extractedJob = pFromProfiles.job;
-      let extractedReligion = pFromProfiles.religion;
       let extractedPrefGender = pFromProfiles.preferred_gender || 'Any';
       const extractedHouseRules = pFromProfiles.house_rules || extractHouseRulesFromTraits(pFromProfiles.roommate_traits);
 
       if (!extractedJob && pFromProfiles.roommate_traits) {
         const jm = pFromProfiles.roommate_traits.match(/Job[:\s]+([^|;\n]+)/i);
         if (jm) extractedJob = jm[1].trim();
-      }
-      if (!extractedReligion && pFromProfiles.roommate_traits) {
-        const rm = pFromProfiles.roommate_traits.match(/Religion[:\s]+([^|;\n]+)/i);
-        if (rm) extractedReligion = rm[1].trim();
       }
       if (extractedPrefGender === 'Any' && pFromProfiles.roommate_traits) {
         const pgm = pFromProfiles.roommate_traits.match(/Prefers?[:\s]+(Male|Female|Any)/i);
@@ -105,7 +100,6 @@ export async function broadcastRoommateProfileToChannel(
         my_gender: pFromProfiles.gender || 'Member',
         age: extractedAge,
         job: extractedJob,
-        religion: extractedReligion,
         preferred_gender: extractedPrefGender,
         preferred_subcity: Array.isArray(pFromProfiles.locations) ? pFromProfiles.locations : [],
         budget_min: pFromProfiles.budget_min || 0,
@@ -234,16 +228,11 @@ export async function broadcastRoommateProfileToChannel(
 
     if (dbProfile) {
       let extractedJob = dbProfile.job;
-      let extractedReligion = dbProfile.religion;
       let extractedPrefGender = dbProfile.preferred_gender || 'Any';
 
       if (!extractedJob && dbProfile.lifestyle_bio) {
         const jm = dbProfile.lifestyle_bio.match(/Job[:\s]+([^|;\n]+)/i);
         if (jm) extractedJob = jm[1].trim();
-      }
-      if (!extractedReligion && dbProfile.lifestyle_bio) {
-        const rm = dbProfile.lifestyle_bio.match(/Religion[:\s]+([^|;\n]+)/i);
-        if (rm) extractedReligion = rm[1].trim();
       }
       if (extractedPrefGender === 'Any' && dbProfile.lifestyle_bio) {
         const pgm = dbProfile.lifestyle_bio.match(/Prefers?[:\s]+(Male|Female|Any)/i);
@@ -259,7 +248,6 @@ export async function broadcastRoommateProfileToChannel(
         my_gender: dbProfile.my_gender || 'Member',
         age: dbProfile.age || 24,
         job: extractedJob,
-        religion: extractedReligion,
         preferred_gender: extractedPrefGender,
         budget_min: dbProfile.budget_min || 0,
         budget_max: dbProfile.budget_max || 10000,
@@ -400,14 +388,10 @@ export async function broadcastRoommateProfileToChannel(
       };
     }
 
-    // Ensure job, religion, and preferred gender are extracted from lifestyle_bio if not already present
+    // Ensure job and preferred gender are extracted from lifestyle_bio if not already present
     if (!profile.job && profile.lifestyle_bio) {
       const jm = profile.lifestyle_bio.match(/Job[:\s]+([^|;\n]+)/i);
       if (jm) profile.job = jm[1].trim();
-    }
-    if (!profile.religion && profile.lifestyle_bio) {
-      const rm = profile.lifestyle_bio.match(/Religion[:\s]+([^|;\n]+)/i);
-      if (rm) profile.religion = rm[1].trim();
     }
     if ((!profile.preferred_gender || profile.preferred_gender === 'Any') && profile.lifestyle_bio) {
       const pgm = profile.lifestyle_bio.match(/Prefers?[:\s]+(Male|Female|Any)/i);
@@ -445,7 +429,6 @@ export async function broadcastRoommateProfileToChannel(
 
     const userAge = profile.age || 24;
     const userJob = profile.job || 'Professional';
-    const userReligion = profile.religion || 'Any';
     let prefGender = profile.preferred_gender || 'Any';
     if ((!prefGender || prefGender === 'Any') && (profile.lifestyle_bio || profile.roommate_traits)) {
       const pgm = (profile.lifestyle_bio || profile.roommate_traits || '').match(/Prefers?[:\s]+(Male|Female|Any)/i);

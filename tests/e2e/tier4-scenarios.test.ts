@@ -98,15 +98,11 @@ export async function runTier4Tests(collector: TestExecutionCollector): Promise<
       res = await dispatchWebhookUpdate(createTelegramMessageUpdate(chatId, '23'));
       if (res.status !== 200) throw new Error('Failed at Step 4 (Age)');
 
-      // Step 5: Gender
+      // Step 5: Gender (flows directly to Job; religion is never asked)
       res = await dispatchWebhookUpdate(createTelegramCallbackUpdate(chatId, 'dyn_gender:Female'));
       if (res.status !== 200) throw new Error('Failed at Step 5 (Gender)');
 
-      // Step 6: Religion
-      res = await dispatchWebhookUpdate(createTelegramCallbackUpdate(chatId, 'dyn_religion:Orthodox'));
-      if (res.status !== 200) throw new Error('Failed at Step 6 (Religion)');
-
-      // Step 7: Job
+      // Step 6: Job
       res = await dispatchWebhookUpdate(createTelegramMessageUpdate(chatId, 'Accountant at CBE'));
       if (res.status !== 200) throw new Error('Failed at Step 7 (Job)');
 

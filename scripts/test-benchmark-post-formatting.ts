@@ -118,23 +118,27 @@ async function runTests() {
   assert(dirtyPost.includes('Budget: Up to 12,000 ETB / month'), 'Single max budget formatted properly');
   assert(dirtyPost.includes('Within 1 month / በ1 ወር ውስጥ'), 'Default move in timeline applied');
   assert(dirtyPost.includes('<blockquote>Friendly quiet guy working remotely</blockquote>'), 'Metadata prefixes stripped from bio blockquote');
+  assert(!dirtyPost.includes('Religion'), 'Channel post never displays Religion');
   assert(dirtyPost.includes('#Kazanchis #LookingForRoom #MaleRoommate #12k'), 'Hashtags cleaned from slash subcity and single budget');
 
   // ── Test 4: generatePostHashtags Unit Test ──
   console.log('\n▶ [Test 4] Hashtag Generator Exhaustive Probing...');
   const h1 = generatePostHashtags({ locations: ['Mexico'], isSpace: false, gender: 'Female', budgetMin: 5000, budgetMax: 10000 });
-  assert(h1 === '#Mexico #LookingForRoom #FemaleRoommate #5k_10k', 'H1 matches benchmark');
+  assert(h1 === '#Mexico #LookingForRoom #PostedByFemale #5k_10k', 'H1 uses #PostedByFemale when no explicit roommate gender pref');
 
   const h2 = generatePostHashtags({ locations: ['Bole'], isSpace: true, preferredGender: 'Any', budgetMin: 10000, budgetMax: 15000 });
   assert(h2 === '#Bole #RoomAvailable #AnyGender #10k_15k', 'H2 matches benchmark');
 
   const h3 = generatePostHashtags({ locations: [], isSpace: false, gender: 'Male', budgetMax: 8000 });
-  assert(h3 === '#AddisAbaba #LookingForRoom #MaleRoommate #8k', 'H3 default location and single budget');
+  assert(h3 === '#AddisAbaba #LookingForRoom #PostedByMale #8k', 'H3 uses #PostedByMale when no explicit roommate gender pref');
+
+  const hSeekerAnyMale = generatePostHashtags({ locations: ['CMC'], isSpace: false, preferredGender: 'Any', gender: 'Male', budgetMin: 15000, budgetMax: 20000 });
+  assert(hSeekerAnyMale === '#CMC #LookingForRoom #PostedByMale #15k_20k', 'Seeker Any pref with Male poster outputs #PostedByMale instead of #MaleRoommate');
 
   // ── Test 5: Amharic Subcity Transliteration in Hashtags ──
   console.log('\n▶ [Test 5] Amharic Subcity Transliteration in Hashtags...');
   const hAmharicMexico = generatePostHashtags({ locations: ['ሜክሲኮ'], isSpace: false, gender: 'Female', budgetMin: 5000, budgetMax: 10000 });
-  assert(hAmharicMexico === '#Mexico #LookingForRoom #FemaleRoommate #5k_10k', 'Amharic ሜክሲኮ correctly transliterated to #Mexico');
+  assert(hAmharicMexico === '#Mexico #LookingForRoom #PostedByFemale #5k_10k', 'Amharic ሜክሲኮ correctly transliterated to #Mexico');
 
   const hAmharicBole = generatePostHashtags({ locations: ['ቦሌ'], isSpace: true, preferredGender: 'Any', budgetMin: 10000, budgetMax: 15000 });
   assert(hAmharicBole === '#Bole #RoomAvailable #AnyGender #10k_15k', 'Amharic ቦሌ correctly transliterated to #Bole');

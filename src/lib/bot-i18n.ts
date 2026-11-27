@@ -65,12 +65,6 @@ export const I18N_BILINGUAL = {
   btnMale: 'Male / ወንድ',
   btnFemale: 'Female / ሴት',
 
-  stepReligion: '<b>Select Religion / እምነትዎን ይምረጡ:</b>',
-  btnOrthodox: 'Orthodox / ኦርቶዶክስ',
-  btnMuslim: 'Muslim / ሙስሊም',
-  btnProtestant: 'Protestant / ፕሮቴስታንት',
-  btnOtherReligion: 'Other / ሌላ',
-
   stepJob: '<b>Occupation / የስራ ሁኔታ:</b>',
   errJob: 'Please enter your occupation / እባክዎ የስራ ሁኔታዎን በአጭሩ ይጻፉ:',
 

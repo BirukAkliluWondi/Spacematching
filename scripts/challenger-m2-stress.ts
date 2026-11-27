@@ -177,7 +177,7 @@ async function main() {
       const calls = getCapturedTelegramCalls();
       const promptTexts = calls.map((c) => c.payload?.text || '').join('\n');
 
-      // Assertions: Age, Gender, Religion, Job, Budget must NOT be asked
+      // Assertions: Age, Gender, Job, Budget must NOT be asked
       if (promptTexts.includes('Step 1') || promptTexts.includes('ዕድሜዎ ስንት ነው?') || promptTexts.includes('How old are you?')) {
         throw new Error('Violated: Seeker re-prompted for Age (Step 1)');
       }
@@ -199,7 +199,7 @@ async function main() {
       await clearSession(chatId);
 
       // User performed search; draft has age, gender, budget, preferred_gender, subcities
-      // but lacks religion and job, and is unverified.
+      // but lacks job, and is unverified.
       await saveSession({
         telegram_id: chatId,
         step: 'awaiting_match_budget_input',
@@ -232,14 +232,13 @@ async function main() {
       if (promptTexts.includes('Step 2') || promptTexts.includes('ፆታዎን ይምረጡ') || promptTexts.includes('Select your gender')) {
         throw new Error('Violated: Seeker re-prompted for Gender when gender was already present');
       }
-      // 3. Must route to Step 3 (Religion) as it is the first missing field
-      const hasReligionPrompt = calls.some((c) =>
-        c.payload?.reply_markup?.inline_keyboard?.some((row: any[]) =>
-          row.some((b: any) => b.callback_data && b.callback_data.startsWith('dyn_religion:'))
-        )
-      );
-      if (!hasReligionPrompt) {
-        throw new Error('Expected router to prompt for Step 3 Religion, but religion buttons not found');
+      // 3. Must route directly to Job (never asking Religion)
+      const lowerPrompt = promptTexts.toLowerCase();
+      if (lowerPrompt.includes('religion') || promptTexts.includes('እምነት')) {
+        throw new Error('Violated: Religion prompt must not appear');
+      }
+      if (!lowerPrompt.includes('occupation') && !promptTexts.includes('ሙያ')) {
+        throw new Error('Expected router to prompt directly for Occupation/Job when religion is removed');
       }
 
       // Check session draft preservation

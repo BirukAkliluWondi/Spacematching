@@ -93,7 +93,6 @@ export default function AdminPage() {
   const [rmBio, setRmBio] = useState('');
   const [rmAge, setRmAge] = useState('');
   const [rmOccupation, setRmOccupation] = useState('');
-  const [rmReligion, setRmReligion] = useState('');
   const [rmPhone, setRmPhone] = useState('');
   const [rmTelegram, setRmTelegram] = useState('');
   const [rmDisplayCode, setRmDisplayCode] = useState('');
@@ -155,7 +154,6 @@ export default function AdminPage() {
           bio: rmBio,
           age: rmAge ? Number(rmAge) : undefined,
           occupation: rmOccupation || undefined,
-          religion: rmReligion || undefined,
           phone: rmPhone || undefined,
           telegramHandle: rmTelegram || undefined,
           displayCode: rmDisplayCode || undefined,
@@ -171,7 +169,6 @@ export default function AdminPage() {
         setRmBio('');
         setRmAge('');
         setRmOccupation('');
-        setRmReligion('');
         setRmPhone('');
         setRmTelegram('');
         setRmDisplayCode('');
@@ -1107,7 +1104,6 @@ export default function AdminPage() {
  <input type="number" value={rmBudgetMax} onChange={(e) => setRmBudgetMax(e.target.value)} placeholder="Budget Max (ETB) *" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
  <input type="number" min="18" max="99" value={rmAge} onChange={(e) => setRmAge(e.target.value)} placeholder="Age (optional)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
  <input value={rmOccupation} onChange={(e) => setRmOccupation(e.target.value)} placeholder="Occupation / Job (optional)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
- <input value={rmReligion} onChange={(e) => setRmReligion(e.target.value)} placeholder="Religion (optional)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
  <input value={rmPhone} onChange={(e) => setRmPhone(e.target.value)} placeholder="Phone (optional)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
  <input value={rmTelegram} onChange={(e) => setRmTelegram(e.target.value)} placeholder="Telegram @handle" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
  <input value={rmDisplayCode} onChange={(e) => setRmDisplayCode(e.target.value)} placeholder="Display Code (auto if blank)" className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />

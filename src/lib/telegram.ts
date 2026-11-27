@@ -694,18 +694,18 @@ export function generatePostHashtags(options: {
     } else if (pref.includes('male') || pref.includes('ወንድ')) {
       genderTag = '#MaleRoommate';
     } else if (gen.includes('female') || gen.includes('ሴት')) {
-      genderTag = '#FemaleRoommate';
+      genderTag = '#PostedByFemale';
     } else if (gen.includes('male') || gen.includes('ወንድ')) {
-      genderTag = '#MaleRoommate';
+      genderTag = '#PostedByMale';
     } else {
       genderTag = '#AnyGender';
     }
   } else {
     if (pref.includes('any') || pref.includes('ማንኛውም') || pref.includes('both') || pref.includes('all')) {
       if (gen.includes('female') || gen.includes('ሴት')) {
-        genderTag = '#FemaleRoommate';
+        genderTag = '#PostedByFemale';
       } else if (gen.includes('male') || gen.includes('ወንድ')) {
-        genderTag = '#MaleRoommate';
+        genderTag = '#PostedByMale';
       } else {
         genderTag = '#AnyGender';
       }
@@ -714,9 +714,9 @@ export function generatePostHashtags(options: {
     } else if (pref.includes('male') || pref.includes('ወንድ')) {
       genderTag = '#MaleRoommate';
     } else if (gen.includes('female') || gen.includes('ሴት')) {
-      genderTag = '#FemaleRoommate';
+      genderTag = '#PostedByFemale';
     } else if (gen.includes('male') || gen.includes('ወንድ')) {
-      genderTag = '#MaleRoommate';
+      genderTag = '#PostedByMale';
     } else {
       genderTag = '#AnyGender';
     }
@@ -813,15 +813,10 @@ export function formatRoommatePost(profile: Profile | Record<string, any>): stri
     : 'Clean, respectful, no smoking / ጽዱ፣ ጨዋ፣ ሲጋራ የማያጨስ';
 
   let extractedJob = (p.job || '').trim();
-  let extractedReligion = (p.religion || '').trim();
   const traitBlob = String(p.roommate_traits || p.lifestyle_bio || '');
   if (!extractedJob && traitBlob) {
     const jm = traitBlob.match(/(?:^|\|)\s*Job:\s*([^|\n]+)/i);
     if (jm?.[1]) extractedJob = jm[1].trim();
-  }
-  if (!extractedReligion && traitBlob) {
-    const rm = traitBlob.match(/(?:^|\|)\s*Religion:\s*([^|\n]+)/i);
-    if (rm?.[1]) extractedReligion = rm[1].trim();
   }
 
   let rawBio = p.about_me || p.lifestyle_bio || p.roommate_traits || p.bio || '';
@@ -839,7 +834,6 @@ export function formatRoommatePost(profile: Profile | Record<string, any>): stri
   if (!cleanDetails || cleanDetails === cleanBio) {
     const detailBits = [`Areas: ${locationDisplay}`, `Seeking: ${prefSexDisplay}`];
     if (extractedJob && !/^any$/i.test(extractedJob)) detailBits.push(`Occupation: ${extractedJob}`);
-    if (extractedReligion && !/^any$/i.test(extractedReligion)) detailBits.push(`Religion: ${extractedReligion}`);
     cleanDetails = detailBits.join(' • ');
   }
   if (cleanDetails.length > 350) {
