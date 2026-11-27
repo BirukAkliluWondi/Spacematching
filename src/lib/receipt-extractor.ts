@@ -146,13 +146,14 @@ function detectBankHint(text: string, reference?: string): 'telebirr' | 'cbe' | 
   }
 
   // Fallback to reference prefix only when text did not identify the bank
+  // Note: Do NOT force 'cbe' on bare FT... codes because Bank of Abyssinia (BoA) also uses FT...
   if (refUpper.startsWith('DTS')) return 'dashen';
   if (refUpper.startsWith('TX')) return 'boa';
-  if (refUpper.startsWith('FT')) return 'cbe';
   if (
     refUpper.startsWith('DK') ||
     refUpper.startsWith('DL') ||
     (refUpper.startsWith('DT') && !refUpper.startsWith('DTS')) ||
+    refUpper.startsWith('DM') ||
     lower.includes('telebirr') ||
     lower.includes('ቴሌብር') ||
     lower.includes('ethiotelecom')
@@ -315,7 +316,7 @@ export async function extractTransactionReferenceFromImage(
         };
       }
 
-      const tbTokenMatch = line.match(/\b((?:D[A-LN-Z]|C[A-Z]|E[A-Z])[A-Z0-9]{8})\b/i);
+      const tbTokenMatch = line.match(/\b((?:D[A-LN-Z]|C[A-Z]|E[A-Z])[A-Z0-9]{8,9})\b/i);
       if (
         tbTokenMatch?.[1] &&
         (tbTokenMatch[1].match(/\d/g) || []).length >= 2 &&

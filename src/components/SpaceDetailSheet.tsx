@@ -452,7 +452,7 @@ export function SpaceDetailSheet({ space, onClose, telegramId }: SpaceDetailShee
                   {isVerifying ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                      <span>Verifying Receipt with verify.et...</span>
+                      <span>Verifying Receipt...</span>
                     </>
                   ) : (
                     <>

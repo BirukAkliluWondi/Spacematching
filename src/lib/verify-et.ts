@@ -37,6 +37,8 @@ export function normalizeCanonicalTransactionRef(input: string): string {
     if (queryId?.[1]) return queryId[1].toUpperCase();
     const pathTail = extracted.match(/\/(?:receipt|verify|tx)\/([A-Z0-9_-]{6,32})(?:[/?#]|$)/i);
     if (pathTail?.[1]) return pathTail[1].toUpperCase();
+    const cbeShortMatch = extracted.match(/cbe\.com\.et\/(FT[A-Z0-9]{6,16})(?:-\d{6,10})?(?:[/?#]|$)/i);
+    if (cbeShortMatch?.[1]) return cbeShortMatch[1].toUpperCase();
     return extracted.trim();
   }
   return extracted.trim().toUpperCase();
@@ -50,7 +52,7 @@ export function extractTransactionReference(input: string): string {
 
   // 1. Official Ethiopian bank/Telebirr receipt URL extraction (never hijack on promo/footer URLs)
   const receiptUrlMatch = cleaned.match(
-    /https?:\/\/(?:[a-z0-9-]+\.)*(?:cbe\.com\.et|ethiotelecom\.et\/receipt|transactioninfo\.ethiotelecom\.et|bankofabyssinia\.com|dashenbanksc\.com|dashensuperapp\.com|verify\.et)[^\s<>'"`]+[A-Za-z0-9]/i
+    /https?:\/\/(?:[a-z0-9-]+\.)*(?:cbe\.com\.et|ethiotelecom\.et\/receipt|transactioninfo\.ethiotelecom\.et|bankofabyssinia\.com|dashenbanksc\.com|dashensuperapp\.com|awashbank\.com|zemenbank\.com|cbebirr\.et|coopbankoromia\.com\.et)[^\s<>'"`]+[A-Za-z0-9]/i
   );
   if (receiptUrlMatch) {
     return receiptUrlMatch[0].trim().replace(/[.,;)]+$/, '');
@@ -109,8 +111,8 @@ export function extractTransactionReference(input: string): string {
     }
   }
 
-  // 6a. Telebirr 10-char Alphanumeric Reference (e.g., DKM7J1EXAP, DK29M7PCJT, DM..., E..., CJA...)
-  const tbRegex = /\b((?:D[A-LN-Z]|C[A-Z]|E[A-Z])[A-Z0-9]{8})\b/i;
+  // 6a. Telebirr 10-char (or 11-char OCR split-glyph) Alphanumeric Reference (e.g., DKM7J1EXAP, DKQ1OR1E0P, DKQ1OR1EQOP)
+  const tbRegex = /\b((?:D[A-LN-Z]|C[A-Z]|E[A-Z])[A-Z0-9]{8,9})\b/i;
   let tbMatch: RegExpExecArray | null;
   const tbGlobal = new RegExp(tbRegex.source, 'gi');
   while ((tbMatch = tbGlobal.exec(cleaned)) !== null) {
@@ -181,85 +183,169 @@ export function extractTransactionReference(input: string): string {
   return '';
 }
 
-/**
- * Builds tailored Verify.ET payloads matching bank-specific API contracts:
- * - CBE: receiptNumber and referenceNumber
- * - Telebirr: transactionNumber and reference
- * - Bank of Abyssinia (abyssinia/boa): bank 'boa', reference, suffix and accountSuffix (last 5 digits of settlementAccount)
- * - Dashen Bank: reference and referenceNumber
- */
-function buildVerifyPayload(
-  bank: string,
-  cleanRef: string,
-  settlementAccount: string
-): Record<string, string> {
-  const norm = bank.toLowerCase();
-  if (norm === 'cbe') {
-    return {
-      bank: 'cbe',
-      receiptNumber: cleanRef,
-      referenceNumber: cleanRef,
-      settlementAccount,
-    };
+function getLinksEtApiKey(): string {
+  const direct = (process.env.LINKS_ET_API_KEY || '').trim();
+  if (direct) return direct;
+  const legacy = (process.env.VERIFY_ET_API_KEY || '').trim();
+  return legacy.startsWith('vk_live_') || legacy.startsWith('vk_test_') ? legacy : '';
+}
+
+function getConfiguredAccounts() {
+  const receiverPhone = (process.env.TELEBIRR_RECEIVER_PHONE || '0987310978').trim() || '0987310978';
+  const abyssiniaAccount = (process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771').trim() || '256861771';
+  const dashenAccount = (process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411').trim() || '2922175078411';
+  const cbeAccount = (process.env.CBE_ACCOUNT_NUMBER || '1000054066094').trim() || '1000054066094';
+  const allConfigs = [
+    { bank: 'telebirr', settlementAccount: receiverPhone },
+    { bank: 'boa', settlementAccount: abyssiniaAccount },
+    { bank: 'dashen', settlementAccount: dashenAccount },
+    { bank: 'cbe', settlementAccount: cbeAccount },
+  ];
+  return { receiverPhone, abyssiniaAccount, dashenAccount, cbeAccount, allConfigs };
+}
+
+function matchesSettlementAccount(returnedSettlementAccount: unknown, expectedAccount: string): boolean {
+  const cleanSettlement = expectedAccount.replace(/\D/g, '');
+  if (!cleanSettlement) return false;
+  const settlementVariants = new Set<string>([cleanSettlement]);
+  if (/^0[79]\d{8}$/.test(cleanSettlement)) {
+    settlementVariants.add('251' + cleanSettlement.slice(1));
+    settlementVariants.add(cleanSettlement.slice(1));
+  } else if (/^251[79]\d{8}$/.test(cleanSettlement)) {
+    settlementVariants.add('0' + cleanSettlement.slice(3));
+    settlementVariants.add(cleanSettlement.slice(3));
   }
-  if (norm === 'telebirr') {
-    return {
-      bank: 'telebirr',
-      transactionNumber: cleanRef,
-      reference: cleanRef,
-      settlementAccount,
-    };
+
+  const rawStr = String(returnedSettlementAccount);
+  const cleanReturned = rawStr.replace(/\D/g, '');
+  if (/[*xX]/.test(rawStr)) {
+    const prefixDigits = (rawStr.split(/[*xX]/)[0] || '').replace(/\D/g, '');
+    const suffixDigits = (rawStr.split(/[*xX]/).pop() || '').replace(/\D/g, '');
+    return Array.from(settlementVariants).some((variant) => {
+      const prefixOk = !prefixDigits || variant.startsWith(prefixDigits);
+      const suffixOk = suffixDigits.length >= 2 && variant.endsWith(suffixDigits);
+      return prefixOk && suffixOk;
+    });
   }
-  if (norm === 'abyssinia' || norm === 'boa') {
-    const suffix = settlementAccount.slice(-5);
-    return {
-      bank: 'boa',
-      reference: cleanRef,
-      suffix,
-      accountSuffix: suffix,
-      settlementAccount,
-    };
-  }
-  if (norm === 'dashen') {
-    return {
-      bank: 'dashen',
-      reference: cleanRef,
-      referenceNumber: cleanRef,
-      settlementAccount,
-    };
-  }
-  return {
-    bank: norm,
-    reference: cleanRef,
-    referenceNumber: cleanRef,
-    transactionNumber: cleanRef,
-    receiptNumber: cleanRef,
-    settlementAccount,
-  };
+  return Array.from(settlementVariants).some((variant) => {
+    const vLast4 = variant.slice(-4);
+    return (
+      variant === cleanReturned ||
+      (cleanReturned.length >= 4 && vLast4.length === 4 && cleanReturned.endsWith(vLast4))
+    );
+  });
+}
+
+function normalizeProviderBank(rawProvider?: string | null): string {
+  const norm = (rawProvider || '').toLowerCase().trim();
+  if (!norm) return 'bank';
+  if (norm === 'abyssinia' || norm === 'boa-json' || norm === 'boa-qr') return 'boa';
+  if (norm === 'cbebirr' || norm === 'cbe birr' || norm === 'cbe-pdf' || norm === 'mb-json') return 'cbe';
+  if (norm === 'telebirr-html') return 'telebirr';
+  if (norm === 'dashen-html' || norm === 'dashen-pdf') return 'dashen';
+  return norm;
 }
 
 /**
- * Maps upstream Verify.ET responses and HTTP errors to friendly, human-readable English and Amharic messages.
- * Never leaks raw JSON or system stack errors to end users.
+ * Builds Links.et POST /api/verify payloads:
+ * - Full receipt URLs: { url, expect, waitMs: 8000 }
+ * - Telebirr short refs: { reference, expect, waitMs: 8000 }
+ * - CBE FT... short refs: reconstructed https://mbreciept.cbe.com.et/<FT_REF>-<8_DIGIT_SUFFIX>
+ * - Other bare bank refs without a URL require screenshot upload or full receipt URL
+ */
+function buildLinksEtVerifyPayload(
+  bank: string,
+  cleanRef: string,
+  settlementAccount: string,
+  expectedFee: number,
+  cbeAccount: string
+): { payload: Record<string, unknown> } | { needsFullUrl: true } {
+  const expectObj: Record<string, unknown> = {
+    amount: expectedFee,
+    ...(settlementAccount ? { receiverAccount: settlementAccount } : {}),
+  };
+
+  if (/^https?:\/\//i.test(cleanRef)) {
+    return {
+      payload: {
+        url: cleanRef,
+        expect: expectObj,
+        waitMs: 8000,
+      },
+    };
+  }
+
+  const norm = bank.toLowerCase();
+  if (norm === 'telebirr') {
+    return {
+      payload: {
+        reference: cleanRef,
+        expect: expectObj,
+        waitMs: 8000,
+      },
+    };
+  }
+
+  if (norm === 'cbe' && /^FT[0-9A-Z]{6,16}$/i.test(cleanRef)) {
+    const suffix8 = cbeAccount.replace(/\D/g, '').slice(-8);
+    if (suffix8.length === 8) {
+      return {
+        payload: {
+          url: `https://mbreciept.cbe.com.et/${cleanRef.toUpperCase()}-${suffix8}`,
+          expect: expectObj,
+          waitMs: 8000,
+        },
+      };
+    }
+  }
+
+  return { needsFullUrl: true };
+}
+
+/**
+ * Maps upstream bank verification responses and HTTP errors to friendly, white-labeled English & Amharic messages.
+ * Never exposes third-party verifier branding or raw technical errors to end users.
  */
 function mapVerifyError(
   upstreamText: string,
   statusCode?: number,
-  bank?: string
+  bank?: string,
+  apiErrorCode?: string
 ): { message: string; messageAm: string; errorCode: string } {
   const lower = (upstreamText || '').toLowerCase();
+  const codeLower = (apiErrorCode || '').toLowerCase();
   const bankName = bank ? bank.toUpperCase() : 'ባንክ';
 
-  // 1. Auth/Config/Quota errors (never burn credits retrying on 401/402/403)
+  if (
+    codeLower === 'provider_needs_full_url' ||
+    codeLower === 'no_reference' ||
+    codeLower === 'unsupported_provider'
+  ) {
+    return {
+      message:
+        'Please upload a clear screenshot of your payment receipt or paste the full bank receipt link so we can verify it with your bank.',
+      messageAm:
+        'ክፍያውን ከባንክ ጋር ለማረጋገጥ እባክዎ የክፍያ ደረሰኝዎን ግልጽ ስክሪንሽት ፎቶ ይላኩ ወይም ሙሉ የባንክ ደረሰኝ ማስፈንጠሪያ (link) ያስገቡ።',
+      errorCode: 'NEEDS_FULL_URL_OR_SCREENSHOT',
+    };
+  }
+
+  // 1. Auth/Config/Quota errors (never burn retries on 401/402/403 or quota caps)
   if (
     statusCode === 401 ||
     statusCode === 402 ||
     statusCode === 403 ||
+    codeLower === 'missing_key' ||
+    codeLower === 'invalid_key' ||
+    codeLower === 'revoked_key' ||
+    codeLower === 'quota_exceeded' ||
+    codeLower === 'image_cap_reached' ||
+    codeLower === 'ocr_daily_cap_reached' ||
+    codeLower === 'ai_not_configured' ||
     lower.includes('unauthorized') ||
     lower.includes('api key') ||
     lower.includes('insufficient credits') ||
-    lower.includes('insufficient_credits') ||
-    lower.includes('purchase more credits')
+    lower.includes('quota')
   ) {
     return {
       message: 'The bank verification system is undergoing maintenance. Please try again in a few minutes.',
@@ -268,32 +354,40 @@ function mapVerifyError(
     };
   }
 
-  // 2. Invalid or malformed reference format / missing required fields
+  // 2. High traffic / Rate limited
   if (
-    statusCode === 422 ||
-    lower.includes('requires `receiptnumber`') ||
-    lower.includes('requires receiptnumber') ||
-    lower.includes('receipt link') ||
-    lower.includes('referencenumber') ||
-    lower.includes('accountsuffix') ||
-    lower.includes('must be strings') ||
-    lower.includes('invalid') ||
-    lower.includes('format') ||
-    lower.includes('malformed') ||
-    lower.includes('length')
+    statusCode === 429 ||
+    codeLower === 'rate_limited' ||
+    lower.includes('rate limit') ||
+    lower.includes('too many') ||
+    lower.includes('throttl')
   ) {
     return {
-      message:
-        'Invalid transaction reference format. Please double-check your receipt code (e.g. FT... for CBE or your Telebirr reference) or receipt link.',
-      messageAm:
-        'የግብይት ደረሰኝ ቁጥር ቅርጸት ልክ አይደለም። እባክዎ የደረሰኝ ቁጥርዎን (ለምሳሌ ለCBE በ FT... የሚጀምር ወይም የቴሌብር ቁጥር) ወይም የደረሰኝ ማስፈንጠሪያ አረጋግጠው እንደገና ይሞክሩ።',
-      errorCode: 'INVALID_FORMAT',
+      message: 'The verification service is temporarily busy due to high traffic. Please wait a moment and try again.',
+      messageAm: 'የማረጋገጫ አገልግሎቱ በከፍተኛ ጥሪዎች ምክንያት ለጊዜው ተጠምዷል። እባክዎ ጥቂት ደቂቃዎች ቆይተው እንደገና ይሞክሩ።',
+      errorCode: 'SERVICE_BUSY',
     };
   }
 
-  // 3. Transaction not found in bank system
+  // 3. Screenshot detection / upload errors
+  if (
+    codeLower === 'detection_failed' ||
+    codeLower === 'image_too_large' ||
+    codeLower === 'not_an_image'
+  ) {
+    return {
+      message:
+        'Could not clearly read this receipt screenshot. Please upload a sharper, closer image or paste the full receipt link/reference.',
+      messageAm:
+        'ይህን የደረሰኝ ፎቶ በግልጽ ማንበብ አልተቻለም። እባክዎ የደረሰኙ ቁጥር በግልጽ የሚታይበትን ፎቶ ይላኩ ወይም የግብይት ቁጥሩን ይጻፉ።',
+      errorCode: 'IMAGE_READ_FAILED',
+    };
+  }
+
+  // 4. Transaction not found in bank system
   if (
     statusCode === 404 ||
+    codeLower === 'not_found' ||
     lower.includes('not found') ||
     lower.includes('not_found') ||
     /no\s+[a-z\s]*\bfound\b/i.test(lower) ||
@@ -304,14 +398,14 @@ function mapVerifyError(
   ) {
     return {
       message:
-        'Transaction record was not found with the bank. Please ensure the payment was completed and the reference number is correct.',
+        'Transaction record was not found with the bank. Please ensure the payment was completed and the reference number or receipt screenshot is correct.',
       messageAm:
-        'ይህ የክፍያ ግብይት በባንኩ አልተገኘም። እባክዎ ክፍያው በተሳካ ሁኔታ መጠናቀቁን እና የደረሰኝ ቁጥሩ ትክክል መሆኑን ያረጋግጡ።',
+        'ይህ የክፍያ ግብይት በባንኩ አልተገኘም። እባክዎ ክፍያው በተሳካ ሁኔታ መጠናቀቁን እና የደረሰኝ ቁጥሩ ወይም ፎቶው ትክክል መሆኑን ያረጋግጡ።',
       errorCode: 'NOT_FOUND',
     };
   }
 
-  // 4. Payment still pending or queued
+  // 5. Payment still pending or queued
   if (
     statusCode === 202 ||
     lower.includes('queued') ||
@@ -326,21 +420,29 @@ function mapVerifyError(
     };
   }
 
-  // 5. High traffic / Rate limited
+  // 6. Invalid or malformed reference format
   if (
-    statusCode === 429 ||
-    lower.includes('rate limit') ||
-    lower.includes('too many') ||
-    lower.includes('throttl')
+    statusCode === 400 ||
+    statusCode === 422 ||
+    codeLower === 'invalid_json' ||
+    codeLower === 'invalid_request' ||
+    lower.includes('receipt link') ||
+    lower.includes('must be') ||
+    lower.includes('invalid') ||
+    lower.includes('format') ||
+    lower.includes('malformed') ||
+    lower.includes('unsupported')
   ) {
     return {
-      message: 'The verification service is temporarily busy due to high traffic. Please wait a moment and try again.',
-      messageAm: 'የማረጋገጫ አገልግሎቱ በከፍተኛ ጥሪዎች ምክንያት ለጊዜው ተጠምዷል። እባክዎ ጥቂት ደቂቃዎች ቆይተው እንደገና ይሞክሩ።',
-      errorCode: 'SERVICE_BUSY',
+      message:
+        'Invalid transaction reference format. Please upload a clear payment receipt screenshot or provide a valid transaction code (e.g. Telebirr reference) or full receipt link.',
+      messageAm:
+        'የግብይት ደረሰኝ ቁጥር ቅርጸት ልክ አይደለም። እባክዎ የከፈሉበትን የደረሰኝ ስክሪንሽት ፎቶ ይላኩ ወይም ትክክለኛ የግብይት ቁጥር / ሙሉ ማስፈንጠሪያ ያስገቡ።',
+      errorCode: 'INVALID_FORMAT',
     };
   }
 
-  // 6. Upstream service downtime / Server error
+  // 7. Upstream service downtime / Server error
   if (
     (statusCode && statusCode >= 500) ||
     lower.includes('server error') ||
@@ -356,7 +458,7 @@ function mapVerifyError(
     };
   }
 
-  // 7. Payment cancelled or failed
+  // 8. Payment cancelled or failed
   if (lower.includes('cancel') || lower.includes('fail') || lower.includes('reject')) {
     return {
       message: 'This bank transaction was unsuccessful or cancelled.',
@@ -368,40 +470,545 @@ function mapVerifyError(
   // Fallback
   return {
     message: bank
-      ? `Payment transaction could not be verified via ${bank.toUpperCase()}. Please check your reference code.`
-      : 'Payment transaction status could not be verified. Please check your reference code and try again.',
+      ? `Payment transaction could not be verified via ${bank.toUpperCase()}. Please check your receipt or upload a clearer screenshot.`
+      : 'Payment transaction status could not be verified. Please check your reference code or upload a receipt screenshot.',
     messageAm: bank
-      ? `ይህ የክፍያ ግብይት በ${bankName} ሊረጋገጥ አልቻለም። እባክዎ የደረሰኝ ቁጥርዎን አረጋግጠው እንደገና ይሞክሩ።`
-      : 'የክፍያ ግብይቱ ሊረጋገጥ አልቻለም። እባክዎ የደረሰኝ ቁጥርዎን አረጋግጠው እንደገና ይሞክሩ።',
+      ? `ይህ የክፍያ ግብይት በ${bankName} ሊረጋገጥ አልቻለም። እባክዎ ደረሰኝዎን አረጋግጠው ወይም ግልጽ ፎቶ ይላኩ።`
+      : 'የክፍያ ግብይቱ ሊረጋገጥ አልቻለም። እባክዎ የደረሰኝ ቁጥርዎን አረጋግጠው ወይም ፎቶ ይላኩ።',
     errorCode: 'VERIFICATION_FAILED',
   };
 }
 
+function parseNumericAmount(raw: unknown): number {
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  }
+  if (raw == null) return 0;
+  const match = String(raw).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+  if (!match) return 0;
+  const val = parseFloat(match[0]);
+  return Number.isFinite(val) && val > 0 ? val : 0;
+}
+
 /**
- * Validates Telebirr, Bank of Abyssinia, Dashen Bank, or CBE transaction receipts using the verify.et API
- *
- * Supported Accounts (Account Holder: Wahid):
- * - Telebirr: process.env.TELEBIRR_RECEIVER_PHONE || '0987310978' (Wahid)
- * - Bank of Abyssinia: process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771' (Wahid)
- * - Dashen Bank: process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411' (Wahid)
- * - CBE (Fallback): process.env.CBE_ACCOUNT_NUMBER || '1000054066094'
- *
- * Endpoint: POST https://verify.et/api/verify?waitMs=5000
- * Headers: x-api-key: process.env.VERIFY_ET_API_KEY
+ * Validates Links.et /api/verify (or /api/verify-image upstream result) envelope strictly:
+ * confirms ok=true, non-cancelled status, settlement receiver account match, and net paidAmount >= expectedFee.
+ */
+function validateLinksEtEnvelope(
+  envelope: Record<string, any>,
+  expectedFee: number,
+  expectedAccount: string | undefined,
+  bankHint: string | undefined,
+  fallbackRef: string
+): VerifyEtResult {
+  const { allConfigs } = getConfiguredAccounts();
+  const providerKey = normalizeProviderBank(
+    envelope.providerKey || envelope.receipt?.source || bankHint
+  );
+  const receipt = (envelope.receipt && typeof envelope.receipt === 'object' ? envelope.receipt : {}) as Record<string, any>;
+  const nestedTx = (receipt.transaction && typeof receipt.transaction === 'object' ? receipt.transaction : {}) as Record<string, any>;
+
+  const txStatusStr = String(
+    receipt.transactionStatus || receipt.upstreamStatus || receipt.status || ''
+  ).toLowerCase();
+  if (txStatusStr.includes('pending') || txStatusStr.includes('process') || txStatusStr.includes('queue')) {
+    return {
+      success: false,
+      message: 'Payment verification is still processing by the bank. Please wait a minute and submit again.',
+      messageAm: 'የክፍያ ማረጋገጫው በባንኩ በሂደት ላይ ነው። እባክዎ ጥቂት ደቂቃዎች ቆይተው እንደገና ይላኩ።',
+      errorCode: 'PAYMENT_PENDING',
+      bank: providerKey,
+      rawResponse: envelope,
+    };
+  }
+  if (txStatusStr.includes('fail') || txStatusStr.includes('cancel') || txStatusStr.includes('reject')) {
+    return {
+      success: false,
+      message: 'This bank transaction was unsuccessful or cancelled.',
+      messageAm: 'ይህ የባንክ ግብይት ያልተሳካ ወይም የተሰረዘ ነው።',
+      errorCode: 'TRANSACTION_FAILED',
+      bank: providerKey,
+      rawResponse: envelope,
+    };
+  }
+
+  // Settlement account verification
+  const receiverCheck = envelope.receiverCheck as Record<string, any> | undefined;
+  const returnedSettlementAccount =
+    receipt.creditedPartyAccountNo ||
+    receipt.receiverAccount ||
+    receipt.recipientAccount ||
+    receipt.receiverNumber ||
+    receipt.bankAccountNumber ||
+    nestedTx.beneficiaryAccount ||
+    receiverCheck?.receiver?.account;
+
+  const targetExpectedAccount =
+    expectedAccount ||
+    allConfigs.find((c) => c.bank === providerKey)?.settlementAccount;
+
+  if (receiverCheck?.account === 'mismatch') {
+    return {
+      success: false,
+      message:
+        'Payment was sent to a different account number. Please ensure payment was transferred to our designated account.',
+      messageAm:
+        'ክፍያው የተላከው ወደ ሌላ የባንክ/ቴሌብር ሂሳብ ነው። እባክዎ ክፍያው ወደ ተሰጠው ትክክለኛ የሂሳብ ቁጥር መላኩን ያረጋግጡ።',
+      errorCode: 'ACCOUNT_MISMATCH',
+      bank: providerKey,
+      rawResponse: envelope,
+    };
+  }
+
+  if (returnedSettlementAccount) {
+    const allowedAccounts = targetExpectedAccount
+      ? [targetExpectedAccount]
+      : allConfigs.map((c) => c.settlementAccount);
+    const anyMatch = allowedAccounts.some((acc) => matchesSettlementAccount(returnedSettlementAccount, acc));
+    if (!anyMatch) {
+      console.warn(
+        `[verify-et] Settlement account mismatch for ${providerKey}: expected ${targetExpectedAccount || 'configured accounts'}, got ${returnedSettlementAccount}`
+      );
+      return {
+        success: false,
+        message:
+          'Payment was sent to a different account number. Please ensure payment was transferred to our designated account.',
+        messageAm:
+          'ክፍያው የተላከው ወደ ሌላ የባንክ/ቴሌብር ሂሳብ ነው። እባክዎ ክፍያው ወደ ተሰጠው ትክክለኛ የሂሳብ ቁጥር መላኩን ያረጋግጡ።',
+        errorCode: 'ACCOUNT_MISMATCH',
+        bank: providerKey,
+        rawResponse: envelope,
+      };
+    }
+  }
+
+  // Net paid amount validation across all provider receipt shapes
+  const amountCheck = envelope.amountCheck as Record<string, any> | undefined;
+  const netAmountCandidates = [
+    amountCheck?.paid,
+    receipt.settledAmount,
+    receipt.transferredAmount,
+    receipt.creditAmount,
+    nestedTx.amount,
+    receipt.totalAmountPaid,
+    receipt.totalPaidAmount,
+    receipt.totalAmount,
+    receipt.amount,
+  ];
+  let paidAmount = 0;
+  for (const cand of netAmountCandidates) {
+    const num = parseNumericAmount(cand);
+    if (num > 0) {
+      paidAmount = num;
+      break;
+    }
+  }
+
+  if (paidAmount < expectedFee) {
+    return {
+      success: false,
+      message:
+        paidAmount > 0
+          ? `Insufficient payment. Received ${paidAmount} ETB, but fee requires at least ${expectedFee} ETB.`
+          : `Could not verify a valid payment amount (requires at least ${expectedFee} ETB). Please double-check your receipt.`,
+      messageAm:
+        paidAmount > 0
+          ? `የተከፈለው ገንዘብ መጠን በቂ አይደለም። የተከፈለው ${paidAmount} ብር ሲሆን የሚያስፈልገው ክፍያ ${expectedFee} ብር ነው።`
+          : `የተከፈለው የገንዘብ መጠን (ቢያንስ ${expectedFee} ብር) ማረጋገጥ አልተቻለም። እባክዎ ደረሰኝዎን ያረጋግጡ።`,
+      errorCode: 'INSUFFICIENT_AMOUNT',
+      paidAmount,
+      bank: providerKey,
+      rawResponse: envelope,
+    };
+  }
+
+  const senderName =
+    receipt.payerName ||
+    nestedTx.senderName ||
+    receipt.sourceAccountName ||
+    receipt.customer?.customerName ||
+    'Verified Payer';
+
+  const txNum =
+    receipt.receiptNo ||
+    receipt.reference ||
+    receipt.transactionReference ||
+    receipt.transactionId ||
+    nestedTx.transactionId ||
+    receipt.paymentReference ||
+    fallbackRef;
+
+  const bankLabel = providerKey.toUpperCase();
+  return {
+    success: true,
+    message: `Payment receipt verified successfully via ${bankLabel}.`,
+    messageAm: `የክፍያ ደረሰኝ በ${bankLabel} በተሳካ ሁኔታ ተረጋግጧል።`,
+    transactionNumber: String(txNum || fallbackRef).trim(),
+    paidAmount,
+    senderName: String(senderName).trim(),
+    bank: providerKey,
+    rawResponse: envelope,
+  };
+}
+
+/**
+ * Verifies a payment receipt screenshot directly using Links.et POST /api/verify-image.
+ * Automatically resizes oversized buffers (>3.5MB) via sharp so the base64 payload stays under 5MB.
+ */
+export async function verifyReceiptImageWithLinksEt(
+  imageBuffer: Buffer,
+  expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '100'),
+  preferredBank?: string
+): Promise<VerifyEtResult> {
+  const apiKey = getLinksEtApiKey();
+  if (!apiKey) {
+    return {
+      success: false,
+      message: 'Server configuration error: Payment verification is temporarily unavailable.',
+      messageAm: 'የአገልጋይ ውቅር ችግር፡ የክፍያ ማረጋገጫ አገልግሎት ለጊዜው አይሰራም።',
+      errorCode: 'CONFIG_ERROR',
+    };
+  }
+
+  const { receiverPhone, abyssiniaAccount, dashenAccount, cbeAccount, allConfigs } = getConfiguredAccounts();
+  const normHint = preferredBank ? normalizeProviderBank(preferredBank) : undefined;
+  const expectedConfig = normHint ? allConfigs.find((c) => c.bank === normHint) : undefined;
+
+  let uploadBuffer = imageBuffer;
+  try {
+    if (uploadBuffer.byteLength > 3_500_000) {
+      const sharp = (await import('sharp')).default;
+      uploadBuffer = await sharp(uploadBuffer)
+        .rotate()
+        .resize({ width: 1600, withoutEnlargement: true })
+        .jpeg({ quality: 86 })
+        .toBuffer();
+    }
+  } catch {
+    // Keep original buffer if sharp resize fails
+  }
+
+  const imageBase64 = uploadBuffer.toString('base64');
+  const expectObj: Record<string, unknown> = {
+    amount: expectedFee,
+    ...(expectedConfig?.settlementAccount
+      ? { receiverAccount: expectedConfig.settlementAccount }
+      : {}),
+  };
+
+  try {
+    const response = await fetch('https://links.et/api/verify-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        imageBase64,
+        expect: expectObj,
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+
+    const rawText = await response.text();
+    let data: Record<string, any> = {};
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      data = {};
+    }
+
+    if (!response.ok) {
+      const errCode = data.error?.code;
+      const errMsg = typeof data.error === 'string' ? data.error : (data.error?.message || data.message || rawText);
+      const mapped = mapVerifyError(errMsg, response.status, normHint, errCode);
+      return { ...mapped, success: false, rawResponse: data || rawText };
+    }
+
+    const upstream = data.upstream as Record<string, any> | undefined;
+    const detected = data.detected as Record<string, any> | undefined;
+    const detectedProvider = normalizeProviderBank(detected?.provider);
+
+    // Handle Bank of Abyssinia QR-only confirmation
+    if (upstream?.reason === 'qr_receipt' && upstream?.receipt) {
+      const mergedEnvelope = {
+        providerKey: upstream.provider || detectedProvider || 'boa',
+        receipt: upstream.receipt,
+        receiverCheck: data.receiverCheck,
+        amountCheck: data.amountCheck,
+      };
+      return validateLinksEtEnvelope(
+        mergedEnvelope,
+        expectedFee,
+        abyssiniaAccount,
+        'boa',
+        String(detected?.reference || upstream.receipt?.transactionReference || '')
+      );
+    }
+
+    if (upstream?.attempted && upstream?.result) {
+      const resultObj = upstream.result as Record<string, any>;
+      if (resultObj.quotaExceeded) {
+        return {
+          ...mapVerifyError('quota exceeded', 429, detectedProvider, 'quota_exceeded'),
+          success: false,
+          rawResponse: data,
+        };
+      }
+      if (resultObj.ok === true) {
+        const mergedEnvelope = {
+          ...resultObj,
+          receiverCheck: resultObj.receiverCheck ?? data.receiverCheck,
+          amountCheck: resultObj.amountCheck ?? data.amountCheck,
+        };
+        const fallbackAccount =
+          detectedProvider === 'telebirr'
+            ? receiverPhone
+            : detectedProvider === 'cbe'
+            ? cbeAccount
+            : detectedProvider === 'boa'
+            ? abyssiniaAccount
+            : detectedProvider === 'dashen'
+            ? dashenAccount
+            : expectedConfig?.settlementAccount;
+        return validateLinksEtEnvelope(
+          mergedEnvelope,
+          expectedFee,
+          fallbackAccount,
+          detectedProvider,
+          String(detected?.reference || upstream.url || '')
+        );
+      }
+      const errStr = typeof resultObj.error === 'string' ? resultObj.error : '';
+      return {
+        ...mapVerifyError(errStr || 'Bank verification failed', resultObj.httpStatus || 502, detectedProvider),
+        success: false,
+        rawResponse: data,
+      };
+    }
+
+    const reason = String(upstream?.reason || '');
+    const mapped = mapVerifyError(
+      upstream?.error || reason || 'Could not detect receipt reference',
+      400,
+      detectedProvider,
+      reason || undefined
+    );
+    return { ...mapped, success: false, rawResponse: data };
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.warn('[verify-et] Screenshot verification connection warning:', errMsg);
+    return {
+      success: false,
+      message: 'Network connection error while verifying your receipt screenshot. Please try again.',
+      messageAm: 'የደረሰኝ ፎቶውን በማረጋገጥ ላይ የመረብ ግንኙነት ችግር አጋጥሟል። እባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።',
+      errorCode: 'NETWORK_ERROR',
+    };
+  }
+}
+
+/**
+ * Validates Telebirr, Bank of Abyssinia, Dashen Bank, or CBE transaction receipts.
+ * Tier 1 checks Telebirr receipts directly at zero API cost; Tier 2 routes via Links.et /api/verify.
  */
 export async function verifyTelebirrPayment(
   referenceNumber: string,
   expectedFee: number = Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '100'),
   preferredBank?: string
 ): Promise<VerifyEtResult> {
-  const apiKey = (process.env.VERIFY_ET_API_KEY || '').trim();
-  const accountHolder = (process.env.PAYMENT_ACCOUNT_HOLDER || 'Wahid').trim();
-  const receiverPhone = process.env.TELEBIRR_RECEIVER_PHONE || '0987310978';
-  const abyssiniaAccount = process.env.ABYSSINIA_ACCOUNT_NUMBER || '256861771';
-  const dashenAccount = process.env.DASHEN_ACCOUNT_NUMBER || '2922175078411';
-  const cbeAccount = process.env.CBE_ACCOUNT_NUMBER || '1000054066094';
-
+  const apiKey = getLinksEtApiKey();
+  const { receiverPhone, abyssiniaAccount, dashenAccount, cbeAccount, allConfigs } = getConfiguredAccounts();
   const cleanRef = extractTransactionReference(referenceNumber);
+
+  type DirectTelebirrOutcome =
+    | { kind: 'terminal'; result: VerifyEtResult }
+    | { kind: 'not_found'; authoritative: boolean }
+    | { kind: 'unavailable' };
+
+  const extractTelebirrReceiptId = (candidateRef: string): string => {
+    const trimmed = candidateRef.trim();
+    const urlMatch = trimmed.match(/ethiotelecom\.et\/receipt\/([A-Z0-9_-]{6,32})/i);
+    if (urlMatch?.[1]) return urlMatch[1].toUpperCase();
+    return trimmed.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '').toUpperCase();
+  };
+
+  const verifyTelebirrDirect = async (
+    candidateRef: string,
+    expectedTelebirrAccount: string
+  ): Promise<DirectTelebirrOutcome> => {
+    const txId = extractTelebirrReceiptId(candidateRef);
+    if (!txId || !/^[A-Z0-9]{6,20}$/.test(txId)) {
+      return { kind: 'unavailable' };
+    }
+    try {
+      const res = await fetch(`https://transactioninfo.ethiotelecom.et/receipt/${encodeURIComponent(txId)}`, {
+        method: 'GET',
+        headers: {
+          Accept: 'text/html,application/xhtml+xml',
+          'User-Agent': 'Mozilla/5.0 (compatible; SpaceMatchAddis/1.0)',
+        },
+        signal: AbortSignal.timeout(7000),
+      });
+
+      if (res.status === 404) {
+        return { kind: 'not_found', authoritative: false };
+      }
+      if (!res.ok) {
+        return { kind: 'unavailable' };
+      }
+
+      const html = await res.text();
+      if (/this request is not correct/i.test(html)) {
+        return { kind: 'not_found', authoritative: true };
+      }
+      if (!/(?:telebirr|ethiotelecom|credited\s*party)/i.test(html) || !/<td\b/i.test(html)) {
+        return { kind: 'unavailable' };
+      }
+
+      const tdCells = [...html.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)]
+        .map((m) =>
+          m[1]
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/&amp;/gi, '&')
+            .replace(/\s+/g, ' ')
+            .trim()
+        )
+        .filter(Boolean);
+
+      const findNextCell = (labelRe: RegExp): string => {
+        const idx = tdCells.findIndex((c) => labelRe.test(c));
+        return idx !== -1 && idx + 1 < tdCells.length ? tdCells[idx + 1] : '';
+      };
+
+      let txStatus = '';
+      const statusIdx = tdCells.findIndex((c) => /transaction\s*status/i.test(c));
+      if (statusIdx !== -1) {
+        const inlineMatch = tdCells[statusIdx].match(/transaction\s*status\s*[:\-]?\s*([A-Za-z]+)/i);
+        txStatus = (inlineMatch?.[1] || tdCells[statusIdx + 1] || '').trim().toLowerCase();
+      }
+
+      if (!txStatus) {
+        return { kind: 'unavailable' };
+      }
+      if (txStatus.includes('pending') || txStatus.includes('process') || txStatus.includes('queue')) {
+        return {
+          kind: 'terminal',
+          result: {
+            success: false,
+            message: 'Payment verification is still processing by Telebirr. Please wait a minute and submit again.',
+            messageAm: 'የቴሌብር ክፍያው በሂደት ላይ ነው። እባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።',
+            errorCode: 'PAYMENT_PENDING',
+            bank: 'telebirr',
+          },
+        };
+      }
+      if (txStatus.includes('fail') || txStatus.includes('cancel') || txStatus.includes('reject')) {
+        return {
+          kind: 'terminal',
+          result: {
+            success: false,
+            message: 'This Telebirr transaction was unsuccessful or cancelled.',
+            messageAm: 'ይህ የቴሌብር ግብይት ያልተሳካ ወይም የተሰረዘ ነው።',
+            errorCode: 'TRANSACTION_FAILED',
+            bank: 'telebirr',
+          },
+        };
+      }
+      if (txStatus !== 'completed' && txStatus !== 'success' && txStatus !== 'paid') {
+        return { kind: 'unavailable' };
+      }
+
+      const creditedAccount = findNextCell(/credited\s*party\s*account\s*no/i);
+      if (!creditedAccount) {
+        // Fail closed rather than accepting a receipt without a verifiable receiver account
+        return { kind: 'unavailable' };
+      }
+      if (!matchesSettlementAccount(creditedAccount, expectedTelebirrAccount)) {
+        return {
+          kind: 'terminal',
+          result: {
+            success: false,
+            message:
+              'Payment was sent to a different account number. Please ensure payment was transferred to our designated account.',
+            messageAm:
+              'ክፍያው የተላከው ወደ ሌላ የባንክ/ቴሌብር ሂሳብ ነው። እባክዎ ክፍያው ወደ ተሰጠው ትክክለኛ የሂሳብ ቁጥር መላኩን ያረጋግጡ።',
+            errorCode: 'ACCOUNT_MISMATCH',
+            bank: 'telebirr',
+          },
+        };
+      }
+
+      const parseBirrAmount = (raw: string): number => {
+        const m = raw.replace(/,/g, '').match(/(\d+(?:\.\d+)?)\s*(?:birr|etb)/i);
+        return m ? parseFloat(m[1]) : 0;
+      };
+
+      let settledAmount = 0;
+      const settledIdx = tdCells.findIndex((c) => /settled\s*amount/i.test(c));
+      if (settledIdx !== -1) {
+        for (let k = settledIdx + 1; k < Math.min(settledIdx + 6, tdCells.length); k++) {
+          const val = parseBirrAmount(tdCells[k]);
+          if (val > 0) {
+            settledAmount = val;
+            break;
+          }
+        }
+      }
+      if (settledAmount <= 0) {
+        const totalPaidStr = findNextCell(/total\s*paid\s*amount/i);
+        settledAmount = parseBirrAmount(totalPaidStr);
+      }
+
+      if (!Number.isFinite(settledAmount) || settledAmount < expectedFee) {
+        return {
+          kind: 'terminal',
+          result: {
+            success: false,
+            message:
+              settledAmount > 0
+                ? `Insufficient payment. Received ${settledAmount} ETB, but fee requires at least ${expectedFee} ETB.`
+                : `Could not verify a valid payment amount (requires at least ${expectedFee} ETB). Please double-check your receipt.`,
+            messageAm:
+              settledAmount > 0
+                ? `የተከፈለው ገንዘብ መጠን በቂ አይደለም። የተከፈለው ${settledAmount} ብር ሲሆን የሚያስፈልገው ክፍያ ${expectedFee} ብር ነው።`
+                : `የተከፈለው የገንዘብ መጠን (ቢያንስ ${expectedFee} ብር) ማረጋገጥ አልተቻለም። እባክዎ ደረሰኝዎን ያረጋግጡ።`,
+            errorCode: 'INSUFFICIENT_AMOUNT',
+            paidAmount: settledAmount,
+            bank: 'telebirr',
+          },
+        };
+      }
+
+      let invoiceNo = txId;
+      const invIdx = tdCells.findIndex((c) => /invoice\s*no/i.test(c));
+      if (invIdx !== -1) {
+        for (let k = invIdx + 1; k < Math.min(invIdx + 6, tdCells.length); k++) {
+          if (/^[A-Z0-9]{6,20}$/i.test(tdCells[k]) && /\d/.test(tdCells[k])) {
+            invoiceNo = tdCells[k].toUpperCase();
+            break;
+          }
+        }
+      }
+
+      const payerName = findNextCell(/payer\s*name/i) || 'Verified Payer';
+
+      return {
+        kind: 'terminal',
+        result: {
+          success: true,
+          message: 'Payment receipt verified successfully via TELEBIRR.',
+          messageAm: 'የክፍያ ደረሰኝ በTELEBIRR በተሳካ ሁኔታ ተረጋግጧል።',
+          transactionNumber: invoiceNo,
+          paidAmount: settledAmount,
+          senderName: payerName,
+          bank: 'telebirr',
+        },
+      };
+    } catch {
+      return { kind: 'unavailable' };
+    }
+  };
 
   if (!cleanRef) {
     return {
@@ -414,24 +1021,7 @@ export async function verifyTelebirrPayment(
     };
   }
 
-  if (!apiKey) {
-    return {
-      success: false,
-      message: 'Server configuration error: Payment verification is temporarily unavailable.',
-      messageAm: 'የአገልጋይ ውቅር ችግር፡ የክፍያ ማረጋገጫ አገልግሎት ለጊዜው አይሰራም።',
-      errorCode: 'CONFIG_ERROR',
-    };
-  }
-
-  const endpoint = 'https://verify.et/api/verify?waitMs=5000';
-
-  // Bank Options to evaluate (Telebirr, BoA, Dashen & CBE) - deduplicated accounts
-  const allConfigs = [
-    { bank: 'telebirr', settlementAccount: receiverPhone.trim() || '0987310978' },
-    { bank: 'boa', settlementAccount: abyssiniaAccount.trim() || '256861771' },
-    { bank: 'dashen', settlementAccount: dashenAccount.trim() || '2922175078411' },
-    { bank: 'cbe', settlementAccount: cbeAccount.trim() || '1000054066094' },
-  ];
+  const endpoint = 'https://links.et/api/verify';
 
   // Infer bank from reference prefix if not explicitly passed
   let normalizedBank = preferredBank?.toLowerCase().trim();
@@ -442,6 +1032,7 @@ export async function verifyTelebirrPayment(
   }
   const refUpper = cleanRef.toUpperCase();
   const refLower = cleanRef.toLowerCase();
+  const isFullUrl = /^https?:\/\//i.test(cleanRef);
   const isExplicitCbeUrl = refLower.includes('cbe.com.et');
   const isFtRef = refUpper.startsWith('FT');
   const isDashenRef = refUpper.startsWith('DTS') || refLower.includes('dashen');
@@ -454,24 +1045,26 @@ export async function verifyTelebirrPayment(
     refLower.includes('ethiotelecom') ||
     refLower.includes('telebirr');
 
-  // Strictly target identified bank, or evaluate CBE + BoA together for ambiguous bare FT... codes
+  // Strictly target identified bank, evaluate URL once, or check CBE/BoA for bare FT... codes
   let bankConfigs: typeof allConfigs;
   if (normalizedBank) {
     bankConfigs = allConfigs.filter((c) => c.bank === normalizedBank);
     if (bankConfigs.length === 0) {
-      bankConfigs = [{ bank: normalizedBank, settlementAccount: receiverPhone.trim() || '0987310978' }];
+      bankConfigs = [{ bank: normalizedBank, settlementAccount: isFullUrl ? '' : receiverPhone }];
     }
   } else if (isExplicitCbeUrl) {
     bankConfigs = allConfigs.filter((c) => c.bank === 'cbe');
-  } else if (isFtRef) {
-    // Bank of Abyssinia receipts also start with FT... when bank keywords weren't detected
-    bankConfigs = allConfigs.filter((c) => c.bank === 'cbe' || c.bank === 'boa');
   } else if (isBoaRef) {
     bankConfigs = allConfigs.filter((c) => c.bank === 'boa');
   } else if (isDashenRef) {
     bankConfigs = allConfigs.filter((c) => c.bank === 'dashen');
   } else if (isTelebirrRef) {
     bankConfigs = allConfigs.filter((c) => c.bank === 'telebirr');
+  } else if (isFullUrl) {
+    // Full receipt URLs (e.g. Awash, Zemen, M-Pesa, etc.) route through /api/verify in a single call
+    bankConfigs = [{ bank: 'auto', settlementAccount: '' }];
+  } else if (isFtRef) {
+    bankConfigs = allConfigs.filter((c) => c.bank === 'cbe' || c.bank === 'boa');
   } else {
     bankConfigs = allConfigs;
   }
@@ -643,7 +1236,20 @@ export async function verifyTelebirrPayment(
     candidateRef: string
   ): Promise<VerifyEtResult | null> => {
     try {
-      const payload = buildVerifyPayload(config.bank, candidateRef, config.settlementAccount);
+      const built = buildLinksEtVerifyPayload(
+        config.bank,
+        candidateRef,
+        config.settlementAccount,
+        expectedFee,
+        cbeAccount
+      );
+      if ('needsFullUrl' in built) {
+        state.lastFailure = updateFailure(
+          state.lastFailure,
+          mapVerifyError('provider_needs_full_url', 400, config.bank, 'provider_needs_full_url')
+        );
+        return null;
+      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -651,95 +1257,41 @@ export async function verifyTelebirrPayment(
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
         },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(8500),
+        body: JSON.stringify(built.payload),
+        signal: AbortSignal.timeout(12000),
       });
 
-      if (!response.ok) {
-        let rawErrorText = '';
-        let extractedMsg = '';
-        try {
-          rawErrorText = await response.text();
-          const parsed = JSON.parse(rawErrorText);
-          extractedMsg = toSafeStr(parsed.message || parsed.error?.message || parsed.error || '');
-        } catch {
-          extractedMsg = rawErrorText;
-        }
-
-        console.warn(
-          `[verify-et] Verify.ET API error (${config.bank}, HTTP ${response.status}):`,
-          rawErrorText || response.statusText
-        );
-
-        state.lastFailure = updateFailure(state.lastFailure, mapVerifyError(extractedMsg || rawErrorText, response.status, config.bank));
-        state.lastRawResponse = rawErrorText;
-        return null;
+      const rawText = await response.text();
+      let data: Record<string, any> = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        data = {};
       }
+      state.lastRawResponse = Object.keys(data).length > 0 ? data : rawText;
 
-      let data = await response.json();
-      state.lastRawResponse = data;
-
-      // If Verify.ET queued or marked the request pending, poll the status URL
-      const pollUrlPath =
-        data.links?.statusUrl ||
-        data.statusUrl ||
-        (data.requestId ? `/api/verify/${data.requestId}` : null);
-
-      const rootStatusLower = String(data.status || '').toLowerCase();
-      const verStatusLower = String(data.verification?.status || '').toLowerCase();
-      const procStatusLower = String(data.verification?.processingStatus || '').toLowerCase();
-
+      // Poll async statusUrl if Links.et returned 202 queued
+      const pollUrlPath = data.statusUrl || (data.requestId ? `/api/verify/${data.requestId}` : null);
       if (
-        (response.status === 202 ||
-          rootStatusLower === 'pending' ||
-          procStatusLower === 'queued' ||
-          verStatusLower === 'pending' ||
-          data.message === 'Verification queued.') &&
+        (response.status === 202 || String(data.processingStatus || '').toLowerCase() === 'queued') &&
         pollUrlPath
       ) {
-        const pollFullUrl = pollUrlPath.startsWith('http')
-          ? pollUrlPath
-          : `https://verify.et${pollUrlPath}`;
-        const pollInterval = Math.max(1000, Number(data.links?.pollAfterMs || 1500));
+        const pollFullUrl = String(pollUrlPath).startsWith('http')
+          ? String(pollUrlPath)
+          : `https://links.et${pollUrlPath}`;
 
         for (let pollAttempt = 1; pollAttempt <= 4; pollAttempt++) {
-          await new Promise((resolve) => setTimeout(resolve, pollInterval));
+          await new Promise((resolve) => setTimeout(resolve, 2000));
           try {
             const pollRes = await fetch(pollFullUrl, {
               headers: { 'x-api-key': apiKey },
-              signal: AbortSignal.timeout(5000),
+              signal: AbortSignal.timeout(6000),
             });
             if (!pollRes.ok) continue;
             const pollData = await pollRes.json();
             state.lastRawResponse = pollData;
-
-            const pRootStatus = String(pollData.status || '').toLowerCase();
-            const pVerStatus = String(pollData.verification?.status || '').toLowerCase();
-            const pProcStatus = String(pollData.verification?.processingStatus || '').toLowerCase();
-            const pDataStatus = Array.isArray(pollData.data)
-              ? String(pollData.data[0]?.status || '').toLowerCase()
-              : String(pollData.data?.status || '').toLowerCase();
-
-            const isPolledVerified =
-              pollData.verification?.verified === true ||
-              pVerStatus === 'success' ||
-              pVerStatus === 'verified' ||
-              pVerStatus === 'completed' ||
-              pollData.verified === true ||
-              pRootStatus === 'success' ||
-              pRootStatus === 'verified' ||
-              pRootStatus === 'completed' ||
-              pollData.message === 'Verification completed.' ||
-              (Array.isArray(pollData.data)
-                ? pollData.data[0]?.verified === true || pDataStatus === 'success' || pDataStatus === 'completed'
-                : pollData.data?.verified === true || pDataStatus === 'success' || pDataStatus === 'completed') ||
-              pollData.data?.result?.verified === true;
-
-            if (isPolledVerified || pProcStatus === 'completed') {
-              data = pollData;
-              break;
-            }
-            if (pProcStatus === 'failed' || pProcStatus === 'rejected' || pProcStatus === 'error') {
+            const procSt = String(pollData.processingStatus || '').toLowerCase();
+            if (pollData.ok === true || procSt === 'completed' || procSt === 'failed' || procSt === 'error') {
               data = pollData;
               break;
             }
@@ -749,186 +1301,47 @@ export async function verifyTelebirrPayment(
         }
       }
 
-      // Verify.ET may return record in data.data?.result, data.verification?.result, data.data[0], data.data, or root
-      const record =
-        data.data?.result ||
-        data.verification?.result ||
-        (Array.isArray(data.data)
-          ? data.data[0]
-          : data.data && typeof data.data === 'object'
-          ? data.data
-          : data);
-      const verificationObj =
-        data.verification && typeof data.verification === 'object' ? data.verification : {};
+      if ((!response.ok && response.status !== 202) || data.ok !== true) {
+        const apiErrorCode = typeof data.error === 'object' ? data.error?.code : undefined;
+        const extractedMsg =
+          typeof data.error === 'string'
+            ? data.error
+            : toSafeStr(data.error?.message || data.message || rawText || response.statusText);
 
-      // 1. Evaluate response verification status across both root and nested schemas (case-insensitive)
-      const dataSt = String(data.status || '').toLowerCase();
-      const recSt = String(record?.status || '').toLowerCase();
-      const verSt = String(verificationObj?.status || '').toLowerCase();
-      const verProcSt = String(verificationObj?.processingStatus || '').toLowerCase();
-
-      const explicitRejected =
-        data.verified === false ||
-        record?.verified === false ||
-        verificationObj?.verified === false ||
-        dataSt === 'failed' ||
-        dataSt === 'rejected' ||
-        dataSt === 'not_found' ||
-        recSt === 'failed' ||
-        recSt === 'rejected' ||
-        recSt === 'not_found' ||
-        verSt === 'failed' ||
-        verSt === 'rejected';
-      const isStatusVerified =
-        !explicitRejected &&
-        (dataSt === 'verified' ||
-          dataSt === 'success' ||
-          dataSt === 'completed' ||
-          data.verified === true ||
-          recSt === 'verified' ||
-          recSt === 'success' ||
-          recSt === 'completed' ||
-          record?.verified === true ||
-          verSt === 'success' ||
-          verSt === 'verified' ||
-          verSt === 'completed' ||
-          verProcSt === 'completed' ||
-          verificationObj?.verified === true);
-
-      if (!isStatusVerified) {
-        const upstreamMsg = toSafeStr(
-          data.error?.message ||
-            record?.error?.message ||
-            data.message ||
-            record?.message ||
-            ''
+        console.warn(
+          `[verify-et] Bank lookup error (${config.bank}, HTTP ${response.status}):`,
+          extractedMsg || response.statusText
         );
 
-        console.warn(`[verify-et] Payment not verified for ${config.bank}:`, upstreamMsg || data);
-
-        state.lastFailure = updateFailure(state.lastFailure, mapVerifyError(upstreamMsg, response.status, config.bank));
+        state.lastFailure = updateFailure(
+          state.lastFailure,
+          mapVerifyError(extractedMsg, response.status, config.bank, apiErrorCode)
+        );
         return null;
       }
 
-      // 2. Confirm settlement account matching if present (handles masked values like 0987****78)
-      const returnedSettlementAccount =
-        record?.settlementAccount ||
-        record?.receiverAccount ||
-        record?.creditedPartyAccountNo ||
-        record?.creditedAccount ||
-        record?.receiverAccountNumber ||
-        record?.toAccount ||
-        record?.receiverPhone ||
-        data.settlementAccount ||
-        data.receiverAccount ||
-        data.creditedPartyAccountNo ||
-        data.receiverPhone;
-      if (returnedSettlementAccount) {
-        const cleanSettlement = config.settlementAccount.replace(/\D/g, '');
-        const settlementVariants = new Set<string>([cleanSettlement]);
-        if (/^0[79]\d{8}$/.test(cleanSettlement)) {
-          settlementVariants.add('251' + cleanSettlement.slice(1));
-          settlementVariants.add(cleanSettlement.slice(1));
-        } else if (/^251[79]\d{8}$/.test(cleanSettlement)) {
-          settlementVariants.add('0' + cleanSettlement.slice(3));
-          settlementVariants.add(cleanSettlement.slice(3));
-        }
+      const validated = validateLinksEtEnvelope(
+        data,
+        expectedFee,
+        config.settlementAccount || undefined,
+        config.bank === 'auto' ? undefined : config.bank,
+        candidateRef
+      );
 
-        const rawStr = String(returnedSettlementAccount);
-        const cleanReturned = rawStr.replace(/\D/g, '');
-        let isMatched = false;
-
-        if (/[*xX]/.test(rawStr)) {
-          const prefixDigits = (rawStr.split(/[*xX]/)[0] || '').replace(/\D/g, '');
-          const suffixDigits = (rawStr.split(/[*xX]/).pop() || '').replace(/\D/g, '');
-          isMatched = Array.from(settlementVariants).some((variant) => {
-            const prefixOk = !prefixDigits || variant.startsWith(prefixDigits);
-            const suffixOk = suffixDigits.length >= 2 && variant.endsWith(suffixDigits);
-            return prefixOk && suffixOk;
-          });
-        } else {
-          isMatched = Array.from(settlementVariants).some((variant) => {
-            const vLast4 = variant.slice(-4);
-            return (
-              variant === cleanReturned ||
-              (cleanReturned.length >= 4 && vLast4.length === 4 && cleanReturned.endsWith(vLast4))
-            );
-          });
-        }
-
-        if (!isMatched) {
-          console.warn(
-            `[verify-et] Settlement account mismatch for ${config.bank}: expected ${config.settlementAccount}, got ${returnedSettlementAccount}`
-          );
-          state.lastFailure = updateFailure(state.lastFailure, {
-            message:
-              'Payment was sent to a different account number. Please ensure payment was transferred to our designated account.',
-            messageAm:
-              'ክፍያው የተላከው ወደ ሌላ የባንክ/ቴሌብር ሂሳብ ነው። እባክዎ ክፍያው ወደ ተሰጠው ትክክለኛ የሂሳብ ቁጥር መላኩን ያረጋግጡ።',
-            errorCode: 'ACCOUNT_MISMATCH',
-          });
-          return null;
-        }
+      if (validated.success) {
+        return validated;
       }
 
-      // 3. Ensure paid amount matches or exceeds expected fee (take first valid positive number)
-      const rawAmtCandidate =
-        record?.amount ??
-        record?.paidAmount ??
-        record?.totalPaidAmount ??
-        record?.totalAmount ??
-        record?.transferAmount ??
-        record?.transactionAmount ??
-        record?.settledAmountValue ??
-        record?.settledAmount ??
-        data.amount ??
-        data.paidAmount ??
-        data.totalPaidAmount ??
-        data.totalAmount ??
-        data.transferAmount ??
-        0;
-      let parsedAmtNum = NaN;
-      if (typeof rawAmtCandidate === 'number') {
-        parsedAmtNum = rawAmtCandidate;
-      } else {
-        const amtMatch = String(rawAmtCandidate).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
-        if (amtMatch) parsedAmtNum = parseFloat(amtMatch[0]);
-      }
-      const paidAmount = Number.isFinite(parsedAmtNum) && parsedAmtNum > 0 ? parsedAmtNum : 0;
-
-      if (paidAmount < expectedFee) {
-        return {
-          success: false,
-          message:
-            paidAmount > 0
-              ? `Insufficient payment. Received ${paidAmount} ETB, but fee requires at least ${expectedFee} ETB.`
-              : `Could not verify a valid payment amount (requires at least ${expectedFee} ETB). Please double-check your receipt.`,
-          messageAm:
-            paidAmount > 0
-              ? `የተከፈለው ገንዘብ መጠን በቂ አይደለም። የተከፈለው ${paidAmount} ብር ሲሆን የሚያስፈልገው ክፍያ ${expectedFee} ብር ነው።`
-              : `የተከፈለው የገንዘብ መጠን (ቢያንስ ${expectedFee} ብር) ማረጋገጥ አልተቻለም። እባክዎ ደረሰኝዎን ያረጋግጡ።`,
-          errorCode: 'INSUFFICIENT_AMOUNT',
-          paidAmount,
-          bank: config.bank,
-          rawResponse: data,
-        };
+      if (validated.errorCode === 'INSUFFICIENT_AMOUNT') {
+        return validated;
       }
 
-      const senderName =
-        record?.senderName || record?.payerName || data.senderName || data.payerName || 'Verified Payer';
-      const txNum =
-        record?.referenceNumber || record?.transactionNumber || data.transactionNumber || candidateRef;
-
-      return {
-        success: true,
-        message: `Payment receipt verified successfully via ${config.bank.toUpperCase()}.`,
-        messageAm: `የክፍያ ደረሰኝ በ${config.bank.toUpperCase()} በተሳካ ሁኔታ ተረጋግጧል።`,
-        transactionNumber: txNum,
-        paidAmount,
-        senderName,
-        bank: config.bank,
-        rawResponse: data,
-      };
+      state.lastFailure = updateFailure(state.lastFailure, {
+        message: validated.message,
+        messageAm: validated.messageAm,
+        errorCode: validated.errorCode || 'VERIFICATION_FAILED',
+      });
+      return null;
     } catch (error: unknown) {
       const errMessage = error instanceof Error ? error.message : String(error);
       console.warn(`[verify-et] Connection error during verification (${config.bank}):`, errMessage);
@@ -941,26 +1354,97 @@ export async function verifyTelebirrPayment(
     }
   };
 
-  for (const config of bankConfigs) {
-    const res = await evaluateBankConfig(config, cleanRef);
-    if (res) return res;
+  const telebirrAccount = receiverPhone.trim() || '0987310978';
+  const isTelebirrCandidate =
+    bankConfigs.some((c) => c.bank === 'telebirr') &&
+    (normalizedBank === 'telebirr' ||
+      isTelebirrRef ||
+      refLower.includes('ethiotelecom.et/receipt') ||
+      (!normalizedBank && !isFtRef && !isBoaRef && !isDashenRef && !isExplicitCbeUrl));
+
+  // ── Tier 1 (Zero-Credit Official Telebirr Direct Verification) ───────────
+  let telebirrAuthoritativeNotFound = false;
+  if (isTelebirrCandidate) {
+    const directRes = await verifyTelebirrDirect(cleanRef, telebirrAccount);
+    if (directRes.kind === 'terminal') {
+      return directRes.result;
+    }
+    if (directRes.kind === 'not_found') {
+      if (directRes.authoritative) telebirrAuthoritativeNotFound = true;
+      const ocrVariants = buildOcrAmbiguityVariants(cleanRef);
+      const DIRECT_BATCH = 6;
+      for (let i = 0; i < ocrVariants.length; i += DIRECT_BATCH) {
+        const batch = ocrVariants.slice(i, i + DIRECT_BATCH);
+        const batchOutcomes = await Promise.all(batch.map((v) => verifyTelebirrDirect(v, telebirrAccount)));
+        const terminalHit = batchOutcomes.find(
+          (o): o is { kind: 'terminal'; result: VerifyEtResult } => o.kind === 'terminal'
+        );
+        if (terminalHit) return terminalHit.result;
+        if (batchOutcomes.some((o) => o.kind === 'not_found' && o.authoritative)) {
+          telebirrAuthoritativeNotFound = true;
+        }
+      }
+    }
+
+    // If Ethio Telecom's official server explicitly responded "This request is not correct" for a Telebirr reference,
+    // return NOT_FOUND directly without wasting Verify.ET credits or masking NOT_FOUND behind 402 maintenance.
+    if (telebirrAuthoritativeNotFound && (normalizedBank === 'telebirr' || isTelebirrRef || refLower.includes('ethiotelecom'))) {
+      return {
+        success: false,
+        message:
+          'Transaction record was not found with Telebirr. Please ensure the payment was completed and the reference number is correct.',
+        messageAm:
+          'ይህ የክፍያ ግብይት በቴሌብር አልተገኘም። እባክዎ ክፍያው በተሳካ ሁኔታ መጠናቀቁን እና የደረሰኝ ቁጥሩ ትክክል መሆኑን ያረጋግጡ።',
+        errorCode: 'NOT_FOUND',
+      };
+    }
   }
 
-  // If primary code was not found on Telebirr/alphanumeric lookup, retry bounded OCR ambiguity swaps in parallel batches
+  // ── Tier 2 (Bank API Lookup for CBE, BoA, Dashen, or Telebirr Fallback) ───
+  if (!apiKey) {
+    return {
+      success: false,
+      message: 'Server configuration error: Payment verification is temporarily unavailable.',
+      messageAm: 'የአገልጋይ ውቅር ችግር፡ የክፍያ ማረጋገጫ አገልግሎት ለጊዜው አይሰራም።',
+      errorCode: 'CONFIG_ERROR',
+    };
+  }
+
+  const isAuthOrCreditStop = (code?: string) =>
+    code === 'SERVICE_MAINTENANCE' || code === 'CONFIG_ERROR' || code === 'SERVICE_BUSY';
+
+  for (const config of bankConfigs) {
+    // Avoid double-checking Telebirr if official Ethio Telecom already confirmed NOT_FOUND
+    if (config.bank === 'telebirr' && telebirrAuthoritativeNotFound) continue;
+    const res = await evaluateBankConfig(config, cleanRef);
+    if (res) return res;
+    if (isAuthOrCreditStop(state.lastFailure?.errorCode)) {
+      break;
+    }
+  }
+
+  // Retry bounded OCR ambiguity swaps only on codes (never URLs or non-Telebirr bare refs needing a full URL)
   const canRetryOcrSwaps =
-    !state.lastFailure ||
-    state.lastFailure.errorCode === 'NOT_FOUND' ||
-    state.lastFailure.errorCode === 'VERIFICATION_FAILED';
+    !isFullUrl &&
+    !isAuthOrCreditStop(state.lastFailure?.errorCode) &&
+    (!state.lastFailure ||
+      state.lastFailure.errorCode === 'NOT_FOUND' ||
+      state.lastFailure.errorCode === 'VERIFICATION_FAILED');
   if (canRetryOcrSwaps) {
-    const ocrVariants = buildOcrAmbiguityVariants(cleanRef);
+    const rawVariants = buildOcrAmbiguityVariants(cleanRef);
+    // Cap paid Verify.ET variant fan-out on multi-bank guesses to protect API credits
+    const ocrVariants =
+      bankConfigs.length === 1 && bankConfigs[0].bank === 'telebirr' ? rawVariants : rawVariants.slice(0, 4);
     const BATCH_SIZE = 4;
     for (let i = 0; i < ocrVariants.length; i += BATCH_SIZE) {
       const batch = ocrVariants.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.all(
         batch.map(async (variantRef) => {
           for (const config of bankConfigs) {
+            if (config.bank === 'telebirr' && telebirrAuthoritativeNotFound) continue;
             const res = await evaluateBankConfig(config, variantRef);
             if (res) return res;
+            if (isAuthOrCreditStop(state.lastFailure?.errorCode)) return null;
           }
           return null;
         })
@@ -991,6 +1475,84 @@ export async function verifyTelebirrPayment(
     errorCode: state.lastFailure?.errorCode || 'VERIFICATION_FAILED',
     rawResponse: state.lastRawResponse,
   };
+}
+
+/**
+ * Unified hybrid verifier for Telegram bot and Mini-App submissions:
+ * - Saves /api/verify-image monthly quota when local QR/Telebirr extraction is valid
+ * - Escalates automatically to screenshot verification when local extraction failed,
+ *   lacks a full bank URL for CBE/BoA/Dashen, or initial reference lookup fails.
+ */
+export async function verifyPaymentSubmission(params: {
+  referenceOrUrl?: string;
+  screenshotBuffer?: Buffer;
+  expectedFee?: number;
+  preferredBank?: string;
+}): Promise<VerifyEtResult> {
+  const expectedFee = params.expectedFee ?? Number(process.env.NEXT_PUBLIC_UNLOCK_FEE || '100');
+  const rawRef = (params.referenceOrUrl || '').trim();
+  const normBank = params.preferredBank ? normalizeProviderBank(params.preferredBank) : undefined;
+  const isUrl = /^https?:\/\//i.test(rawRef);
+
+  let triedImage = false;
+  let lastResult: VerifyEtResult | null = null;
+
+  // Prefer image verification upfront when no reference was decoded OR bare non-Telebirr code lacks a full receipt URL
+  if (
+    params.screenshotBuffer &&
+    (!rawRef || (!isUrl && normBank && normBank !== 'telebirr'))
+  ) {
+    triedImage = true;
+    lastResult = await verifyReceiptImageWithLinksEt(params.screenshotBuffer, expectedFee, normBank);
+    if (
+      lastResult.success ||
+      lastResult.errorCode === 'INSUFFICIENT_AMOUNT' ||
+      lastResult.errorCode === 'ACCOUNT_MISMATCH' ||
+      lastResult.errorCode === 'PAYMENT_PENDING' ||
+      lastResult.errorCode === 'TRANSACTION_FAILED'
+    ) {
+      return lastResult;
+    }
+  }
+
+  if (rawRef) {
+    const refResult = await verifyTelebirrPayment(rawRef, expectedFee, normBank);
+    if (
+      refResult.success ||
+      refResult.errorCode === 'INSUFFICIENT_AMOUNT' ||
+      refResult.errorCode === 'ACCOUNT_MISMATCH' ||
+      refResult.errorCode === 'PAYMENT_PENDING' ||
+      refResult.errorCode === 'TRANSACTION_FAILED'
+    ) {
+      return refResult;
+    }
+    lastResult = refResult;
+
+    // Rescue blurred/misread Telebirr or bank screenshots via image AI check
+    if (
+      params.screenshotBuffer &&
+      !triedImage &&
+      ['NOT_FOUND', 'INVALID_FORMAT', 'NEEDS_FULL_URL_OR_SCREENSHOT', 'VERIFICATION_FAILED'].includes(
+        refResult.errorCode || ''
+      )
+    ) {
+      const rescueResult = await verifyReceiptImageWithLinksEt(params.screenshotBuffer, expectedFee, normBank);
+      if (rescueResult.success || rescueResult.errorCode !== 'IMAGE_READ_FAILED') {
+        return rescueResult;
+      }
+    }
+  }
+
+  return (
+    lastResult || {
+      success: false,
+      message:
+        'Could not verify this payment receipt. Please send a clearer screenshot or paste the full bank receipt link.',
+      messageAm:
+        'ይህን የክፍያ ደረሰኝ ማረጋገጥ አልተቻለም። እባክዎ ግልጽ የደረሰኝ ስክሪንሽት ፎቶ ወይም ሙሉ የባንክ ደረሰኝ ማስፈንጠሪያ ይላኩ።',
+      errorCode: 'VERIFICATION_FAILED',
+    }
+  );
 }
 
 export const verifyPayment = verifyTelebirrPayment;

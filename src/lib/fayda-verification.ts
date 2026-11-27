@@ -333,8 +333,12 @@ export async function verifyFaydaFan(
     }
   }
 
-  // 4b. Secondary verification via verify.et eKYC service if API key is present
-  if (!faydaApiUrl && process.env.VERIFY_ET_API_KEY) {
+  // 4b. Secondary verification via legacy Verify.ET eKYC service if a non-links.et key is present
+  if (
+    !faydaApiUrl &&
+    process.env.VERIFY_ET_API_KEY &&
+    !process.env.VERIFY_ET_API_KEY.trim().startsWith('vk_live_')
+  ) {
     try {
       const verifyEtEndpoint = 'https://verify.et/api/fayda';
       const verifyRes = await fetch(verifyEtEndpoint, {
@@ -412,6 +416,7 @@ export async function verifyFaydaFan(
 export interface PersistFaydaOptions {
   gender?: string | null;
   dob?: string | null;
+  phone?: string | null;
   verifiedSource?: string | null;
   from?: {
     first_name?: string | null;
@@ -448,8 +453,8 @@ export async function persistFaydaVerification(
   let existingProf: any = null;
   try {
     const [uRes, pRes] = await Promise.all([
-      supabaseAdmin.from('users').select('first_name, last_name, username').eq('telegram_id', telegramId).maybeSingle(),
-      supabaseAdmin.from('profiles').select('id, full_name, telegram_username, display_code, status').eq('telegram_id', telegramId).maybeSingle(),
+      supabaseAdmin.from('users').select('first_name, last_name, username, phone_number').eq('telegram_id', telegramId).maybeSingle(),
+      supabaseAdmin.from('profiles').select('id, full_name, telegram_username, display_code, status, phone_number').eq('telegram_id', telegramId).maybeSingle(),
     ]);
     existingUser = uRes.data;
     existingProf = pRes.data;
@@ -509,6 +514,10 @@ export async function persistFaydaVerification(
   };
   if (normalizedGender) {
     userUpsertPayload.gender = normalizedGender;
+  }
+  const cleanOptPhone = (options?.phone || '').replace(/\s+/g, '').trim();
+  if (cleanOptPhone && !existingUser?.phone_number && /^(?:\+?251|0)[79]\d{8}$/.test(cleanOptPhone)) {
+    userUpsertPayload.phone_number = cleanOptPhone;
   }
 
   try {

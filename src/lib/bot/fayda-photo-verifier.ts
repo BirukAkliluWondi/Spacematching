@@ -81,6 +81,7 @@ export interface FaydaSuccessResult {
   fullName: string;
   dob: string;
   gender: string;
+  phone?: string;
   isVerified: boolean;
   verifiedSource?: string;
   messageAm?: string;
@@ -764,6 +765,7 @@ export async function verifyFaydaPhotoUpload(
         fullName: ocrResult.fullName || '',
         dob: ocrResult.dob || '',
         gender: ocrResult.gender || '',
+        phone: ocrResult.phone || undefined,
         isVerified: true,
         verifiedSource: 'fayda_card_ocr',
       };
@@ -909,11 +911,28 @@ export async function extractFaydaCardViaOcr(buffer: Buffer): Promise<{
 
       if (!validFan) continue;
 
+      // Extract readable gender & birth date from card text when clearly present (reject expiry dates >= 2025)
+      let ocrGender: string | undefined;
+      const genderLabeled = cleanText.match(/(?:sex|gender|ጾታ)[:\s]*(female|male|f|m|ሴት|ወንድ)\b/i);
+      const genderWord = genderLabeled?.[1] || cleanText.match(/\b(Female|Male)\b/i)?.[1];
+      if (genderWord) {
+        const gw = genderWord.toLowerCase();
+        ocrGender = gw.startsWith('f') || gw.includes('ሴ') ? 'Female' : gw.startsWith('m') || gw.includes('ወ') ? 'Male' : undefined;
+      }
+
+      let ocrDob: string | undefined;
+      const dobLabeled = cleanText.match(/(?:birth|dob|ትውልድ)[^0-9A-Za-z]{0,20}((?:19\d{2}|20[01]\d)[-\/](?:0?[1-9]|1[0-2]|[A-Za-z]{3})[-\/](?:0?[1-9]|[12]\d|3[01])|(?:0?[1-9]|[12]\d|3[01])[-\/](?:0?[1-9]|1[0-2])[-\/](?:19\d{2}|20[01]\d))/i);
+      if (dobLabeled?.[1]) {
+        ocrDob = dobLabeled[1].trim();
+      }
+
       // Never extract card-back field headers ("Date of Expiry", "Ethiopian", "Addis Ababa") as fullName
       return {
         success: true,
         fan: validFan,
         phone,
+        gender: ocrGender,
+        dob: ocrDob,
         fullName: '',
       };
     }
@@ -965,6 +984,7 @@ export async function applyVerifiedFayda(
   return await persistFaydaVerification(chatId, result.fan, result.fullName, {
     gender: result.gender || undefined,
     dob: result.dob || undefined,
+    phone: result.phone || undefined,
     verifiedSource: result.verifiedSource || 'telegram_photo_rs256_qr',
     from,
   });

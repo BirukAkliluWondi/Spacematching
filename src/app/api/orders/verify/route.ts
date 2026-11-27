@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
-import { verifyTelebirrPayment, normalizeCanonicalTransactionRef } from '@/lib/verify-et';
+import {
+  verifyTelebirrPayment,
+  verifyReceiptImageWithLinksEt,
+  extractTransactionReference,
+  normalizeCanonicalTransactionRef,
+} from '@/lib/verify-et';
 import { extractTransactionReferenceFromImage } from '@/lib/receipt-extractor';
 import {
   acquireActionLock,
@@ -56,13 +61,17 @@ export async function POST(request: Request) {
 
     const { order_id, telegram_id, transaction_reference, receipt_image } = parsed;
 
-    let cleanTxRef = transaction_reference ? normalizeCanonicalTransactionRef(transaction_reference) : '';
+    let rawTxRef = transaction_reference ? extractTransactionReference(transaction_reference) : '';
+    let cleanTxRef = rawTxRef ? normalizeCanonicalTransactionRef(rawTxRef) : '';
     let ocrBankHint: string | undefined;
     let receiptSha256: string | undefined;
+    let imgBuf: Buffer | undefined;
+    let directImageVerified: Awaited<ReturnType<typeof verifyTelebirrPayment>> | null = null;
 
-    if (!cleanTxRef && receipt_image) {
+    // Compute receipt hash and reject replay regardless of transaction reference presence
+    if (receipt_image) {
       const base64Body = receipt_image.replace(/^data:image\/[a-z0-9+.-]+;base64,/i, '');
-      const imgBuf = Buffer.from(base64Body, 'base64');
+      imgBuf = Buffer.from(base64Body, 'base64');
       if (imgBuf.length < 256 || imgBuf.length > 10 * 1024 * 1024) {
         return NextResponse.json(
           { error: 'Invalid receipt image size. Upload a clear screenshot under 10 MB.' },
@@ -81,10 +90,39 @@ export async function POST(request: Request) {
           { status: hashCheck.dbError ? 500 : 409 }
         );
       }
-      const ocr = await extractTransactionReferenceFromImage(imgBuf);
-      if (ocr?.reference) {
-        cleanTxRef = normalizeCanonicalTransactionRef(ocr.reference) || ocr.reference.toUpperCase();
-        ocrBankHint = ocr.bankHint;
+      // If transaction reference missing, attempt fast local QR/OCR extraction first
+      if (!rawTxRef) {
+        const ocr = await extractTransactionReferenceFromImage(imgBuf);
+        if (ocr?.reference) {
+          rawTxRef = ocr.reference;
+          cleanTxRef = normalizeCanonicalTransactionRef(ocr.reference) || ocr.reference.toUpperCase();
+          ocrBankHint = ocr.bankHint;
+        }
+      }
+    }
+
+    // Escalate screenshot directly to AI screenshot verification when local QR/OCR failed or lacks a full bank URL
+    const needsScreenshotAiCheck = Boolean(
+      imgBuf &&
+        (!rawTxRef ||
+          (!/^https?:\/\//i.test(rawTxRef) && ocrBankHint && ocrBankHint !== 'telebirr'))
+    );
+    if (needsScreenshotAiCheck && imgBuf) {
+      const earlyImgCheck = await verifyReceiptImageWithLinksEt(imgBuf, 100, ocrBankHint);
+      if (earlyImgCheck.success && earlyImgCheck.transactionNumber) {
+        directImageVerified = earlyImgCheck;
+        rawTxRef = earlyImgCheck.transactionNumber;
+        cleanTxRef = normalizeCanonicalTransactionRef(earlyImgCheck.transactionNumber) || earlyImgCheck.transactionNumber.toUpperCase();
+        ocrBankHint = earlyImgCheck.bank || ocrBankHint;
+      } else if (!cleanTxRef) {
+        return NextResponse.json(
+          {
+            error:
+              earlyImgCheck.message ||
+              'Could not extract a valid transaction reference. Please upload a clearer receipt screenshot or enter your full receipt link.',
+          },
+          { status: 400 }
+        );
       }
     }
 
@@ -152,10 +190,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. Call Verify.ET against at least 100 ETB (Invariant 7). Note: do NOT force 'cbe' on bare FT... codes (BoA uses FT... too)
+    // 3. Verify payment against at least 100 ETB (preserve full receipt URLs in rawTxRef; fallback to image check if uploaded)
     const requiredFee = Math.max(Number(order.amount || 100), 100);
     const refUpper = cleanTxRef.toUpperCase();
-    const refLower = cleanTxRef.toLowerCase();
+    const refLower = (rawTxRef || cleanTxRef).toLowerCase();
     const bankHint =
       ocrBankHint ||
       (refLower.includes('cbe.com.et')
@@ -171,7 +209,24 @@ export async function POST(request: Request) {
         ? 'telebirr'
         : undefined);
 
-    const verification = await verifyTelebirrPayment(cleanTxRef, requiredFee, bankHint);
+    let verification =
+      directImageVerified && (directImageVerified.paidAmount ?? 0) >= requiredFee
+        ? directImageVerified
+        : await verifyTelebirrPayment(rawTxRef || cleanTxRef, requiredFee, bankHint);
+
+    if (
+      !verification.success &&
+      imgBuf &&
+      !directImageVerified &&
+      ['NOT_FOUND', 'INVALID_FORMAT', 'NEEDS_FULL_URL_OR_SCREENSHOT', 'VERIFICATION_FAILED'].includes(
+        verification.errorCode || ''
+      )
+    ) {
+      const imgFallback = await verifyReceiptImageWithLinksEt(imgBuf, requiredFee, bankHint);
+      if (imgFallback.success || imgFallback.errorCode === 'INSUFFICIENT_AMOUNT' || imgFallback.errorCode === 'ACCOUNT_MISMATCH') {
+        verification = imgFallback;
+      }
+    }
 
     if (!verification.success) {
       return NextResponse.json(

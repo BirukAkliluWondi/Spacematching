@@ -812,23 +812,38 @@ export function formatRoommatePost(profile: Profile | Record<string, any>): stri
     ? String(rawHouseRules).trim()
     : 'Clean, respectful, no smoking / ጽዱ፣ ጨዋ፣ ሲጋራ የማያጨስ';
 
-  let rawDetails = p.details || p.description || '';
-  let cleanDetails = extractUserDescription(rawDetails);
-  if (!cleanDetails) {
-    cleanDetails = `${locationDisplay} • ${prefSexDisplay}`;
+  let extractedJob = (p.job || '').trim();
+  let extractedReligion = (p.religion || '').trim();
+  const traitBlob = String(p.roommate_traits || p.lifestyle_bio || '');
+  if (!extractedJob && traitBlob) {
+    const jm = traitBlob.match(/(?:^|\|)\s*Job:\s*([^|\n]+)/i);
+    if (jm?.[1]) extractedJob = jm[1].trim();
   }
-  if (cleanDetails.length > 350) {
-    cleanDetails = cleanDetails.slice(0, 345).trimEnd() + '…';
+  if (!extractedReligion && traitBlob) {
+    const rm = traitBlob.match(/(?:^|\|)\s*Religion:\s*([^|\n]+)/i);
+    if (rm?.[1]) extractedReligion = rm[1].trim();
   }
 
-  let rawBio = p.roommate_traits || p.lifestyle_bio || p.bio || '';
+  let rawBio = p.about_me || p.lifestyle_bio || p.roommate_traits || p.bio || '';
   let cleanBio = extractUserDescription(rawBio);
-  if (!cleanBio || cleanBio === cleanDetails) {
+  if (!cleanBio) {
     // Strictly never leak p.full_name or p.user_name onto the public channel
     cleanBio = 'Seeking compatible roommate in Addis Ababa. / ተስማሚ የቤት ጓደኛ ፈላጊ።';
   }
   if (cleanBio.length > 300) {
     cleanBio = cleanBio.slice(0, 295).trimEnd() + '…';
+  }
+
+  let rawDetails = p.details || p.description || '';
+  let cleanDetails = extractUserDescription(rawDetails);
+  if (!cleanDetails || cleanDetails === cleanBio) {
+    const detailBits = [`Areas: ${locationDisplay}`, `Seeking: ${prefSexDisplay}`];
+    if (extractedJob && !/^any$/i.test(extractedJob)) detailBits.push(`Occupation: ${extractedJob}`);
+    if (extractedReligion && !/^any$/i.test(extractedReligion)) detailBits.push(`Religion: ${extractedReligion}`);
+    cleanDetails = detailBits.join(' • ');
+  }
+  if (cleanDetails.length > 350) {
+    cleanDetails = cleanDetails.slice(0, 345).trimEnd() + '…';
   }
 
   const hashtags = generatePostHashtags({
