@@ -1,6 +1,12 @@
 import nodeCrypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { normalizeCanonicalTransactionRef } from './verify-et';
+import {
+  ResilientMemoryCache,
+  invalidateMatchmakerPoolCache,
+  invalidateRoommatesFeedCache,
+  invalidateSpacesFeedCache,
+} from './cache';
 
 // ---------------------------------------------------------------------------
 // Supabase client (service role — safe for server-side only)
@@ -485,6 +491,12 @@ export async function clearSession(telegramId: number): Promise<void> {
 // ---------------------------------------------------------------------------
 // Space Drafts — stored in `pending_space_drafts` Supabase table
 // ---------------------------------------------------------------------------
+const _allSpaceDraftsCache = new ResilientMemoryCache<Record<string, SpaceDraft>>({
+  maxEntries: 5,
+  defaultTtlMs: 30_000,
+  defaultStaleIfErrorMs: 5 * 60_000,
+});
+
 export async function saveDraft(draft: SpaceDraft): Promise<void> {
   try {
     const { error } = await supabase
@@ -493,6 +505,9 @@ export async function saveDraft(draft: SpaceDraft): Promise<void> {
     if (error) console.error('saveDraft error:', error.message);
   } catch (err) {
     console.error('saveDraft exception:', err);
+  } finally {
+    _allSpaceDraftsCache.clear();
+    invalidateSpacesFeedCache();
   }
 }
 
@@ -511,9 +526,12 @@ export async function getDraft(draftId: string): Promise<SpaceDraft | null> {
 
 export async function getAllSpaceDrafts(): Promise<Record<string, SpaceDraft>> {
   try {
-    const { data } = await supabase.from('pending_space_drafts').select('*');
-    if (!data) return {};
-    return Object.fromEntries(data.map((d: SpaceDraft) => [d.id, d]));
+    return await _allSpaceDraftsCache.getOrFetch('space_drafts:all', async () => {
+      const { data, error } = await supabase.from('pending_space_drafts').select('*');
+      if (error) throw new Error(error.message);
+      if (!data) return {};
+      return Object.fromEntries(data.map((d: SpaceDraft) => [d.id, d]));
+    });
   } catch {
     return {};
   }
@@ -579,6 +597,10 @@ export async function saveRoommateDraft(draft: RoommateProfileDraft): Promise<vo
     if (error) console.warn('[saveRoommateDraft] DB upsert warning:', error.message);
   } catch (err) {
     console.warn('[saveRoommateDraft] DB exception:', err);
+  } finally {
+    _allRoommateDraftsCache.clear();
+    invalidateRoommatesFeedCache();
+    invalidateMatchmakerPoolCache();
   }
 }
 
@@ -710,21 +732,33 @@ export async function getRoommateDraft(draftId: string): Promise<RoommateProfile
   return null;
 }
 
-export async function getAllRoommateDrafts(): Promise<Record<string, RoommateProfileDraft>> {
-  const result: Record<string, RoommateProfileDraft> = {};
+const _allRoommateDraftsCache = new ResilientMemoryCache<Record<string, RoommateProfileDraft>>({
+  maxEntries: 5,
+  defaultTtlMs: 30_000,
+  defaultStaleIfErrorMs: 5 * 60_000,
+});
 
+export async function getAllRoommateDrafts(): Promise<Record<string, RoommateProfileDraft>> {
+  let baseDrafts: Record<string, RoommateProfileDraft> = {};
   try {
-    const { data } = await supabase.from('pending_roommate_drafts').select('*');
-    if (data && Array.isArray(data)) {
-      data.forEach((d: any) => {
-        const hydrated = hydrateDbDraft(d);
-        if (hydrated) result[d.id] = hydrated;
-      });
-    }
+    baseDrafts = await _allRoommateDraftsCache.getOrFetch('roommate_drafts:all', async () => {
+      const { data, error } = await supabase.from('pending_roommate_drafts').select('*');
+      if (error) throw new Error(error.message);
+      const map: Record<string, RoommateProfileDraft> = {};
+      if (data && Array.isArray(data)) {
+        data.forEach((d: any) => {
+          const hydrated = hydrateDbDraft(d);
+          if (hydrated) map[d.id] = hydrated;
+        });
+      }
+      return map;
+    });
   } catch {}
 
+  const result: Record<string, RoommateProfileDraft> = { ...baseDrafts };
+
   // Merge in-memory drafts
-  for (const [k, v] of _roommateDraftsCache.entries()) {
+  for (const [_k, v] of _roommateDraftsCache.entries()) {
     if (v && v.id) {
       result[v.id] = { ...(result[v.id] || {}), ...v };
     }
@@ -749,44 +783,64 @@ export interface ManagedChannel {
 const MANAGED_CHANNELS_SESSION_ID = -999999;
 let cachedManagedChannels: ManagedChannel[] | null = null;
 let managedChannelsCacheTime = 0;
+const _managedChannelsCache = new ResilientMemoryCache<ManagedChannel[]>({
+  maxEntries: 5,
+  defaultTtlMs: 15 * 60 * 1000,
+  defaultStaleIfErrorMs: 30 * 60 * 1000,
+});
 
 export async function getManagedChannels(): Promise<ManagedChannel[]> {
-  const now = Date.now();
-  if (cachedManagedChannels && now - managedChannelsCacheTime < 15 * 60 * 1000) {
-    return cachedManagedChannels;
-  }
+  return _managedChannelsCache.getOrFetch('managed_channels:all', async () => {
+    const now = Date.now();
+    try {
+      const { data, error } = await supabase
+        .from('bot_sessions')
+        .select('draft_data')
+        .eq('telegram_id', MANAGED_CHANNELS_SESSION_ID)
+        .maybeSingle();
 
-  try {
-    const { data } = await supabase
-      .from('bot_sessions')
-      .select('draft_data')
-      .eq('telegram_id', MANAGED_CHANNELS_SESSION_ID)
-      .maybeSingle();
-
-    if (data && data.draft_data && Array.isArray(data.draft_data.channels)) {
-      cachedManagedChannels = data.draft_data.channels;
-      managedChannelsCacheTime = now;
-      return cachedManagedChannels!;
+      if (error) throw new Error(error.message);
+      if (data && data.draft_data && Array.isArray(data.draft_data.channels)) {
+        cachedManagedChannels = data.draft_data.channels;
+        managedChannelsCacheTime = now;
+        return cachedManagedChannels!;
+      }
+    } catch (err) {
+      if (cachedManagedChannels) {
+        return cachedManagedChannels;
+      }
+      console.error('getManagedChannels error:', err);
+      throw err;
     }
-  } catch (err) {
-    console.error('getManagedChannels error:', err);
-  }
 
-  // Fallback default from environment if available
-  const defaultChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
-  const defaults: ManagedChannel[] = [
-    {
-      channel_id: defaultChannel,
-      channel_title: 'SpaceMatch Addis Default',
-      channel_username: defaultChannel.startsWith('@') ? defaultChannel : null,
-      is_active: true,
-      added_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ];
-  cachedManagedChannels = defaults;
-  managedChannelsCacheTime = now;
-  return defaults;
+    const defaultChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
+    const defaults: ManagedChannel[] = [
+      {
+        channel_id: defaultChannel,
+        channel_title: 'SpaceMatch Addis Default',
+        channel_username: defaultChannel.startsWith('@') ? defaultChannel : null,
+        is_active: true,
+        added_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+    cachedManagedChannels = defaults;
+    managedChannelsCacheTime = now;
+    return defaults;
+  }).catch(() => {
+    if (cachedManagedChannels) return cachedManagedChannels;
+    const defaultChannel = process.env.TELEGRAM_CHANNEL_ID || '@roommate_addis';
+    return [
+      {
+        channel_id: defaultChannel,
+        channel_title: 'SpaceMatch Addis Default',
+        channel_username: defaultChannel.startsWith('@') ? defaultChannel : null,
+        is_active: true,
+        added_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+  });
 }
 
 export async function saveManagedChannel(channel: ManagedChannel): Promise<void> {
@@ -808,6 +862,7 @@ export async function saveManagedChannel(channel: ManagedChannel): Promise<void>
 
     cachedManagedChannels = updated;
     managedChannelsCacheTime = Date.now();
+    _managedChannelsCache.set('managed_channels:all', updated);
 
     await supabase.from('bot_sessions').upsert({
       telegram_id: MANAGED_CHANNELS_SESSION_ID,
@@ -832,6 +887,7 @@ export async function removeManagedChannel(channelId: string | number): Promise<
 
     cachedManagedChannels = updated;
     managedChannelsCacheTime = Date.now();
+    _managedChannelsCache.set('managed_channels:all', updated);
 
     await supabase.from('bot_sessions').upsert({
       telegram_id: MANAGED_CHANNELS_SESSION_ID,
@@ -935,14 +991,18 @@ export interface MembershipStatus {
   orderId?: string;
 }
 
-const membershipCache = new Map<number, { status: MembershipStatus; cachedAt: number }>();
-const MEMBERSHIP_CACHE_TTL_MS = 5 * 1000; // Short 5s cache; errors never cached
+const MEMBERSHIP_CACHE_TTL_MS = 60 * 1000; // 60s active-pass cache; unpaid/errors never cached
+const _membershipCache = new ResilientMemoryCache<MembershipStatus>({
+  maxEntries: 5000,
+  defaultTtlMs: MEMBERSHIP_CACHE_TTL_MS,
+  defaultStaleIfErrorMs: 0,
+});
 
 export function invalidateMembershipCache(telegramId?: number): void {
   if (telegramId) {
-    membershipCache.delete(telegramId);
+    _membershipCache.invalidate(String(telegramId));
   } else {
-    membershipCache.clear();
+    _membershipCache.clear();
   }
 }
 
@@ -951,55 +1011,51 @@ export function invalidateMembershipCache(telegramId?: number): void {
  * Valid if they have a completed order of >= 100 ETB verified/created within the last 90 days.
  */
 export async function getUserMembershipStatus(telegramId: number): Promise<MembershipStatus> {
-  const cached = membershipCache.get(telegramId);
-  if (cached && Date.now() - cached.cachedAt < MEMBERSHIP_CACHE_TTL_MS) {
-    return cached.status;
-  }
+  return _membershipCache.getOrFetch(
+    String(telegramId),
+    async () => {
+      const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      try {
+        const { data: order, error } = await supabase
+          .from('orders')
+          .select('id, verified_at, created_at, transaction_reference, amount')
+          .or(`buyer_telegram_id.eq.${telegramId},renter_telegram_id.eq.${telegramId}`)
+          .eq('payment_status', 'completed')
+          .or(`verified_at.gte.${ninetyDaysAgo},created_at.gte.${ninetyDaysAgo}`)
+          .gte('amount', 100)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+        if (error) {
+          console.error('[getUserMembershipStatus] Supabase query error (not caching):', error.message);
+          return { isActive: false, expiresAt: null, daysRemaining: 0 };
+        }
 
-  try {
-    const { data: order, error } = await supabase
-      .from('orders')
-      .select('id, verified_at, created_at, transaction_reference, amount')
-      .or(`buyer_telegram_id.eq.${telegramId},renter_telegram_id.eq.${telegramId}`)
-      .eq('payment_status', 'completed')
-      .or(`verified_at.gte.${ninetyDaysAgo},created_at.gte.${ninetyDaysAgo}`)
-      .gte('amount', 100)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+        if (!order) {
+          return { isActive: false, expiresAt: null, daysRemaining: 0 };
+        }
 
-    if (error) {
-      console.error('[getUserMembershipStatus] Supabase query error (not caching):', error.message);
-      return { isActive: false, expiresAt: null, daysRemaining: 0 };
-    }
+        const baseDate = new Date(order.verified_at || order.created_at);
+        const expiresAt = new Date(baseDate.getTime() + 90 * 24 * 60 * 60 * 1000);
+        const diffMs = expiresAt.getTime() - Date.now();
+        const daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        const isActive = diffMs > 0;
 
-    if (!order) {
-      return { isActive: false, expiresAt: null, daysRemaining: 0 };
-    }
-
-    const baseDate = new Date(order.verified_at || order.created_at);
-    const expiresAt = new Date(baseDate.getTime() + 90 * 24 * 60 * 60 * 1000);
-    const diffMs = expiresAt.getTime() - Date.now();
-    const daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-    const isActive = diffMs > 0;
-
-    const res: MembershipStatus = {
-      isActive,
-      expiresAt,
-      daysRemaining,
-      lastPaymentRef: order.transaction_reference,
-      orderId: order.id,
-    };
-    if (isActive) {
-      membershipCache.set(telegramId, { status: res, cachedAt: Date.now() });
-    }
-    return res;
-  } catch (err) {
-    console.error('[getUserMembershipStatus] error checking membership:', err);
-    return { isActive: false, expiresAt: null, daysRemaining: 0 };
-  }
+        return {
+          isActive,
+          expiresAt,
+          daysRemaining,
+          lastPaymentRef: order.transaction_reference,
+          orderId: order.id,
+        };
+      } catch (err) {
+        console.error('[getUserMembershipStatus] error checking membership:', err);
+        return { isActive: false, expiresAt: null, daysRemaining: 0 };
+      }
+    },
+    { shouldCache: (res) => res.isActive === true }
+  );
 }
 
 export async function activateUserMembership(
@@ -1011,10 +1067,14 @@ export async function activateUserMembership(
   return await getUserMembershipStatus(telegramId);
 }
 
-let _adminIdsCache: { ids: number[]; expiresAt: number } | null = null;
+const _adminIdsCache = new ResilientMemoryCache<number[]>({
+  maxEntries: 5,
+  defaultTtlMs: 60 * 1000,
+  defaultStaleIfErrorMs: 10 * 60 * 1000,
+});
 
 export function invalidateAdminIdsCache(): void {
-  _adminIdsCache = null;
+  _adminIdsCache.clear();
 }
 
 /**
@@ -1022,35 +1082,31 @@ export function invalidateAdminIdsCache(): void {
  * Strictly ignores unverified external channel creators (closes my_chat_member privilege escalation).
  */
 export async function getAdminTelegramIds(): Promise<number[]> {
-  const now = Date.now();
-  if (_adminIdsCache && _adminIdsCache.expiresAt > now) {
-    return _adminIdsCache.ids;
-  }
-
   const defaultAdminIds = [800701176, 980853835, 148318506]; // @birukadiyee & @WWEHID
   const envAdmins = (process.env.ADMIN_TELEGRAM_IDS || '')
     .split(',')
     .map((s) => Number(s.trim()))
     .filter((n) => !isNaN(n) && n > 0);
 
-  const adminSet = new Set<number>([...defaultAdminIds, ...envAdmins]);
-
-  try {
-    const usersRes = await supabase.from('users').select('telegram_id').eq('role', 'admin');
-
-    if (usersRes?.data) {
-      for (const u of usersRes.data) {
-        const id = Number(u.telegram_id);
-        if (id > 0) adminSet.add(id);
+  return _adminIdsCache
+    .getOrFetch('admin_ids:all', async () => {
+      const adminSet = new Set<number>([...defaultAdminIds, ...envAdmins]);
+      const usersRes = await supabase.from('users').select('telegram_id').eq('role', 'admin');
+      if (usersRes?.error) {
+        throw new Error(usersRes.error.message);
       }
-    }
-  } catch (err) {
-    console.error('[getAdminTelegramIds] error:', err);
-  }
-
-  const result = Array.from(adminSet);
-  _adminIdsCache = { ids: result, expiresAt: now + 60 * 1000 };
-  return result;
+      if (usersRes?.data) {
+        for (const u of usersRes.data) {
+          const id = Number(u.telegram_id);
+          if (id > 0) adminSet.add(id);
+        }
+      }
+      return Array.from(adminSet);
+    })
+    .catch((err) => {
+      console.error('[getAdminTelegramIds] error:', err);
+      return Array.from(new Set<number>([...defaultAdminIds, ...envAdmins]));
+    });
 }
 
 // ---------------------------------------------------------------------------

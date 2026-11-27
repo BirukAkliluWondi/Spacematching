@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { verifyAdminRequest } from '@/lib/admin-auth';
 import { getNextSpmarbrCode, saveRoommateDraft } from '@/lib/bot-session-store';
+import { invalidateMatchmakerPoolCache, invalidateRoommatesFeedCache } from '@/lib/cache';
 
 /**
  * GET /api/admin/roommates
@@ -209,6 +210,9 @@ export async function POST(request: Request) {
       created_at: nowIso,
       updated_at: nowIso,
     });
+
+    invalidateRoommatesFeedCache();
+    invalidateMatchmakerPoolCache();
 
     return NextResponse.json({
       success: true,

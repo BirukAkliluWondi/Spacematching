@@ -40,6 +40,13 @@ import {
 } from '@/lib/bot-session-store';
 import { signAdminToken } from '@/lib/admin-auth';
 import {
+  ResilientMemoryCache,
+  matchmakerPoolCache,
+  invalidateMatchmakerPoolCache,
+  invalidateRoommatesFeedCache,
+  invalidatePublicFeedsCache,
+} from '@/lib/cache';
+import {
   verifyTelebirrPayment,
   verifyPaymentSubmission,
   extractTransactionReference,
@@ -122,6 +129,13 @@ export function invalidateAdminCache() {
 
 // Module-level Telegram CDN file_id cache across serverless invocations
 const _telegramFileIdCache = new BoundedLRUCache<string, string>(500, 24 * 60 * 60 * 1000);
+
+// Positive-only saved phone cache (5m TTL, invalidated on phone persist)
+const _savedPhoneCache = new ResilientMemoryCache<string>({
+  maxEntries: 5000,
+  defaultTtlMs: 5 * 60 * 1000,
+  defaultStaleIfErrorMs: 0,
+});
 
 // Module-level cache for Fayda verification status to eliminate repeated database round-trips
 const _faydaStatusCache = new Map<number, { isVerified: boolean; expiresAt: number }>();
@@ -548,6 +562,7 @@ export async function POST(request: Request) {
  } catch (dbErr) {
  console.error('Error updating profile status to closed in DB:', dbErr);
  }
+ invalidatePublicFeedsCache();
 
  if (closedSuccess) {
  return {
@@ -1968,17 +1983,23 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  };
 
  const getSavedUserPhone = async (tgId: number): Promise<string> => {
-   try {
-     const [uRes, pRes] = await Promise.all([
-       supabaseAdmin.from('users').select('phone_number').eq('telegram_id', tgId).maybeSingle(),
-       supabaseAdmin.from('profiles').select('phone_number').eq('telegram_id', tgId).maybeSingle(),
-     ]);
-     const uPhone = (uRes.data?.phone_number || '').trim();
-     const pPhone = (pRes.data?.phone_number || '').trim();
-     if (isValidRealPhone(uPhone)) return normalizeEthiopianPhone(uPhone) || uPhone;
-     if (isValidRealPhone(pPhone)) return normalizeEthiopianPhone(pPhone) || pPhone;
-   } catch {}
-   return '';
+   return _savedPhoneCache.getOrFetch(
+     String(tgId),
+     async () => {
+       try {
+         const [uRes, pRes] = await Promise.all([
+           supabaseAdmin.from('users').select('phone_number').eq('telegram_id', tgId).maybeSingle(),
+           supabaseAdmin.from('profiles').select('phone_number').eq('telegram_id', tgId).maybeSingle(),
+         ]);
+         const uPhone = (uRes.data?.phone_number || '').trim();
+         const pPhone = (pRes.data?.phone_number || '').trim();
+         if (isValidRealPhone(uPhone)) return normalizeEthiopianPhone(uPhone) || uPhone;
+         if (isValidRealPhone(pPhone)) return normalizeEthiopianPhone(pPhone) || pPhone;
+       } catch {}
+       return '';
+     },
+     { shouldCache: (phone) => Boolean(phone) }
+   );
  };
 
  const persistUserPhoneNumber = async (
@@ -1986,6 +2007,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
    phone: string,
    fromUser?: { first_name?: string; last_name?: string; username?: string }
  ) => {
+   _savedPhoneCache.invalidate(String(tgId));
    const nowIso = new Date().toISOString();
    try {
      const { data: existingU } = await supabaseAdmin
@@ -5801,13 +5823,10 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
    };
  };
 
- // 1. Fetch live profiles from Supabase DB
- // 1, 2, 3: Fetch matching profiles in parallel for 3x lower latency
- let dbProfiles: any[] = [];
- let localDrafts: any[] = [];
- let appProfiles: any[] = [];
-
+ // 1. Fetch/coalesce shared candidate pool (30s fresh, 5m stale-if-error, excluding caller chatId per request)
+ let sharedPool: any[] = [];
  try {
+ sharedPool = await matchmakerPoolCache.getOrFetch('matchmaker:raw_pool', async () => {
  const [rmRes, draftsObj, profRes] = await Promise.all([
  supabaseAdmin
  .from('roommate_profiles')
@@ -5824,15 +5843,15 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  .limit(50),
  ]);
 
- if (rmRes?.data) dbProfiles = rmRes.data;
- if (draftsObj) localDrafts = Object.values(draftsObj);
- if (profRes?.data) appProfiles = profRes.data;
- } catch (e) {
- console.error('Error fetching roommate profiles in parallel for matching:', e);
+ if (rmRes?.error && profRes?.error) {
+ throw new Error(rmRes.error.message || profRes.error.message);
  }
 
- // Combine profiles without duplicates across tables (by id, telegram_id, display_code)
- const allProfiles: any[] = [];
+ const dbProfiles: any[] = rmRes?.data || [];
+ const localDrafts: any[] = draftsObj ? Object.values(draftsObj) : [];
+ const appProfiles: any[] = profRes?.data || [];
+
+ const combined: any[] = [];
  const seenIds = new Set<string>();
  const seenOwnerTgIds = new Set<string>();
  const seenCodes = new Set<string>();
@@ -5851,13 +5870,13 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  };
 
  for (const p of appProfiles) {
- if (p.telegram_id && String(p.telegram_id) === String(chatId)) continue;
  if (p.display_code && String(p.display_code).toUpperCase().startsWith('SPMARWR')) continue;
  if (p.status !== 'active' || (!p.gender && !p.roommate_traits)) continue;
  if (!registerSeen(p.id, p.telegram_id, p.display_code)) continue;
  const meta = parseTraitMeta(p.roommate_traits);
- allProfiles.push({
+ combined.push({
  id: p.id,
+ ownerTgId: p.telegram_id ? String(p.telegram_id) : '',
  display_code: p.display_code || undefined,
  user_name: p.full_name || 'Verified Seeker',
  username: p.telegram_username || null,
@@ -5879,11 +5898,11 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
 
  for (const p of dbProfiles) {
  const ownerTgId = p.user_telegram_id || p.users?.telegram_id;
- if (ownerTgId && String(ownerTgId) === String(chatId)) continue;
  if (!registerSeen(p.id, ownerTgId, p.display_code)) continue;
  const meta = parseTraitMeta(p.lifestyle_bio);
- allProfiles.push({
+ combined.push({
  id: p.id,
+ ownerTgId: ownerTgId ? String(ownerTgId) : '',
  display_code: p.display_code || undefined,
  user_name: p.users?.first_name || 'Verified Seeker',
  username: p.users?.username || null,
@@ -5904,13 +5923,13 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  }
 
  for (const d of localDrafts) {
- if (d.user_telegram_id && String(d.user_telegram_id) === String(chatId)) continue;
  if (d.status !== 'approved') continue;
  if (d.listing_category === 'space_available' || (d.display_code && String(d.display_code).toUpperCase().startsWith('SPMARWR'))) continue;
  if (!registerSeen(d.id, d.user_telegram_id, d.display_code)) continue;
  const meta = parseTraitMeta(d.lifestyle_bio);
- allProfiles.push({
+ combined.push({
  id: d.id,
+ ownerTgId: d.user_telegram_id ? String(d.user_telegram_id) : '',
  display_code: d.display_code || d.id,
  user_name: d.user_name || 'Roommate Seeker',
  username: d.username || null,
@@ -5929,6 +5948,14 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  source: 'Draft',
  });
  }
+
+ return combined;
+ });
+ } catch (e) {
+ console.error('Error fetching roommate profiles in parallel for matching:', e);
+ }
+
+ const allProfiles = sharedPool.filter((prof) => !prof.ownerTgId || prof.ownerTgId !== String(chatId));
 
  // Check empty state
  if (allProfiles.length === 0) {
@@ -9074,6 +9101,8 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  }
 
  const broadcastRes = await broadcastRoommateProfileToChannel(profileId);
+ invalidateRoommatesFeedCache();
+ invalidateMatchmakerPoolCache();
  if (!broadcastRes.success) {
  await sendOrEditCard(
  chatId,
