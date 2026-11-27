@@ -415,7 +415,7 @@ export async function POST(request: Request) {
  const text = `<b>Gender Preference Mismatch / የተመራጭ ጾታ አለመጣጣም</b>\n\nRoommate <b>#${targetCode}</b> has specified a preference for <b>${targetPrefEn} (${targetPrefAm})</b> roommates.\nየክፍል ጓደኛ <b>#${targetCode}</b> የመረጡት <b>${targetPrefAm} (${targetPrefEn})</b> የቤት ጓደኛ ነው።\n\nSince your profile is registered as <b>${reqGenderEn} / ${reqGenderAm}</b>, this listing cannot accept connection requests.\nየእርስዎ መገለጫ የተመዘገበው <b>${reqGenderAm} / ${reqGenderEn}</b> ስለሆነ፣ ይህ ማስታወቂያ ጥያቄ መቀበል አይችልም።\n\n<blockquote>You can discover other compatible roommates in Addis Ababa below:\nከእርስዎ ጋር የሚስማሙ ሌሎች የተረጋገጡ የቤት ጓደኞችን ከታች ማግኘት ይችላሉ:</blockquote>`;
 
  const keyboard = [
- [{ text: 'Find Compatible Roommates / ሌሎች ጓደኞችን ፈልግ', callback_data: 'matchmaker_start' }],
+ [{ text: 'Find Matches / ሌሎች ጓደኞችን ፈልግ', callback_data: 'matchmaker_start' }],
  [{ text: 'Edit My Profile / መገለጫዬን አስተካክል', callback_data: 'post_profile_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
@@ -712,16 +712,16 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
  const dossierButtons: any[] = [];
  if (!isClosed && targetProfile.channel_message_id) {
- dossierButtons.push([{ text: `Mark #${code} as CLOSED / ማስታወቂያውን ዝጋ`, callback_data: `admin_close:${code}` }]);
+ dossierButtons.push([{ text: `Close #${code} / ማስታወቂያ ዝጋ`, callback_data: `admin_close:${code}` }]);
  }
  if (postLink) {
- dossierButtons.push([{ text: 'View Channel Post / የቻናል ማስታወቂያ ተመልከት >', url: postLink }]);
+ dossierButtons.push([{ text: 'View Post / በቻናል ተመልከት >', url: postLink }]);
  }
  if (sanitizedContact.telegramUrl) {
- dossierButtons.push([{ text: `Direct Message Candidate / መልእክት ላክ >`, url: sanitizedContact.telegramUrl }]);
+ dossierButtons.push([{ text: `DM User / መልእክት ላክ >`, url: sanitizedContact.telegramUrl }]);
  }
  dossierButtons.push([{ text: 'Search Another Code / ሌላ ኮድ ፈልግ', callback_data: 'admin_search_code_prompt' }]);
- dossierButtons.push([{ text: 'Back to Admin Menu / ወደ ዋና ማውጫ ተመለስ', callback_data: 'admin_menu' }]);
+ dossierButtons.push([{ text: 'Admin Menu / ወደ ዋና ማውጫ', callback_data: 'admin_menu' }]);
 
  await sendOrEditCard(chatId, dossierText, dossierButtons, messageIdToEdit);
  };
@@ -863,15 +863,15 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
  const dossierButtons: any[] = [];
  if (rawHandle && /^[a-zA-Z0-9_]{5,32}$/.test(rawHandle)) {
- dossierButtons.push([{ text: `Direct Message @${rawHandle} / መልእክት ላክ >`, url: `https://t.me/${rawHandle}` }]);
+ dossierButtons.push([{ text: `DM @${rawHandle} / መልእክት >`, url: `https://t.me/${rawHandle}` }]);
  }
 
  if (prof?.display_code) {
- dossierButtons.push([{ text: `View Listing #${prof.display_code.toUpperCase().replace(/^#/, '')} / ማስታወቂያ ተመልከት`, callback_data: `admin_search_code:${prof.display_code}` }]);
+ dossierButtons.push([{ text: `Listing #${prof.display_code.toUpperCase().replace(/^#/, '')} / ማስታወቂያ እይ`, callback_data: `admin_search_code:${prof.display_code}` }]);
  }
 
- dossierButtons.push([{ text: 'Search Another User / ሌላ ተጠቃሚ ፈልግ', callback_data: 'admin_search_user_prompt' }]);
- dossierButtons.push([{ text: 'Back to Admin Menu / ወደ ዋና ማውጫ ተመለስ', callback_data: 'admin_menu' }]);
+ dossierButtons.push([{ text: 'Search User / ሌላ ተጠቃሚ ፈልግ', callback_data: 'admin_search_user_prompt' }]);
+ dossierButtons.push([{ text: 'Admin Menu / ወደ ዋና ማውጫ', callback_data: 'admin_menu' }]);
 
  await sendOrEditCard(chatId, dossierText, dossierButtons, messageIdToEdit);
  };
@@ -1241,10 +1241,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
     // Strict Grid Symmetry: 2-Column Action Grid
     const inlineKeyboard = [
-      [
-        { text: 'Why Fayda? / ለምን ፋይዳ?', callback_data: 'why_fayda_id' },
-        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
-      ],
+      [{ text: 'Why Fayda? / ለምን ፋይዳ?', callback_data: 'why_fayda_id' }],
+      [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
     ];
 
     let activeId: number | null | undefined = null;
@@ -1399,11 +1397,13 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  },
  ],
  [
- {
+   {
  text: 'Post Profile / መረጃ ልለጥፍ',
  callback_data: 'post_profile_start',
  },
- {
+ ],
+ [
+   {
  text: 'Why Fayda ID? / ለምን ፋይዳ?',
  callback_data: 'why_fayda_id',
  },
@@ -1881,10 +1881,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const text = `${errBlock ? `${errBlock}\n\n` : ''}${promptText}`.trim();
 
  const inlineKeyboard = [
- [
- { text: 'Change Minimum / ዝቅተኛውን ቀይር', callback_data: 'dyn_back_to_budget_min' },
- { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Change Minimum / ዝቅተኛውን ቀይር', callback_data: 'dyn_back_to_budget_min' }],
+ [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ];
 
  const newMsgId = await sendOrEditCard(chatId, text, inlineKeyboard, activeMsgId);
@@ -1912,11 +1910,9 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const text = '<b>Preferred Roommate / የአጋር ጾታ</b>\n\n<blockquote>Who do you prefer to live with?\nአብሮዎት የሚኖረው ሰው ጾታ:</blockquote>';
 
  const inlineKeyboard = [
- [
- { text: 'Male Only / ወንድ ብቻ', callback_data: 'dyn_pref_gender:Male' },
- { text: 'Female Only / ሴት ብቻ', callback_data: 'dyn_pref_gender:Female' },
- { text: 'Any Gender / ማንኛውም ጾታ', callback_data: 'dyn_pref_gender:Any' },
- ],
+ [{ text: 'Male Only / ወንድ ብቻ', callback_data: 'dyn_pref_gender:Male' }],
+ [{ text: 'Female Only / ሴት ብቻ', callback_data: 'dyn_pref_gender:Female' }],
+ [{ text: 'Any Gender / ማንኛውም ጾታ', callback_data: 'dyn_pref_gender:Any' }],
  [
  { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_budget' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
@@ -2057,7 +2053,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
      text,
      parse_mode: 'HTML',
      reply_markup: {
-       keyboard: [[{ text: '📱 Share My Phone Number / ስልክ ቁጥሬን አጋራ', request_contact: true }]],
+       keyboard: [[{ text: 'Share Phone / ስልክ ቁጥሬን አጋራ', request_contact: true }]],
        one_time_keyboard: true,
        resize_keyboard: true,
      },
@@ -2094,10 +2090,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const text = `${errBlock ? `${errBlock}\n\n` : ''}${promptText}`.trim();
 
  const inlineKeyboard = [
- [
- { text: 'Clean & Quiet / ንጹህና ጸጥተኛ', callback_data: 'dyn_house_rules:Clean, quiet & respectful' },
- { text: 'No Smoking / ሲጋራ ክልክል', callback_data: 'dyn_house_rules:No smoking, clean & tidy' },
- ],
+ [{ text: 'Clean & Quiet / ንጹህና ጸጥተኛ', callback_data: 'dyn_house_rules:Clean, quiet & respectful' }],
+ [{ text: 'No Smoking / ሲጋራ ክልክል', callback_data: 'dyn_house_rules:No smoking, clean & tidy' }],
  [
  { text: 'No Parties / ጫጫታ የሌለበት', callback_data: 'dyn_house_rules:Quiet hours after 10 PM, no parties' },
  ],
@@ -2210,10 +2204,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
           callback_data: 'dyn_pref_to_next',
         },
       ],
-      [
-        { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_subs' },
-        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
-      ],
+      [{ text: 'Back / ተመለስ', callback_data: 'dyn_back_to_subs' }],
+      [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
     ];
 
     await sendOrEditCard(chatId, `${header}\n\n${summary}\n\n${prompt}`, inlineKeyboard, activeMsgId);
@@ -2242,10 +2234,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 
     // Strict Grid Symmetry: 2-Column Action Grid
     const inlineKeyboard = [
-      [
-        { text: 'Why Fayda? / ለምን ፋይዳ?', callback_data: 'why_fayda_id' },
-        { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_subs' },
-      ],
+      [{ text: 'Why Fayda? / ለምን ፋይዳ?', callback_data: 'why_fayda_id' }],
+      [{ text: 'Back / ተመለስ', callback_data: 'dyn_back_to_subs' }],
       [
         { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
       ],
@@ -2326,14 +2316,12 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const inlineKeyboard = [
       [
         {
-          text: 'Submit for Admin Approval / ለአድሚን ማረጋገጫ ላክ >',
+          text: 'Submit Profile / ለአድሚን ላክ >',
           callback_data: `dyn_submit_channel:${targetIdentifier}`,
         },
       ],
-      [
-        { text: 'Edit Details / መረጃ አሻሽል', callback_data: 'dyn_edit_menu' },
-        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
-      ],
+      [{ text: 'Edit Details / መረጃ አሻሽል', callback_data: 'dyn_edit_menu' }],
+      [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
     ];
 
     const newMsgId = await sendOrEditCard(chatId, text, inlineKeyboard, messageIdToEdit);
@@ -2874,23 +2862,25 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       updated_at: new Date().toISOString(),
     });
 
-    const text = '<b>Post Profile / መረጃ መለጠፊያ</b>\n\n<blockquote>Select your situation / ሁኔታዎን ይምረጡ:\n\n• <b>Need Roommate (Look Together):</b> Complete your profile & find a roommate to search together.\n• <b>Have a Room & Need Roommate:</b> Option for hosts who already have a room ready to share.</blockquote>';
+    const text = '<b>Post Profile / መረጃ መለጠፊያ</b>\n\n<blockquote>Select your situation / ሁኔታዎን ይምረጡ:\n\n• <b>Look Together / አብረን ቤት እንፈልግ:</b> Complete your profile & find a roommate to search together. / መረጃዎን ሞልተው አብረው ቤት የሚፈልጉትን አጋር ያግኙ።\n• <b>Have a Room / ክፍል አለኝ:</b> For hosts who already have a room ready to share. / ክፍል ያላቸው አጋር ፈላጊዎች።</blockquote>';
 
     // Strict Grid Symmetry: Hero CTA on Top + 2-Column Action Grid
     const inlineKeyboard = [
       // Option 1: Need roommate and we will look for a room together
       [
         {
-          text: 'Need Roommate (Look Together) / አብረን ቤት እንፈልግ',
+          text: 'Look Together / አብረን ቤት እንፈልግ',
           callback_data: 'post_branch_seeker',
         },
       ],
       // Option 2: Have a room -> directly handled by Admin (@spacematchaddissupport)
       [
         {
-          text: 'Have a Room & Need Roommate / ክፍል አለኝ',
+          text: 'Have a Room / ክፍል አለኝ',
           callback_data: 'post_branch_space',
         },
+      ],
+      [
         {
           text: 'Main Menu / ዋና ማውጫ',
           callback_data: 'nav_start',
@@ -2949,7 +2939,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
 <b>Admin / አድሚን:</b> @spacematchaddissupport`;
 
     const inlineKeyboard = [
-      [{ text: 'Contact Admin (@spacematchaddissupport) / አድሚኑን ያናግሩ >', url: 'https://t.me/spacematchaddissupport' }],
+      [{ text: 'Ask Admin / አድሚኑን ያናግሩ >', url: 'https://t.me/spacematchaddissupport' }],
       [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
     ];
 
@@ -3190,10 +3180,8 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const text = '<b>Preferred Roommate / የአጋር ጾታ</b>\n\n<blockquote>Select preferred roommate gender:\nየቤት አጋር ጾታ ይምረጡ:</blockquote>';
 
  const inlineKeyboard = [
- [
- { text: 'Female Only / ሴት ብቻ', callback_data: 'space_pref_gender:Female' },
- { text: 'Male Only / ወንድ ብቻ', callback_data: 'space_pref_gender:Male' },
- ],
+ [{ text: 'Female Only / ሴት ብቻ', callback_data: 'space_pref_gender:Female' }],
+ [{ text: 'Male Only / ወንድ ብቻ', callback_data: 'space_pref_gender:Male' }],
  [
  { text: 'Any Gender / ማንኛውም ጾታ', callback_data: 'space_pref_gender:Any' },
  ],
@@ -3331,14 +3319,12 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     const inlineKeyboard = [
       [
         {
-          text: 'Submit for Admin Approval / ለአድሚን ማረጋገጫ ላክ >',
+          text: 'Submit Profile / ለአድሚን ላክ >',
           callback_data: `space_submit_admin:${cleanDisplayCode}`,
         },
       ],
-      [
-        { text: 'Back to Photos / ወደ ፎቶዎች ተመለስ', callback_data: 'space_back_to_photos' },
-        { text: 'Restart Space Form / እንደገና ጀምር', callback_data: 'post_branch_space' },
-      ],
+      [{ text: 'Back to Photos / ወደ ፎቶዎች ተመለስ', callback_data: 'space_back_to_photos' }],
+      [{ text: 'Restart Space Form / እንደገና ጀምር', callback_data: 'post_branch_space' }],
       [
         { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
       ],
@@ -3374,8 +3360,8 @@ Select the category of the post to broadcast to ${targetChannel}:
  `.trim();
 
  const inlineKeyboard = [
- [{ text: 'Roommate Seeker / የቤት አጋር ፈላጊ (Needs a Room)', callback_data: 'admin_post_cat:roommate' }],
- [{ text: 'Have a Room, Seeking Roommate / የሚከራይ ክፍል አለኝ', callback_data: 'admin_post_cat:room_avail' }],
+ [{ text: 'Seeker / የቤት አጋር ፈላጊ', callback_data: 'admin_post_cat:roommate' }],
+ [{ text: 'Have Room / የሚከራይ ክፍል አለኝ', callback_data: 'admin_post_cat:room_avail' }],
  [{ text: 'Entire Property / ሙሉ ቤት የሚከራይ', callback_data: 'admin_post_cat:entire' }],
  [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ];
@@ -3654,8 +3640,8 @@ Example: <code>Selamawit Tadesse | 0911223344 | @selam_t</code>
  `.trim();
 
  const inlineKeyboard = [
- [{ text: `SpaceMatch Concierge (@${adminHandle}) / የስፔስማች አስተባባሪ`, callback_data: 'admin_post_contact_concierge' }],
- [{ text: 'Back to Description / ወደ መግለጫ ተመለስ', callback_data: 'admin_post_back_to_bio' }],
+ [{ text: `Concierge / የስፔስማች አስተባባሪ`, callback_data: 'admin_post_contact_concierge' }],
+ [{ text: 'Back to Bio / ወደ መግለጫ ተመለስ', callback_data: 'admin_post_back_to_bio' }],
  [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ];
 
@@ -3720,11 +3706,9 @@ ${postPreview}
  `.trim();
 
  const inlineKeyboard = [
- [{ text: 'Publish to Channel Live / ቻናል ላይ ልጠፍ >', callback_data: 'admin_post_confirm' }],
- [
- { text: 'Edit Contact / አድራሻ ቀይር', callback_data: 'admin_post_proceed_contact' },
- { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Publish Live / ቻናል ላይ ልጠፍ >', callback_data: 'admin_post_confirm' }],
+ [{ text: 'Edit Contact / አድራሻ ቀይር', callback_data: 'admin_post_proceed_contact' }],
+ [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ];
 
  await sendOrEditCard(chatId, previewText, inlineKeyboard, activeMsgId);
@@ -3738,10 +3722,8 @@ ${postPreview}
 • <b>English:</b> Standard English interface
  `.trim();
  const keyboard = [
- [
- { text: 'አማርኛ (Amharic)', callback_data: 'set_lang:am' },
- { text: 'English', callback_data: 'set_lang:en' },
- ],
+ [{ text: 'አማርኛ (Amharic)', callback_data: 'set_lang:am' }],
+ [{ text: 'English', callback_data: 'set_lang:en' }],
  [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ];
  return await sendOrEditCard(chatId, text, keyboard, messageIdToEdit);
@@ -3768,10 +3750,8 @@ ${postPreview}
     const paywallText = `<b>3-Month Pass / የ3 ወር አባልነት (100 ETB)</b>\n\n<blockquote>${purposeNotice}</blockquote>\n\n<b>Payment Accounts (${escapeHtml(paymentAccountHolder)}):</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code>\n• <b>CBE:</b> <code>${cbeAccount}</code>\n• <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>\n• <b>Dashen:</b> <code>${dashenAccount}</code>\n\n<blockquote>📸 <b>Fastest Verification:</b> Forward/paste your Telebirr or CBE confirmation SMS (with link), OR upload the full uncropped receipt showing the QR code.\n💡 <b>ፈጣን ማረጋገጫ:</b> የቴሌብር/CBE የSMS ማስፈንጠሪያ ይላኩ ወይም QR ኮዱ የሚታይበትን ሙሉ ደረሰኝ ፎቶ ይላኩ።</blockquote>\n\n<b>Or type code:</b> <code>/verify telebirr YOUR_REF</code>`.trim();
 
     const paywallKeyboard = [
-      [
-        { text: '📸 Upload Receipt / ደረሰኝ ላክ', callback_data: 'payment_upload_prompt' },
-        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
-      ],
+      [{ text: '📸 Upload Receipt / ደረሰኝ ላክ', callback_data: 'payment_upload_prompt' }],
+      [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
     ];
 
     let cardMessageId: number | undefined;
@@ -4183,11 +4163,9 @@ Your real name, phone number, and Telegram handle remain 100% private. Once appr
  `.trim();
 
  const userConfirmKeyboard = [
- [{ text: 'Find Matching Roommates Now / አጋሮችን አሁኑኑ ፈልግ >', callback_data: 'matchmaker_start' }],
- [
- { text: 'View My Listings / ማስታወቂያዎቼ', callback_data: 'my_listings' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Find Matches / አጋሮችን ፈልግ >', callback_data: 'matchmaker_start' }],
+ [{ text: 'View My Listings / ማስታወቂያዎቼ', callback_data: 'my_listings' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  if (ENABLE_DYNAMIC_START_IMAGE) {
@@ -4379,11 +4357,9 @@ Direct contact details stay protected. Once approved, your space listing will be
   `.trim();
 
   const userConfirmKeyboard = [
-    [{ text: 'Find Matching Roommates Now / አጋሮችን አሁኑኑ ፈልግ >', callback_data: 'matchmaker_start' }],
-    [
-      { text: 'View My Listings / ማስታወቂያዎቼ', callback_data: 'my_listings' },
-      { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
-    ],
+    [{ text: 'Find Matches / አጋሮችን ፈልግ >', callback_data: 'matchmaker_start' }],
+    [{ text: 'View My Listings / ማስታወቂያዎቼ', callback_data: 'my_listings' }],
+    [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
   ];
 
   if (ENABLE_DYNAMIC_START_IMAGE) {
@@ -4752,7 +4728,7 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  chatId,
     `<b>Match Request Delivered! / የግንኙነት ጥያቄ ተልኳል!</b>\n\nYour request has been sent to Roommate <b>#${targetProfile.display_code}</b> (3-Month Pass active)\nጥያቄዎ ወደ የቤት አጋር <b>#${targetProfile.display_code}</b> ደርሷል (የ3 ወር አባልነት ተፈጻሚ ሆኗል)\n\n<blockquote>You will receive contact details once accepted! / እንደተቀበሉ ወዲያውኑ የስልክና ቴሌግራም አድራሻ ይደርስዎታል!</blockquote>`,
  [
- [{ text: 'Find Other Roommates / ሌሎች ፈላጊዎችን ፈልግ >', callback_data: 'matchmaker_start' }],
+ [{ text: 'Find Others / ሌሎችን ፈልግ >', callback_data: 'matchmaker_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ],
  messageIdToEdit
@@ -4802,10 +4778,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  notifyText,
  {
  inline_keyboard: [
- [
- { text: 'Accept / ተቀበል', callback_data: `match_accept:${newMatch.id}` },
- { text: 'Decline / አልፈልግም', callback_data: `match_decline:${newMatch.id}` },
- ],
+ [{ text: 'Accept / ተቀበል', callback_data: `match_accept:${newMatch.id}` }],
+ [{ text: 'Decline / አልፈልግም', callback_data: `match_decline:${newMatch.id}` }],
  ],
  }
  );
@@ -4847,9 +4821,11 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
           text: 'Post Profile / መረጃ ልለጥፍ',
           callback_data: 'post_profile_start',
         },
+      ],
+      [
         {
           text: mem.isActive
-            ? `Pass Active (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining}ቀ)`
+            ? `Pass (${mem.daysRemaining}d) / የሚሰራ (${mem.daysRemaining}ቀ)`
             : '3-Month Pass / አባልነት',
           callback_data: 'view_membership_pass',
         },
@@ -4860,6 +4836,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
           text: 'My Listings / ማስታወቂያዎቼ',
           callback_data: 'my_listings',
         },
+      ],
+      [
         {
           text: 'Language / ቋንቋ',
           callback_data: 'open_lang_select',
@@ -4949,10 +4927,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  const kindLabel = code.startsWith('SPMARWR') ? 'Space' : 'Roommate';
  text += `<b>${kindLabel} #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((p.locations || []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${escapeHtml(formatBudgetRangeLabel(p.budget_min, p.budget_max, 'Flexible'))}\n\n`;
  if (!isClosed) {
- buttons.push([
-   { text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${p.id}` },
-   { text: `Delete #${code} / አጥፋ`, callback_data: `user_delete_listing:${code}` },
- ]);
+ buttons.push([{ text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${p.id}` }],
+ [{ text: `Delete #${code} / አጥፋ`, callback_data: `user_delete_listing:${code}` }]);
  }
  }
  }
@@ -4966,10 +4942,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  const { isClosed, badge } = formatListingStatusBadge(rm.status);
  text += `<b>Seeker Listing #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((rm.preferred_subcity || []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${escapeHtml(formatBudgetRangeLabel(rm.budget_min, rm.budget_max, 'Flexible'))}\n\n`;
  if (!isClosed) {
- buttons.push([
-   { text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${rm.id}` },
-   { text: `Delete #${code} / አጥፋ`, callback_data: `user_delete_listing:${rm.id}` },
- ]);
+ buttons.push([{ text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${rm.id}` }],
+ [{ text: `Delete #${code} / አጥፋ`, callback_data: `user_delete_listing:${rm.id}` }]);
  }
  }
  }
@@ -4985,10 +4959,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  const kindLabel = d.listing_category === 'space_available' || code.startsWith('SPMARWR') ? 'Space Listing' : 'Seeker Draft';
  text += `<b>${kindLabel} #${escapeHtml(code)}</b> · ${badge}\n• <b>Areas:</b> ${escapeHtml((Array.isArray(d.preferred_subcity) ? d.preferred_subcity : []).join(', ') || 'Addis Ababa')}\n• <b>Budget:</b> ${escapeHtml(formatBudgetRangeLabel(d.budget_min, d.space_share || d.budget_max, 'Flexible'))}\n\n`;
  if (!isClosed) {
- buttons.push([
-   { text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${code}` },
-   { text: `Delete #${code} / አጥፋ`, callback_data: `user_delete_listing:${code}` },
- ]);
+ buttons.push([{ text: `Close #${code} / ዝጋ`, callback_data: `user_close_listing:${code}` }],
+ [{ text: `Delete #${code} / አጥፋ`, callback_data: `user_delete_listing:${code}` }]);
  }
  }
  }
@@ -5003,10 +4975,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     buttons.push([{ text: 'Unlocked Contacts / የተከፈቱ አድራሻዎች', callback_data: 'my_unlocked_contacts' }]);
 
     // Strict Grid Symmetry: 2-Column Action Grid
-    buttons.push([
-      { text: 'Find Roommates / የቤት አጋር ፈልግ >', callback_data: 'search_roommate_start' },
-      { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
-    ]);
+    buttons.push([{ text: 'Find Roommates / የቤት አጋር ፈልግ >', callback_data: 'search_roommate_start' }],
+    [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]);
 
     let cardMessageId: number | undefined;
 
@@ -5039,10 +5009,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     const guideText = `<b>User Guide / የተጠቃሚ መመሪያ</b>\n\n<blockquote>SpaceMatch connects verified roommates in Addis Ababa.\nስፔስማች በአዲስ አበባ የተረጋገጡ የቤት አጋሮችን ያገናኛል።</blockquote>\n\n<b>How it works / እንዴት ይሰራል:</b>\n1. <b>Search / ፈልግ:</b> Browse verified roommates by area and budget.\n2. <b>Post / ለጥፍ:</b> Share your profile to get matches.\n3. <b>Fayda / ፋይዳ:</b> Fast QR verification keeps the community safe.\n4. <b>Pass / አባልነት:</b> 3-month pass (100 ETB) unlocks unlimited requests.\n\n<b>Commands / ትዕዛዞች:</b>\n• /start — Welcome Menu / ዋና ማውጫ\n• /my_listings — Manage Listings / ማስታወቂያዎቼ\n• /status — Account Status / ሁኔታ\n• /cancel — Reset / ሰርዝ`.trim();
 
  const keyboard = [
- [
- { text: 'Find a Roommate / የቤት አጋር ፈልግ', callback_data: 'matchmaker_start' },
- { text: 'Post Profile / መረጃዬን ልለጥፍ', callback_data: 'post_profile_start' },
- ],
+ [{ text: 'Find a Roommate / የቤት አጋር ፈልግ', callback_data: 'matchmaker_start' }],
+ [{ text: 'Post Profile / መረጃዬን ልለጥፍ', callback_data: 'post_profile_start' }],
  [{ text: 'Back to Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
@@ -5096,7 +5064,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
 
     gridRows.push([
       {
-        text: `Proceed (${selectedList.length} Selected) / ቀጥል (${selectedList.length} ተመርጠዋል) >`,
+        text: `Proceed (${selectedList.length}) / ቀጥል (${selectedList.length}) >`,
         callback_data: 'match_goto_gender',
       },
     ]);
@@ -5130,10 +5098,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  { text: 'Female / ሴት', callback_data: 'match_set_my_gender:Female' },
  { text: 'Male / ወንድ', callback_data: 'match_set_my_gender:Male' },
  ],
- [
- { text: 'Back to Areas / ወደ አካባቢዎች ተመለስ', callback_data: 'matchmaker_start' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back to Areas / ወደ አካባቢዎች ተመለስ', callback_data: 'matchmaker_start' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5160,10 +5126,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     const text = `${header}<b>Your Age / እድሜዎ</b>\n\n<blockquote>Enter your age (e.g. 24):\nእድሜዎን በቁጥር ያስገቡ:</blockquote>`;
 
  const keyboard = [
- [
- { text: 'Back to Gender / ወደ ጾታ ተመለስ', callback_data: 'match_goto_gender' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back to Gender / ወደ ጾታ ተመለስ', callback_data: 'match_goto_gender' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5191,17 +5155,13 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     const text = `${header}<b>Your Occupation / ሙያዎ</b>\n\n<blockquote>Type your occupation (e.g. Accountant, Engineer, Student) or tap a quick option below:\nሙያዎን ወይም የስራ ሁኔታዎን ይጻፉ ወይም ከታች ይምረጡ:</blockquote>`;
 
  const keyboard = [
- [
- { text: 'Student / ተማሪ', callback_data: 'match_set_job:Student' },
- { text: 'Employed / ተቀጣሪ', callback_data: 'match_set_job:Employed' },
- ],
+ [{ text: 'Student / ተማሪ', callback_data: 'match_set_job:Student' }],
+ [{ text: 'Employed / ተቀጣሪ', callback_data: 'match_set_job:Employed' }],
  [
  { text: 'Self-Employed / የግል ስራ', callback_data: 'match_set_job:Self-Employed' },
  ],
- [
- { text: 'Back to Age / ወደ ዕድሜ ተመለስ', callback_data: 'match_goto_age' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back to Age / ወደ ዕድሜ ተመለስ', callback_data: 'match_goto_age' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5226,17 +5186,13 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     const text = '<b>Preferred Roommate / የአጋር ጾታ</b>\n\n<blockquote>Who do you prefer to live with?\nአብሮዎት የሚኖረው ሰው ጾታ:</blockquote>';
 
  const keyboard = [
- [
- { text: 'Female Only / ሴት ብቻ', callback_data: 'match_set_pref_gender:Female' },
- { text: 'Male Only / ወንድ ብቻ', callback_data: 'match_set_pref_gender:Male' },
- ],
+ [{ text: 'Female Only / ሴት ብቻ', callback_data: 'match_set_pref_gender:Female' }],
+ [{ text: 'Male Only / ወንድ ብቻ', callback_data: 'match_set_pref_gender:Male' }],
  [
  { text: 'Any Gender Compatible / ማናቸውም ጾታ', callback_data: 'match_set_pref_gender:Any' },
  ],
- [
- { text: 'Back to Occupation / ወደ ሙያ ተመለስ', callback_data: 'match_goto_job' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back to Occupation / ወደ ሙያ ተመለስ', callback_data: 'match_goto_job' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5264,12 +5220,10 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
 
  const keyboard = [
  [
- { text: 'Any Budget (No Cap) / ማንኛውም በጀት (ገደብ የለሽ)', callback_data: 'match_set_budget:0' },
+ { text: 'Any Budget / ማንኛውም በጀት', callback_data: 'match_set_budget:0' },
  ],
- [
- { text: 'Back to Preference / ወደ ምርጫ ተመለስ', callback_data: 'match_goto_pref_gender' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back to Preference / ወደ ምርጫ ተመለስ', callback_data: 'match_goto_pref_gender' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const { pending_budget_min: _ignoredMin, ...cleanDraft } = currentDraft || {};
@@ -5299,10 +5253,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     const text = `${header}<b>Maximum Monthly Budget / ከፍተኛ ወርሃዊ በጀት</b>\n\n<blockquote>Minimum saved: <b>${minAmount.toLocaleString()} ETB/mo</b>\nNow enter your MAXIMUM monthly budget in ETB (e.g. <code>${suggestedMax.toLocaleString()}</code>):\n\nዝቅተኛ በጀት ተይዟል: <b>${minAmount.toLocaleString()} ብር</b>\nአሁን ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ:</blockquote>`;
 
  const keyboard = [
- [
- { text: 'Change Minimum / ዝቅተኛውን ቀይር', callback_data: 'match_goto_budget' },
- { text: 'Any Budget / ማንኛውም በጀት', callback_data: 'match_set_budget:0' },
- ],
+ [{ text: 'Change Minimum / ዝቅተኛውን ቀይር', callback_data: 'match_goto_budget' }],
+ [{ text: 'Any Budget / ማንኛውም በጀት', callback_data: 'match_set_budget:0' }],
  [
  { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
  ],
@@ -5333,15 +5285,13 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
 
  const keyboard = [
  [
- { text: 'Clean, Quiet & Non-Smoker / ንጹህና ጸጥተኛ', callback_data: 'match_set_traits:Clean, quiet & non-smoker' },
+ { text: 'Clean & Quiet / ንጹህና ጸጥተኛ', callback_data: 'match_set_traits:Clean, quiet & non-smoker' },
  ],
  [
- { text: 'Friendly & Respectful / ተግባቢ እና ጨዋ', callback_data: 'match_set_traits:Friendly, clean & respectful' },
+ { text: 'Friendly / ተግባቢ እና ጨዋ', callback_data: 'match_set_traits:Friendly, clean & respectful' },
  ],
- [
- { text: 'Back to Budget / ወደ በጀት ተመለስ', callback_data: 'match_goto_budget' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back to Budget / ወደ በጀት ተመለስ', callback_data: 'match_goto_budget' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5368,17 +5318,13 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     const text = `${header}<b>House Rules / የቤት ህጎች</b>\n\n<blockquote>Tap your preferred house rules or type your own (e.g. No smoking, quiet after 10 PM) to see your matches:\nየሚፈልጉትን የቤት ህግ ከታች ይምረጡ ወይም ይጻፉ (ምሳሌ: ሲጋራ ክልክል፣ ከምሽቱ 4 ሰዓት በኋላ ጸጥታ):</blockquote>`;
 
  const keyboard = [
- [
- { text: 'Clean & Quiet / ንጹህና ጸጥተኛ', callback_data: 'match_set_house_rules:Clean, quiet & respectful' },
- { text: 'No Smoking / ሲጋራ ክልክል', callback_data: 'match_set_house_rules:No smoking, clean & tidy' },
- ],
+ [{ text: 'Clean & Quiet / ንጹህና ጸጥተኛ', callback_data: 'match_set_house_rules:Clean, quiet & respectful' }],
+ [{ text: 'No Smoking / ሲጋራ ክልክል', callback_data: 'match_set_house_rules:No smoking, clean & tidy' }],
  [
  { text: 'No Parties / ጫጫታ የሌለበት', callback_data: 'match_set_house_rules:Quiet hours after 10 PM, no parties' },
  ],
- [
- { text: 'Back / ወደ ኋላ', callback_data: 'match_goto_traits' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back / ወደ ኋላ', callback_data: 'match_goto_traits' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5413,7 +5359,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  text,
  parse_mode: 'HTML',
  reply_markup: {
- keyboard: [[{ text: '📱 Share My Phone Number / ስልክ ቁጥሬን አጋራ', request_contact: true }]],
+ keyboard: [[{ text: 'Share Phone / ስልክ ቁጥሬን አጋራ', request_contact: true }]],
  one_time_keyboard: true,
  resize_keyboard: true,
  },
@@ -5481,7 +5427,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
 
     gridRows.push([
       {
-        text: `Proceed (${selectedList.length} Selected) / ቀጥል (${selectedList.length} ተመርጠዋል) >`,
+        text: `Proceed (${selectedList.length}) / ቀጥል (${selectedList.length}) >`,
         callback_data: 'seeker_goto_gender',
       },
     ]);
@@ -5538,10 +5484,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     const text = `${header}<b>Your Age / እድሜዎ</b>\n\n<blockquote>Enter your age (e.g. 24):\nእድሜዎን በቁጥር ያስገቡ:</blockquote>`;
 
  const keyboard = [
- [
- { text: 'Back to Gender / ተመለስ', callback_data: 'seeker_goto_gender' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back to Gender / ተመለስ', callback_data: 'seeker_goto_gender' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5562,17 +5506,13 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     const text = '<b>Preferred Roommate / የአጋር ጾታ</b>\n\n<blockquote>Who do you prefer to live with?\nአብሮዎት የሚኖረው ሰው ጾታ:</blockquote>';
 
  const keyboard = [
- [
- { text: 'Female Only / ሴት ብቻ', callback_data: 'seeker_pref_gender:Female' },
- { text: 'Male Only / ወንድ ብቻ', callback_data: 'seeker_pref_gender:Male' },
- ],
+ [{ text: 'Female Only / ሴት ብቻ', callback_data: 'seeker_pref_gender:Female' }],
+ [{ text: 'Male Only / ወንድ ብቻ', callback_data: 'seeker_pref_gender:Male' }],
  [
  { text: 'Any Gender Compatible / ማንኛውም ጾታ', callback_data: 'seeker_pref_gender:Any' },
  ],
- [
- { text: 'Back to Age / ተመለስ', callback_data: 'seeker_goto_age' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back to Age / ተመለስ', callback_data: 'seeker_goto_age' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5599,10 +5539,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     const text = `${header}<b>Monthly Budget Range / ወርሃዊ የበጀት ክልል</b>\n\n<blockquote>Enter your minimum and maximum monthly budget in ETB (e.g. <code>5000 - 12000</code>),\nor type your MINIMUM budget first (e.g. <code>5000</code>):\n\nዝቅተኛውን እና ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ (ምሳሌ: <code>5000 - 12000</code>)\nወይም መጀመሪያ ዝቅተኛውን ብቻ ይጻፉ (ምሳሌ: <code>5000</code>):</blockquote>`;
 
  const keyboard = [
- [
- { text: 'Back to Preference / ተመለስ', callback_data: 'seeker_goto_pref_gender' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back to Preference / ተመለስ', callback_data: 'seeker_goto_pref_gender' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const { pending_budget_min: _ignoredMin, ...cleanDraft } = currentDraft || {};
@@ -5631,10 +5569,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     const text = `${header}<b>Maximum Monthly Budget / ከፍተኛ ወርሃዊ በጀት</b>\n\n<blockquote>Minimum saved: <b>${minAmount.toLocaleString()} ETB/mo</b>\nNow enter your MAXIMUM monthly budget in ETB (e.g. <code>${suggestedMax.toLocaleString()}</code>):\n\nዝቅተኛ በጀት ተይዟል: <b>${minAmount.toLocaleString()} ብር</b>\nአሁን ከፍተኛውን ወርሃዊ በጀት በብር ያስገቡ:</blockquote>`;
 
  const keyboard = [
- [
- { text: 'Change Minimum / ዝቅተኛውን ቀይር', callback_data: 'seeker_goto_budget' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Change Minimum / ዝቅተኛውን ቀይር', callback_data: 'seeker_goto_budget' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5656,10 +5592,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
 
  const keyboard = [
  [{ text: 'Skip Bio / ይህን እለፍ >', callback_data: 'seeker_skip_bio' }],
- [
- { text: 'Back to Budget / ተመለስ', callback_data: 'seeker_goto_budget' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Back to Budget / ተመለስ', callback_data: 'seeker_goto_budget' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
  const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5694,7 +5628,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  text,
  parse_mode: 'HTML',
  reply_markup: {
- keyboard: [[{ text: '📱 Share My Phone Number / ስልክ ቁጥሬን አጋራ', request_contact: true }]],
+ keyboard: [[{ text: 'Share Phone / ስልክ ቁጥሬን አጋራ', request_contact: true }]],
  one_time_keyboard: true,
  resize_keyboard: true,
  },
@@ -5750,11 +5684,9 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
     `.trim();
 
     const keyboard = [
-      [{ text: 'Publish to Channel & Matchmaker / ቻናል እና ማችሜከር ላይ ይለጠፍ >', callback_data: 'seeker_final_submit' }],
-      [
-        { text: 'Edit Details / መረጃ አሻሽል', callback_data: 'seeker_flow' },
-        { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
-      ],
+      [{ text: 'Publish Live / ቻናል ላይ ይለጠፍ >', callback_data: 'seeker_final_submit' }],
+      [{ text: 'Edit Details / መረጃ አሻሽል', callback_data: 'seeker_flow' }],
+      [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
     ];
 
     const targetMsgId = messageIdToEdit || currentDraft.card_msg_id;
@@ -5968,7 +5900,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  `.trim();
 
  const emptyKeyboardRows = [
- [{ text: 'Post My Seeker Profile / የኔን መረጃ ቻናል ላይ ልለጥፍ', callback_data: 'post_branch_seeker' }],
+ [{ text: 'Post Profile / መረጃዬን ልለጥፍ', callback_data: 'post_branch_seeker' }],
  [{ text: 'Try Again / እንደገና ሞክር', callback_data: 'matchmaker_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
@@ -6077,8 +6009,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  `.trim();
 
  const noMatchesKeyboardRows = [
- [{ text: 'Browse All Open Seekers / ሁሉንም ክፍት ፈላጊዎች እይ', callback_data: 'match_browse_all' }],
- [{ text: 'Post My Seeker Profile / የኔን መረጃ ልለጥፍ', callback_data: 'post_branch_seeker' }],
+ [{ text: 'Browse Seekers / ሁሉንም እይ', callback_data: 'match_browse_all' }],
+ [{ text: 'Post Profile / መረጃዬን ልለጥፍ', callback_data: 'post_branch_seeker' }],
  [{ text: 'Change Filters / መስፈርቶችን ቀይር', callback_data: 'matchmaker_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
@@ -6129,33 +6061,28 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  // Row 1 (Hero CTA): Unlock Direct Contact
  inlineKeyboardRows.push([
  {
- text: 'Unlock Direct Contact / አድራሻቸውን ክፈት >',
+ text: 'Unlock Contact / አድራሻ ክፈት >',
  callback_data: `search_unlock_contact:${match.id}`,
  },
  ]);
 
- // Row 2 (Pagination Grid): Clean 2-column or 3-column pagination
+ // Row 2 (Pagination): Stacked 1-per-row so bilingual labels never squeeze
  if (scoredMatches.length > 1) {
- const navRow: any[] = [];
- if (safeIndex > 0) {
- navRow.push({ text: '⬅ Prev / ወደ ኋላ', callback_data: `match_page:${safeIndex - 1}` });
- } else {
- navRow.push({ text: '• Start •', callback_data: 'match_noop' });
- }
- navRow.push({ text: `${safeIndex + 1} / ${scoredMatches.length}`, callback_data: 'match_noop' });
  if (safeIndex < scoredMatches.length - 1) {
- navRow.push({ text: 'Next / ወደ ፊት >', callback_data: `match_page:${safeIndex + 1}` });
- } else {
- navRow.push({ text: '• End •', callback_data: 'match_noop' });
+ inlineKeyboardRows.push([
+ { text: `Next (${safeIndex + 2}/${scoredMatches.length}) / ወደ ፊት >`, callback_data: `match_page:${safeIndex + 1}` },
+ ]);
  }
- inlineKeyboardRows.push(navRow);
+ if (safeIndex > 0) {
+ inlineKeyboardRows.push([
+ { text: `⬅ Prev (${safeIndex}/${scoredMatches.length}) / ወደ ኋላ`, callback_data: `match_page:${safeIndex - 1}` },
+ ]);
+ }
  }
 
  // Row 3 (2-Column Action Grid): Refine & Main Menu
- inlineKeyboardRows.push([
- { text: 'Refine Filters / አጣራ', callback_data: 'matchmaker_start' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ]);
+ inlineKeyboardRows.push([{ text: 'Refine Filters / አጣራ', callback_data: 'matchmaker_start' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]);
 
  await sendOrEditCard(chatId, matchCardText, inlineKeyboardRows, messageIdToEdit);
  };
@@ -6465,9 +6392,9 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
 
  const inlineKeyboard = [
  [{ text: 'Shared Room / የጋራ መኖሪያ ክፍል', callback_data: 'prop_type:shared' }],
- [{ text: 'Entire House / Apartment / ሙሉ ቤት ወይም አፓርታማ', callback_data: 'prop_type:entire' }],
+ [{ text: 'Full House / ሙሉ ቤት', callback_data: 'prop_type:entire' }],
  [{ text: 'Office / Commercial Space / ቢሮ', callback_data: 'prop_type:office' }],
- [{ text: 'Shop / Commercial Venue / ሱቅ ወይም ንግድ ቦታ', callback_data: 'prop_type:shop' }],
+ [{ text: 'Shop / Venue / ሱቅ ወይም ንግድ', callback_data: 'prop_type:shop' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
@@ -6625,7 +6552,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
 
  // If forwarded from the bot and buttons missing, attach the 3 standard buttons
  if (isForwardedFromBot && !hasConnectBtn) {
- const buttonTitle = 'Connect with this roommate / ከዚህ አጋር ጋር ተገናኝ >';
+ const buttonTitle = 'Connect / ከዚህ አጋር ጋር ተገናኝ >';
  const connectPayload = `req_${displayCode}`;
 
  if (!targetFound) {
@@ -6678,8 +6605,8 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
 
  const newButtons = [
  [{ text: buttonTitle, url: `https://t.me/${botUsername}?start=${connectPayload}` }],
- [{ text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >', url: `https://t.me/${botUsername}?start=search_roommate` }],
- [{ text: 'Post My Profile / መረጃዬን ልለጥፍ >', url: `https://t.me/${botUsername}?start=post_profile` }],
+ [{ text: 'Search / የቤት አጋር ፈልግልኝ >', url: `https://t.me/${botUsername}?start=search_roommate` }],
+ [{ text: 'Post Profile / መረጃዬን ልለጥፍ >', url: `https://t.me/${botUsername}?start=post_profile` }],
  ];
 
  const updatedInlineKeyboard = existingKb && existingKb.length > 0
@@ -7064,17 +6991,17 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  const channelButtons = {
  inline_keyboard: [
  [{
- text: 'Connect with this roommate / ከዚህ አጋር ጋር ተገናኝ >',
+ text: 'Connect / ከዚህ አጋር ጋር ተገናኝ >',
  url: isSpace
  ? `https://t.me/${botUsername}?start=order_${displayCode}`
  : `https://t.me/${botUsername}?start=req_${displayCode}`,
  }],
  [{
- text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >',
+ text: 'Search / የቤት አጋር ፈልግልኝ >',
  url: `https://t.me/${botUsername}?start=search_roommate`,
  }],
  [{
- text: 'Post My Profile / መረጃዬን ልለጥፍ >',
+ text: 'Post Profile / መረጃዬን ልለጥፍ >',
  url: `https://t.me/${botUsername}?start=post_profile`,
  }],
  ],
@@ -7118,9 +7045,9 @@ When a user clicks to connect, the bot will track #${displayCode} and notify you
  `.trim();
 
  const adminMgmtKeyboard = [
- [{ text: `Mark #${displayCode} as CLOSED / ማስታወቂያውን ዝጋ`, callback_data: `admin_close:${displayCode}` }],
- ...(postLink ? [[{ text: 'View Post in Channel / ቻናል ላይ ተመልከት >', url: postLink }]] : []),
- [{ text: 'Post Another Listing / ሌላ ማስታወቂያ ልጠፍ', callback_data: 'admin_post_start' }],
+ [{ text: `Close #${displayCode} / ማስታወቂያ ዝጋ`, callback_data: `admin_close:${displayCode}` }],
+ ...(postLink ? [[{ text: 'View Channel / በቻናል እይ >', url: postLink }]] : []),
+ [{ text: 'Post Another / ሌላ ልጠፍ', callback_data: 'admin_post_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
@@ -7413,8 +7340,8 @@ ${res.message}
      chatId,
      `<b>Search Roommate / የቤት አጋር ፈልግ</b>\n\n<blockquote>We found your saved profile & preferences:\n• <b>Areas / አካባቢ:</b> <b>${escapeHtml(savedAreasStr)}</b>\n• <b>Budget / በጀት:</b> <b>${escapeHtml(savedBudgetStr)}</b>\n• <b>Looking For / ምርጫ:</b> <b>${escapeHtml(savedProf.preferred_gender)}</b>\n\nበተቀመጠው መረጃዎ ወዲያውኑ ይፈልጉ ወይም መስፈርቶችዎን ያሻሽሉ:</blockquote>`,
      [
-       [{ text: 'Search with Saved Preferences / በተቀመጠው መረጃ ፈልግ >', callback_data: 'match_use_saved_profile' }],
-       [{ text: 'Edit Search Filters / መስፈርቶችን አሻሽል', callback_data: 'match_edit_filters' }],
+       [{ text: 'Saved Search / በተቀመጠው ፈልግ >', callback_data: 'match_use_saved_profile' }],
+       [{ text: 'Edit Filters / መስፈርት አሻሽል', callback_data: 'match_edit_filters' }],
        [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
      ],
      msgId
@@ -7791,21 +7718,15 @@ ${res.message}
    chatId,
    `<b>Edit Profile Details / መረጃ አሻሽል</b>\n\n<blockquote>Choose which field you want to update:\nማስተካከል የሚፈልጉትን መረጃ ይምረጡ:</blockquote>`,
    [
-     [
-       { text: 'Age / እድሜ', callback_data: 'dyn_edit_field:age' },
-       { text: 'Gender / ጾታ', callback_data: 'dyn_edit_field:gender' },
-     ],
+     [{ text: 'Age / እድሜ', callback_data: 'dyn_edit_field:age' }],
+     [{ text: 'Gender / ጾታ', callback_data: 'dyn_edit_field:gender' }],
      [
        { text: 'Occupation / ሙያ', callback_data: 'dyn_edit_field:job' },
      ],
-     [
-       { text: 'Budget / በጀት', callback_data: 'dyn_edit_field:budget' },
-       { text: 'Pref Gender / የአጋር ጾታ', callback_data: 'dyn_edit_field:pref_gender' },
-     ],
-     [
-       { text: 'Habits / መግለጫ', callback_data: 'dyn_edit_field:traits' },
-       { text: 'House Rules / የቤት ህጎች', callback_data: 'dyn_edit_field:house_rules' },
-     ],
+     [{ text: 'Budget / በጀት', callback_data: 'dyn_edit_field:budget' }],
+     [{ text: 'Pref Gender / የአጋር ጾታ', callback_data: 'dyn_edit_field:pref_gender' }],
+     [{ text: 'Habits / መግለጫ', callback_data: 'dyn_edit_field:traits' }],
+     [{ text: 'House Rules / የቤት ህጎች', callback_data: 'dyn_edit_field:house_rules' }],
      [
        { text: 'Areas / አካባቢዎች', callback_data: 'dyn_edit_field:subcities' },
      ],
@@ -8064,8 +7985,8 @@ ${res.message}
  chatId,
  adminSuccessText,
  [
- ...(postLink ? [[{ text: 'View Post in Channel / ቻናል ላይ ተመልከት >', url: postLink }]] : []),
- [{ text: `Mark #${targetCode} as CLOSED / ማስታወቂያውን ዝጋ`, callback_data: `admin_close:${targetCode}` }],
+ ...(postLink ? [[{ text: 'View Channel / በቻናል እይ >', url: postLink }]] : []),
+ [{ text: `Close #${targetCode} / ማስታወቂያ ዝጋ`, callback_data: `admin_close:${targetCode}` }],
  [{ text: 'Admin Menu / የአድሚን ማውጫ', callback_data: 'admin_menu' }],
  ],
  msgId
@@ -8083,8 +8004,8 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
 
  await tgSend(userTgId, userCelebrationMsg, {
  inline_keyboard: [
- ...(postLink ? [[{ text: 'View Your Post on Channel / ማስታወቂያዎን በቻናል ይመልከቱ >', url: postLink }]] : []),
- [{ text: 'Find Other Roommates · Matchmaker / የቤት አጋር ፈልግ >', callback_data: 'matchmaker_start' }],
+ ...(postLink ? [[{ text: 'View Channel / በቻናል እይ >', url: postLink }]] : []),
+ [{ text: 'Matchmaker / የቤት አጋር ፈልግ >', callback_data: 'matchmaker_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ],
  });
@@ -8496,7 +8417,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  `<b>Pass Required to Complete Match / አባልነት ያስፈልጋል</b>\n\n<blockquote>Roommate <b>#${escapeHtml(tCode)}</b> attempted to accept your request, but your 100 ETB 3-Month Pass is inactive. Activate your pass to reveal mutual contacts!\n\nአባል <b>#${escapeHtml(tCode)}</b> ጥያቄዎን ለመቀበል ሞክሯል፤ ነገር ግን የ100 ብር የ3 ወር አባልነት ፓስዎ አልተከፈተም።</blockquote>`,
  {
  inline_keyboard: [
- [{ text: 'Activate 3-Month Pass (100 ETB) / አባልነት ክፈት >', callback_data: 'view_membership_pass' }],
+ [{ text: 'Activate Pass / አባልነት ክፈት >', callback_data: 'view_membership_pass' }],
  ],
  }
  );
@@ -8521,7 +8442,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  chatId,
  `<b>Upload Payment Receipt / የክፍያ ደረሰኝ ይላኩ</b>\n\n<blockquote>📸 <b>3 Easy Ways to Verify:</b>\n1. Upload the <b>full uncropped screenshot</b> showing the receipt QR code (recommended for BoA/Dashen/CBE/Telebirr)\n2. Forward or paste your <b>bank SMS / receipt link</b>\n3. Send the transaction code (e.g. <code>DKM7J1EXAP</code> or <code>FT...</code>)\n\n1. QR ኮዱ የሚታይበትን <b>ሙሉ የደረሰኝ ፎቶ</b> ይላኩ\n2. የባንክ <b>SMS / receipt link</b> ኮፒ አድርገው ይላኩ\n3. የግብይት ቁጥሩን ይጻፉ</blockquote>`,
  [
-   [{ text: 'Back to Payment Accounts / ወደ ክፍያ ቁጥሮች ተመለስ', callback_data: 'paywall_back' }],
+   [{ text: 'Payment Accounts / የክፍያ ቁጥሮች', callback_data: 'paywall_back' }],
    [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ],
  msgId
@@ -8621,7 +8542,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  {
  inline_keyboard: [
  [{ text: reqIsAm ? ' የኔን መረጃ ቻናል ላይ ልለጥፍ ↗' : ' Post My Profile to Channel >', callback_data: 'post_to_channel_start' }],
- [{ text: reqIsAm ? ' ሌሎች ፈላጊዎችን ፈልግ ' : ' Find Other Roommates · Matchmaker >', callback_data: 'matchmaker_start' }],
+ [{ text: reqIsAm ? ' ሌሎች ፈላጊዎችን ፈልግ ' : 'Find Other Roommates >', callback_data: 'matchmaker_start' }],
  ],
  }
  );
@@ -9046,7 +8967,8 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  `<b>${actionTitle}</b>\n\n<blockquote>${channelDetail}</blockquote>`.trim(),
  [
  [{ text: 'View My Listings / ማስታወቂያዎቼ', callback_data: 'my_listings' }],
- [{ text: 'Post New / አዲስ ልጠፍ', callback_data: 'post_profile_start' }, { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
+ [{ text: 'Post New / አዲስ ልጠፍ', callback_data: 'post_profile_start' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ],
  msgId
  );
@@ -9336,10 +9258,8 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  }
  }
 
- buttons.push([
- { text: 'Find Another Roommate / ሌላ ፈልግ', callback_data: 'matchmaker_start' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ]);
+ buttons.push([{ text: 'Find Another Roommate / ሌላ ፈልግ', callback_data: 'matchmaker_start' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }]);
 
  await sendOrEditCard(chatId, truncateTelegramHtml(msg.trim(), 4096), buttons, msgId);
  return NextResponse.json({ ok: true });
@@ -9364,15 +9284,15 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
 
  const adminWebToken = signAdminToken(chatId, 3600);
  const adminKeyboard = [
- [{ text: 'Open Web Admin Portal 🌐 / ድረ-ገጽ አድሚን ክፈት', url: `${appUrl}/admin?auth_token=${encodeURIComponent(adminWebToken)}` }],
- [{ text: 'Search User by Name (Fayda Dossier) >', callback_data: 'admin_search_user_prompt' }],
- [{ text: 'Search Post by Code (#SPMARBR / #SPMARWR) ', callback_data: 'admin_search_code_prompt' }],
+ [{ text: 'Web Admin / ድረ-ገጽ አድሚን >', url: `${appUrl}/admin?auth_token=${encodeURIComponent(adminWebToken)}` }],
+ [{ text: 'Search User (Fayda) >', callback_data: 'admin_search_user_prompt' }],
+ [{ text: 'Search Post by Code >', callback_data: 'admin_search_code_prompt' }],
  [{ text: `Pending Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
  [{ text: 'Post to Channel as Admin >', callback_data: 'admin_post_start' }],
  [{ text: 'Add Admin by Username >', callback_data: 'admin_add_prompt' }],
  [{ text: 'View Administrators', callback_data: 'admin_list_team' }],
  [{ text: 'Connected Channels & Settings ', callback_data: 'admin_list_channels' }],
- [{ text: 'Open Channel Posts & Close / ክፍት ማስታወቂያዎችና መዝጊያ', callback_data: 'admin_list_active_posts' }],
+ [{ text: 'Open Posts & Close / ክፍት ፖስት', callback_data: 'admin_list_active_posts' }],
  [{ text: 'Post Custom Announcement', callback_data: 'admin_custom_prompt' }],
  [{ text: 'Exit Admin Menu', callback_data: 'admin_cancel' }],
  ];
@@ -9457,10 +9377,8 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  for (const p of pendingList.slice(0, 10)) {
  const code = p.code;
  const loc = Array.isArray(p.locations) ? p.locations[0] || 'Addis' : 'Addis';
- buttons.push([
- { text: `Approve #${code} (${p.gender || 'Any'} · ${loc})`, callback_data: `admin_approve_profile:${code}` },
- { text: `Reject`, callback_data: `admin_reject_profile:${code}` },
- ]);
+ buttons.push([{ text: `Approve #${code} (${p.gender || 'Any'} · ${loc})`, callback_data: `admin_approve_profile:${code}` }],
+ [{ text: `Reject`, callback_data: `admin_reject_profile:${code}` }]);
  }
  buttons.push([{ text: 'Back to Admin Menu', callback_data: 'admin_menu' }]);
 
@@ -9680,7 +9598,7 @@ Please send the Telegram username of the user you want to appoint as an administ
  }
 
  const buttons = [
- [{ text: 'Back to Admin Menu / ወደ አድሚን ማውጫ ተመለስ', callback_data: 'admin_menu' }],
+ [{ text: 'Admin Menu / ወደ አድሚን ማውጫ', callback_data: 'admin_menu' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
 
@@ -9775,7 +9693,7 @@ Please send the Telegram username of the user you want to appoint as an administ
  await sendOrEditCard(
  chatId,
  text,
- [[{ text: 'Back to Admin Menu / ወደ አድሚን ማውጫ ተመለስ', callback_data: 'admin_menu' }]],
+ [[{ text: 'Admin Menu / ወደ አድሚን ማውጫ', callback_data: 'admin_menu' }]],
  msgId
  );
  return NextResponse.json({ ok: true });
@@ -9790,7 +9708,7 @@ Please send the Telegram username of the user you want to appoint as an administ
  },
  ]);
  }
- buttons.push([{ text: 'Back to Admin Menu / ወደ አድሚን ማውጫ ተመለስ', callback_data: 'admin_menu' }]);
+ buttons.push([{ text: 'Admin Menu / ወደ አድሚን ማውጫ', callback_data: 'admin_menu' }]);
 
  const text = `<b>SpaceMatch Admin · Active Channel Posts (${activePosts.length})</b>\n\nTap any post below to mark it as <b>CLOSED · MATCHED</b> on the channel and remove connect buttons:`;
 
@@ -9821,8 +9739,8 @@ Please send the Telegram username of the user you want to appoint as an administ
  : `<b>Could not update channel post #${channelMsgId}:</b>\n${escapeHtml(closeRes.message)}`;
 
  const buttons = [
- [{ text: 'View Remaining Open Posts / የቀሩትን ክፍት ማስታወቂያዎች እይ', callback_data: 'admin_list_active_posts' }],
- [{ text: 'Back to Admin Menu / ወደ አድሚን ማውጫ ተመለስ', callback_data: 'admin_menu' }],
+ [{ text: 'Open Posts / የቀሩትን እይ', callback_data: 'admin_list_active_posts' }],
+ [{ text: 'Admin Menu / ወደ አድሚን ማውጫ', callback_data: 'admin_menu' }],
  ];
 
  await sendOrEditCard(chatId, text, buttons, msgId);
@@ -9908,7 +9826,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  parse_mode: 'HTML',
  reply_markup: {
  inline_keyboard: [
- [{ text: `Mark #${targetIdentifier} as CLOSED in Channel`, callback_data: `admin_close:${targetIdentifier}` }],
+ [{ text: `Close #${targetIdentifier} / ዝጋ`, callback_data: `admin_close:${targetIdentifier}` }],
  ...(postLink ? [[{ text: 'View Channel Post >', url: postLink }]] : []),
  [{ text: 'Cancel', callback_data: 'nav_start' }],
  ],
@@ -10166,7 +10084,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  chatId,
  `<b>Your Open Listing / የእርስዎ ክፍት ማስታወቂያ</b>\n\nThis is your listing for Roommate <b>#${targetProfile.display_code || lookupCode}</b> on the channel.\n\n<blockquote>If you have found a roommate, tap below to mark it as closed: / የቤት አጋር ካገኙ ማስታወቂያውን ለመዝጋት ከታች ይጫኑ:</blockquote>`,
  [
- [{ text: 'Mark as Closed / እንደተዘጋ ምልክት አድርግ', callback_data: `user_close_listing:${targetProfile.id}` }],
+ [{ text: 'Mark Closed / እንደተዘጋ ምልክት', callback_data: `user_close_listing:${targetProfile.id}` }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ]
  );
@@ -10363,10 +10281,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  [
  { text: reqBtnText, callback_data: `confirm_match:${targetProfile.id}` },
  ],
- [
- { text: 'Edit Profile / መረጃ አሻሽል', callback_data: 'post_profile_start' },
- { text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' },
- ],
+ [{ text: 'Edit Profile / መረጃ አሻሽል', callback_data: 'post_profile_start' }],
+ [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ]
  );
  return NextResponse.json({ ok: true });
@@ -10518,10 +10434,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  `<b>Profile ready!</b> Here is the listing you wanted to connect with:\n\n<b>Roommate #${escapeHtml(targetProfile.display_code || pendingCode)}</b>\n ${escapeHtml(targetLocations)}\n ${Number(targetProfile.budget_min || 0).toLocaleString()} – ${Number(targetProfile.budget_max || 0).toLocaleString()} ETB/month`,
  {
  inline_keyboard: [
- [
- { text: '⚡ Send Match Request / ጥያቄ ላክ', callback_data: `confirm_match:${targetProfile.id}` },
- { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
- ],
+ [{ text: '⚡ Send Match Request / ጥያቄ ላክ', callback_data: `confirm_match:${targetProfile.id}` }],
+ [{ text: 'Cancel / ሰርዝ', callback_data: 'nav_start' }],
  ],
  }
  );
@@ -10833,7 +10747,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  if (!activeMatch) {
  await tgSend(chatId, `<b>What would you like to do next? / ምን ማድረግ ይፈልጋሉ?</b>`, {
  inline_keyboard: [
- [{ text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >', callback_data: 'search_roommate_start' }],
+ [{ text: 'Search / የቤት አጋር ፈልግልኝ >', callback_data: 'search_roommate_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ],
  });
@@ -10874,15 +10788,15 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  parse_mode: 'HTML',
  reply_markup: {
  inline_keyboard: [
- [{ text: 'Open Web Admin Portal 🌐 / ድረ-ገጽ አድሚን ክፈት', url: `${appUrl}/admin?auth_token=${encodeURIComponent(adminWebToken)}` }],
- [{ text: 'Search User by Name (Fayda Dossier) >', callback_data: 'admin_search_user_prompt' }],
- [{ text: 'Search Post by Code (#SPMARBR...) ', callback_data: 'admin_search_code_prompt' }],
- [{ text: `Pending Channel Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
+ [{ text: 'Web Admin / ድረ-ገጽ አድሚን >', url: `${appUrl}/admin?auth_token=${encodeURIComponent(adminWebToken)}` }],
+ [{ text: 'Search User (Fayda) >', callback_data: 'admin_search_user_prompt' }],
+ [{ text: 'Search Post by Code >', callback_data: 'admin_search_code_prompt' }],
+ [{ text: `Pending Approvals (${pendingCount})`, callback_data: 'admin_list_pending' }],
  [{ text: 'Post to Channel as Admin >', callback_data: 'admin_post_start' }],
  [{ text: 'Connected Channels & Settings', callback_data: 'admin_list_channels' }],
  [{ text: 'Add Admin by Username >', callback_data: 'admin_add_prompt' }],
  [{ text: 'View Administrators', callback_data: 'admin_list_team' }],
- [{ text: 'Open Channel Posts & Close / ክፍት ማስታወቂያዎችና መዝጊያ', callback_data: 'admin_list_active_posts' }],
+ [{ text: 'Open Posts & Close / ክፍት ፖስት', callback_data: 'admin_list_active_posts' }],
  [{ text: 'Exit Admin Menu', callback_data: 'admin_cancel' }],
  ],
  },
@@ -13196,7 +13110,7 @@ All administrators of this channel can now use bot admin features, and approved 
  reply_markup: {
   inline_keyboard: [
    [{ text: 'Try Again / ሌላ ደረሰኝ ላክ', callback_data: 'payment_upload_prompt' }],
-   [{ text: 'Contact Support (@spacematchaddissupport) / ድጋፍ ያግኙ >', url: 'https://t.me/spacematchaddissupport' }],
+   [{ text: 'Support / ድጋፍ ያግኙ >', url: 'https://t.me/spacematchaddissupport' }],
   ],
  },
  });
@@ -13367,7 +13281,7 @@ All administrators of this channel can now use bot admin features, and approved 
  await clearSession(chatId);
  await tgSend(chatId, `<b>What would you like to do next? / ምን ማድረግ ይፈልጋሉ?</b>`, {
  inline_keyboard: [
- [{ text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >', callback_data: 'search_roommate_start' }],
+ [{ text: 'Search / የቤት አጋር ፈልግልኝ >', callback_data: 'search_roommate_start' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ],
  });
@@ -13449,7 +13363,7 @@ All administrators of this channel can now use bot admin features, and approved 
  reply_markup: {
   inline_keyboard: [
    [{ text: 'Try Again / ሌላ ደረሰኝ ላክ', callback_data: 'payment_upload_prompt' }],
-   [{ text: 'Contact Support (@spacematchaddissupport) / ድጋፍ ያግኙ >', url: 'https://t.me/spacematchaddissupport' }],
+   [{ text: 'Support / ድጋፍ ያግኙ >', url: 'https://t.me/spacematchaddissupport' }],
   ],
  },
  });

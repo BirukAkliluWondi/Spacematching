@@ -1040,19 +1040,19 @@ export async function publishListingToChannel(profile: Profile): Promise<number>
     inline_keyboard: [
       [
         {
-          text: 'Connect with this roommate / ከዚህ አጋር ጋር ተገናኝ >',
+          text: 'Connect / ከዚህ አጋር ጋር ተገናኝ >',
           url: `https://t.me/${botUsername}?start=req_${cleanCode}`,
         },
       ],
       [
         {
-          text: 'Search Roommate for Me / የቤት አጋር ፈልግልኝ >',
+          text: 'Search / የቤት አጋር ፈልግልኝ >',
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],
       [
         {
-          text: 'Post My Profile / መረጃዬን ልለጥፍ >',
+          text: 'Post Profile / መረጃዬን ልለጥፍ >',
           url: `https://t.me/${botUsername}?start=post_profile`,
         },
       ],
@@ -1145,7 +1145,7 @@ export async function updateChannelPostAsMatched(
     inline_keyboard: [
       [
         {
-          text: 'Search Roommates / የቤት አጋር ፈልግ >',
+          text: 'Search / የቤት አጋር ፈልግ >',
           url: `https://t.me/${botUsername}?start=search_roommate`,
         },
       ],

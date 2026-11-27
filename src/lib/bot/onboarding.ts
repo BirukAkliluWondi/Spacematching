@@ -213,36 +213,26 @@ async function sendLocationsStep(chatId: number, selectedLocations: string[] = [
   rows.push([
     {
       text: selectedLocations.length === LOCATIONS.length
-        ? '✅ All Areas Selected / ሁሉም ተመርጠዋል >'
-        : 'Select All Areas / ሁሉንም ምረጥ >',
+        ? '✅ All Selected / ሁሉም ተመርጧል'
+        : 'Select All / ሁሉንም ምረጥ >',
       callback_data: 'onboard_select_all_locations',
     },
   ]);
 
-  for (let i = 0; i < LOCATIONS.length; i += 2) {
-    const row = [];
-    const loc1 = LOCATIONS[i];
-    const sel1 = selectedLocations.includes(loc1);
-    const am1 = LOCATION_AMHARIC[loc1] || loc1;
-    row.push({
-      text: `${sel1 ? '✅ ' : ''}${loc1} (${am1})`,
-      callback_data: `onboard_location:${loc1}`,
-    });
-    if (i + 1 < LOCATIONS.length) {
-      const loc2 = LOCATIONS[i + 1];
-      const sel2 = selectedLocations.includes(loc2);
-      const am2 = LOCATION_AMHARIC[loc2] || loc2;
-      row.push({
-        text: `${sel2 ? '✅ ' : ''}${loc2} (${am2})`,
-        callback_data: `onboard_location:${loc2}`,
-      });
-    }
-    rows.push(row);
+  for (const loc of LOCATIONS) {
+    const sel = selectedLocations.includes(loc);
+    const am = LOCATION_AMHARIC[loc] || loc;
+    rows.push([
+      {
+        text: `${sel ? '✅ ' : ''}${loc} (${am})`,
+        callback_data: `onboard_location:${loc}`,
+      },
+    ]);
   }
 
   rows.push([
     {
-      text: `Proceed to Budget / በጀት ወስን (${selectedLocations.length}) >`,
+      text: `Proceed (${selectedLocations.length}) / ወደ በጀት ቀጥል >`,
       callback_data: 'onboard_locations_done',
     },
   ]);
@@ -291,10 +281,8 @@ async function sendMoveInStep(chatId: number) {
 መቼ መግባት ይፈልጋሉ?</blockquote>`,
     {
       inline_keyboard: [
-        [
-          { text: 'Immediately / ወዲያውኑ', callback_data: 'onboard_movein:Immediately' },
-          { text: 'Within 2 Weeks / በ2 ሳምንት ውስጥ', callback_data: 'onboard_movein:Within 2 Weeks' },
-        ],
+        [{ text: 'Immediately / ወዲያውኑ', callback_data: 'onboard_movein:Immediately' }],
+        [{ text: 'In 2 Weeks / በ2 ሳምንት ውስጥ', callback_data: 'onboard_movein:Within 2 Weeks' }],
         [{ text: 'Next Month / በሚቀጥለው ወር', callback_data: 'onboard_movein:Next Month' }],
       ],
     }
@@ -320,7 +308,7 @@ async function sendPhoneStep(chatId: number) {
 ከታች ይጫኑ ወይም ስልክ ቁጥርዎን ያስገቡ:</blockquote>`,
     {
       keyboard: [
-        [{ text: 'Share My Contact / ስልክ ቁጥሬን አጋራ', request_contact: true }],
+        [{ text: 'Share Phone / ስልክ ቁጥሬን አጋራ', request_contact: true }],
       ],
       one_time_keyboard: true,
       resize_keyboard: true,
@@ -368,7 +356,7 @@ async function sendKycStep(chatId: number) {
           `<b>Fayda ID Verified! / የፋይዳ መታወቂያዎ ተረጋግጧል!</b>\n\n<blockquote>Your profile (<code>#${escapeHtml(displayCode)}</code>) is saved! Activate your <b>3-Month Membership Pass (100 ETB)</b> to submit for channel review and send unlimited roommate requests.\n\nመረጃዎ (<code>#${escapeHtml(displayCode)}</code>) ተመዝግቧል! ወደ ቻናሉ ለመላክ የ<b>3 ወር አባልነት (100 ETB)</b> ያግብሩ።</blockquote>`,
           {
             inline_keyboard: [
-              [{ text: 'Activate 3-Month Pass (100 ETB) / አባልነት ክፈት >', callback_data: 'view_membership_pass' }],
+              [{ text: 'Activate Pass / አባልነት ክፈት >', callback_data: 'view_membership_pass' }],
               [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
             ],
           }
@@ -400,7 +388,7 @@ async function sendKycStep(chatId: number) {
       inline_keyboard: [
         [
           {
-            text: 'Why Fayda ID? / ለምን ፋይዳ አስፈለገ?',
+            text: 'Why Fayda? / ለምን ፋይዳ?',
             callback_data: 'why_fayda_id',
           },
         ],
@@ -788,7 +776,7 @@ export async function handleOnboardingMessage(
           `<b>Fayda ID Verified! / የፋይዳ መታወቂያዎ ተረጋግጧል!</b>\n\n<blockquote>Your profile (<code>#${escapeHtml(displayCode)}</code>) is saved! Activate your <b>3-Month Membership Pass (100 ETB)</b> to submit for channel broadcast or send unlimited roommate connection requests.\n\nመረጃዎ (<code>#${escapeHtml(displayCode)}</code>) ተመዝግቧል! ወደ ቻናሉ ለመለጠፍ እና የግንኙነት ጥያቄዎችን ለመላክ የ<b>3 ወር አባልነት (100 ETB)</b> ያግብሩ።</blockquote>`,
           {
             inline_keyboard: [
-              [{ text: 'Activate 3-Month Pass (100 ETB) / አባልነት ክፈት >', callback_data: 'view_membership_pass' }],
+              [{ text: 'Activate Pass / አባልነት ክፈት >', callback_data: 'view_membership_pass' }],
               [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
             ],
           }
@@ -813,7 +801,7 @@ export async function handleOnboardingMessage(
         `<b>Listing Live / ማስታወቂያዎ ተለጥፏል</b>\n\n<blockquote><b>Listing Overview • Addis Ababa</b>\n• <b>Listing Code / ኮድ:</b> <code>#${escapeHtml(displayCode)}</code>\n• <b>Status / ሁኔታ:</b> <b>${publishedMsgId ? 'Verified & Live / የጸደቀ' : 'Pending Review / በግምገማ ላይ'}</b>\n• <b>Budget / በጀት:</b> <b>${escapeHtml(formatBudgetRangeLabel(updatedProfile.budget_min, updatedProfile.budget_max))}</b>\n• <b>Areas / ሰፈሮች:</b> <b>${(updatedProfile.locations || []).join(', ') || 'Addis Ababa'}</b>\n• <b>Note:</b> "${escapeHtml(updatedProfile.roommate_traits || 'Roommate profile')}"</blockquote>\n\nContacts remain private until mutual match. / ሁለታችሁም እስክትስማሙ ድረስ ስልክና መረጃ ሚስጥራዊ ነው።`,
         {
           inline_keyboard: [
-            ...(chUrl ? [[{ text: 'View on Channel / በቻናል ላይ እይ >', url: chUrl }]] : []),
+            ...(chUrl ? [[{ text: 'View Channel / በቻናል እይ >', url: chUrl }]] : []),
             [{ text: 'Find Roommates / የቤት አጋር ፈልግ', callback_data: 'matchmaker_start' }],
             [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
           ],

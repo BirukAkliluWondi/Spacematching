@@ -36,15 +36,15 @@ export const I18N_BILINGUAL = {
   // Main Menu
   welcomeTitle: '<b>SpaceMatch Addis / ስፔስማች አዲስ</b>',
   welcomeSub: 'Verified roommate matching network in Addis Ababa. / የተረጋገጡ የቤት አጋሮችን በአዲስ አበባ የሚያገኙበት መድረክ።',
-  btnSearchRoommate: 'Search Roommate / የቤት አጋር ፈልግ',
+  btnSearchRoommate: 'Search / የቤት አጋር ፈልግ',
   btnPostChannel: 'Post Profile / መረጃዬን ልለጥፍ',
   btnPostSpace: 'Post Space / ክፍል አለኝ',
-  btnVerifyFayda: 'Verify Fayda ID / የፋይዳ መታወቂያ አረጋግጥ',
+  btnVerifyFayda: 'Verify Fayda / ፋይዳ አረጋግጥ',
 
   // Post Profile Branch Selection
   postBranchTitle: '<b>Post Profile / መረጃ መለጠፊያ</b>',
-  btnBranchSeeker: 'I want a roommate & we look for room together / የቤት አጋር እፈልጋለሁ (አብረን ቤት እንፈልጋለን)',
-  btnBranchSpace: 'I have a space & I want a roommate / የሚከራይ ክፍል አለኝ (የቤት አጋር እፈልጋለሁ)',
+  btnBranchSeeker: 'Look Together / አብረን ቤት እንፈልግ',
+  btnBranchSpace: 'Have a Room / ክፍል አለኝ',
 
   // Section Badges
   section1Badge: '<b>SECTION 1: PROFILE / ክፍል ፩: መረጃ</b>',
@@ -80,11 +80,11 @@ export const I18N_BILINGUAL = {
   errTraits: 'Please describe your preferred roommate / እባክዎ የሚፈልጉትን የቤት አጋር ይግለጹ:',
 
   stepLocations: '<b>Preferred Sub-city / ተመራጭ ክፍለ ከተማ:</b>',
-  btnSelectAll: 'Select All Areas / ሁሉንም ምረጥ >',
-  btnAllSelected: '✅ All Areas Selected / ሁሉም ተመርጠዋል >',
+  btnSelectAll: 'Select All / ሁሉንም ምረጥ >',
+  btnAllSelected: '✅ All Selected / ሁሉም ተመርጧል',
 
   stepFayda: '<b>Upload Fayda ID Photo / የፋይዳ ፎቶ ይላኩ:</b>\n\n<blockquote>Upload a clear photo of the back of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>',
-  btnScanQr: 'Upload Fayda Photo / የፋይዳ ፎቶ ላክ >',
+  btnScanQr: 'Send Fayda Photo / የፋይዳ ፎቶ ላክ',
   errFayda: '<b>Photo Upload Required / የፎቶ ማስረጃ ያስፈልጋል</b>\n\n<blockquote>Upload a clear photo of your Fayda card showing the QR code.\nየQR ኮዱ የሚታይበትን የመታወቂያዎን ጀርባ ፎቶ ይላኩ።</blockquote>',
 
   // Space Owner Questionnaire Steps
