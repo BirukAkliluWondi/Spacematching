@@ -260,9 +260,11 @@ function buildLinksEtVerifyPayload(
   expectedFee: number,
   cbeAccount: string
 ): { payload: Record<string, unknown> } | { needsFullUrl: true } {
+  const receiverName = (process.env.PAYMENT_ACCOUNT_HOLDER || 'Wahid').trim();
   const expectObj: Record<string, unknown> = {
     amount: expectedFee,
     ...(settlementAccount ? { receiverAccount: settlementAccount } : {}),
+    ...(receiverName ? { receiverName } : {}),
   };
 
   if (/^https?:\/\//i.test(cleanRef)) {
@@ -270,7 +272,7 @@ function buildLinksEtVerifyPayload(
       payload: {
         url: cleanRef,
         expect: expectObj,
-        waitMs: 8000,
+        waitMs: 15000,
       },
     };
   }
@@ -281,7 +283,7 @@ function buildLinksEtVerifyPayload(
       payload: {
         reference: cleanRef,
         expect: expectObj,
-        waitMs: 8000,
+        waitMs: 15000,
       },
     };
   }
@@ -293,7 +295,7 @@ function buildLinksEtVerifyPayload(
         payload: {
           url: `https://mbreciept.cbe.com.et/${cleanRef.toUpperCase()}-${suffix8}`,
           expect: expectObj,
-          waitMs: 8000,
+          waitMs: 15000,
         },
       };
     }
@@ -547,7 +549,7 @@ function validateLinksEtEnvelope(
     expectedAccount ||
     allConfigs.find((c) => c.bank === providerKey)?.settlementAccount;
 
-  if (receiverCheck?.account === 'mismatch') {
+  if (receiverCheck?.match === false || receiverCheck?.account === 'mismatch') {
     return {
       success: false,
       message:
@@ -688,12 +690,14 @@ export async function verifyReceiptImageWithLinksEt(
     // Keep original buffer if sharp resize fails
   }
 
+  const receiverName = (process.env.PAYMENT_ACCOUNT_HOLDER || 'Wahid').trim();
   const imageBase64 = uploadBuffer.toString('base64');
   const expectObj: Record<string, unknown> = {
     amount: expectedFee,
     ...(expectedConfig?.settlementAccount
       ? { receiverAccount: expectedConfig.settlementAccount }
       : {}),
+    ...(receiverName ? { receiverName } : {}),
   };
 
   try {
@@ -1258,7 +1262,7 @@ export async function verifyTelebirrPayment(
           'x-api-key': apiKey,
         },
         body: JSON.stringify(built.payload),
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(20000),
       });
 
       const rawText = await response.text();
@@ -1310,7 +1314,7 @@ export async function verifyTelebirrPayment(
 
         console.warn(
           `[verify-et] Bank lookup error (${config.bank}, HTTP ${response.status}):`,
-          extractedMsg || response.statusText
+          (extractedMsg || response.statusText).replace(/https?:\/\/\S+/gi, '[REDACTED_URL]')
         );
 
         state.lastFailure = updateFailure(
@@ -1423,9 +1427,10 @@ export async function verifyTelebirrPayment(
     }
   }
 
-  // Retry bounded OCR ambiguity swaps only on codes (never URLs or non-Telebirr bare refs needing a full URL)
+  // Retry bounded OCR ambiguity swaps only on codes (never URLs, Siinqee links, or non-Telebirr bare refs)
   const canRetryOcrSwaps =
     !isFullUrl &&
+    !refLower.includes('siinqee') &&
     !isAuthOrCreditStop(state.lastFailure?.errorCode) &&
     (!state.lastFailure ||
       state.lastFailure.errorCode === 'NOT_FOUND' ||
