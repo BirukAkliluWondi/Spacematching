@@ -134,7 +134,7 @@ export const I18N_BILINGUAL = {
   connectTitle: '<b>Connect with Roommate / ከቤት አጋር ጋር ተገናኝ</b>',
   matchRequestSent: '<b>Match Request Delivered / ጥያቄዎ ደርሷል</b>\n\n<blockquote>Your request has been sent. You will be notified when they respond.\nጥያቄዎ ተልኳል። ምላሽ ሲሰጡ መልዕክት ይደርስዎታል።</blockquote>',
   bothConnectedTitle: '<b>Mutual Match Confirmed / ሁለታችሁም ተስማምታችኋል</b>',
-  paymentInstructions: `<b>3-Month Pass / የ3 ወር አባልነት (100 ETB)</b>\n\n<b>Payment Accounts (Wahid):</b>\n• <b>Telebirr:</b> <code>0987310978</code>\n• <b>Abyssinia:</b> <code>256861771</code>\n• <b>Dashen:</b> <code>2922175078411</code>\n\n<blockquote>Send transaction reference code:\nየደረሰኝ ቁጥርዎን ይላኩ:\n<code>/verify telebirr YOUR_REF</code></blockquote>`,
+  paymentInstructions: `<b>3-Month Pass / የ3 ወር አባልነት (100 ETB)</b>\n\n<b>Payment Accounts (Wahid):</b>\n• <b>Telebirr:</b> <code>0987310978</code>\n• <b>CBE:</b> <code>1000054066094</code>\n• <b>Abyssinia:</b> <code>256861771</code>\n• <b>Dashen:</b> <code>2922175078411</code>\n\n<blockquote>📸 Upload a full receipt screenshot showing the QR code, OR paste your confirmation SMS / link:\nሙሉ የደረሰኝ ፎቶ (QR ኮድ የሚታይበት) ወይም የSMS መልዕክት ይላኩ።\n<code>/verify telebirr YOUR_REF</code></blockquote>`,
   privacyShieldNote: '<blockquote><b>Privacy Protected: Personal identity and contact details remain sealed until mutual match unlock. / የእርስዎ ስም እና ስልክ ቁጥር በሙሉ ሚስጥራዊነቱ የተጠበቀ ነው።</b></blockquote>',
 } as const;
 

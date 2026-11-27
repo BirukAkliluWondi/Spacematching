@@ -304,6 +304,21 @@ function buildLinksEtVerifyPayload(
   return { needsFullUrl: true };
 }
 
+function buildCbeJsonFallbackUrl(urlOrRef: string, cbeAccount: string): string | null {
+  const suffix8 = cbeAccount.replace(/\D/g, '').slice(-8);
+  if (suffix8.length !== 8) return null;
+  if (/mbreciept\.cbe\.com\.et/i.test(urlOrRef)) return null;
+  const queryId = urlOrRef.match(/[?&]id=(FT[0-9A-Z]+)/i)?.[1]?.toUpperCase();
+  const rawToken = queryId || urlOrRef.match(/\b(FT[0-9A-Z]{6,22})\b/i)?.[1]?.toUpperCase();
+  if (!rawToken) return null;
+  const ftCode =
+    rawToken.endsWith(suffix8) && rawToken.length > suffix8.length + 5
+      ? rawToken.slice(0, -suffix8.length)
+      : rawToken;
+  if (!/^FT[0-9A-Z]{6,16}$/.test(ftCode)) return null;
+  return `https://mbreciept.cbe.com.et/${ftCode}-${suffix8}`;
+}
+
 /**
  * Maps upstream bank verification responses and HTTP errors to friendly, white-labeled English & Amharic messages.
  * Never exposes third-party verifier branding or raw technical errors to end users.
@@ -1425,6 +1440,22 @@ export async function verifyTelebirrPayment(
     if (isAuthOrCreditStop(state.lastFailure?.errorCode)) {
       break;
     }
+    // If legacy CBE PDF portal (apps.cbe.com.et:100) fails/is down, fall back to mbreciept.cbe.com.et JSON portal
+    if (
+      config.bank === 'cbe' &&
+      /apps\.cbe\.com\.et/i.test(cleanRef) &&
+      state.lastFailure?.errorCode !== 'ACCOUNT_MISMATCH' &&
+      state.lastFailure?.errorCode !== 'INSUFFICIENT_AMOUNT'
+    ) {
+      const cbeJsonFallbackUrl = buildCbeJsonFallbackUrl(cleanRef, cbeAccount);
+      if (cbeJsonFallbackUrl) {
+        const fallbackRes = await evaluateBankConfig(config, cbeJsonFallbackUrl);
+        if (fallbackRes) return fallbackRes;
+        if (isAuthOrCreditStop(state.lastFailure?.errorCode)) {
+          break;
+        }
+      }
+    }
   }
 
   // Retry bounded OCR ambiguity swaps only on codes (never URLs, Siinqee links, or non-Telebirr bare refs)
@@ -1537,7 +1568,7 @@ export async function verifyPaymentSubmission(params: {
     if (
       params.screenshotBuffer &&
       !triedImage &&
-      ['NOT_FOUND', 'INVALID_FORMAT', 'NEEDS_FULL_URL_OR_SCREENSHOT', 'VERIFICATION_FAILED'].includes(
+      ['NOT_FOUND', 'INVALID_FORMAT', 'NEEDS_FULL_URL_OR_SCREENSHOT', 'VERIFICATION_FAILED', 'SERVICE_UNAVAILABLE', 'NETWORK_ERROR'].includes(
         refResult.errorCode || ''
       )
     ) {

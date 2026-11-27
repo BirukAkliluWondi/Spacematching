@@ -3789,7 +3789,7 @@ ${postPreview}
       ? `Connect with roommate${metadata?.targetDisplayCode ? ` #${metadata.targetDisplayCode}` : ''} / ከቤት አጋር ጋር ይገናኙ`
       : 'Post your listing to the channel / ማስታወቂያዎን ቻናል ላይ ይለጥፉ';
 
-    const paywallText = `<b>3-Month Pass / የ3 ወር አባልነት (100 ETB)</b>\n\n<blockquote>${purposeNotice}</blockquote>\n\n<b>Payment Accounts (${escapeHtml(paymentAccountHolder)}):</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code>\n• <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>\n• <b>Dashen:</b> <code>${dashenAccount}</code>\n• <b>CBE:</b> <code>${cbeAccount}</code>\n\n<blockquote>📸 <b>Upload your payment receipt screenshot below for instant verification!</b>\nየከፈሉበትን የደረሰኝ ስክሪንሽት (ፎቶ) ከስር ይላኩ፤ ወዲያውኑ በራስ-ሰር ይረጋገጣል!</blockquote>\n\n<b>Or send transaction code:</b> <code>/verify telebirr YOUR_REF</code>`.trim();
+    const paywallText = `<b>3-Month Pass / የ3 ወር አባልነት (100 ETB)</b>\n\n<blockquote>${purposeNotice}</blockquote>\n\n<b>Payment Accounts (${escapeHtml(paymentAccountHolder)}):</b>\n• <b>Telebirr:</b> <code>${receiverPhone}</code>\n• <b>CBE:</b> <code>${cbeAccount}</code>\n• <b>Abyssinia:</b> <code>${abyssiniaAccount}</code>\n• <b>Dashen:</b> <code>${dashenAccount}</code>\n\n<blockquote>📸 <b>Fastest Verification:</b> Forward/paste your Telebirr or CBE confirmation SMS (with link), OR upload the full uncropped receipt showing the QR code.\n💡 <b>ፈጣን ማረጋገጫ:</b> የቴሌብር/CBE የSMS ማስፈንጠሪያ ይላኩ ወይም QR ኮዱ የሚታይበትን ሙሉ ደረሰኝ ፎቶ ይላኩ።</blockquote>\n\n<b>Or type code:</b> <code>/verify telebirr YOUR_REF</code>`.trim();
 
     const paywallKeyboard = [
       [
@@ -8594,7 +8594,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  }, true);
  await sendOrEditCard(
  chatId,
- `<b>Upload Payment Receipt / የክፍያ ደረሰኝ ይላኩ</b>\n\n<blockquote>📸 Send a clear screenshot of your Telebirr / CBE / Abyssinia / Dashen receipt right here in chat, OR send your transaction reference code (e.g. <code>DKM7J1EXAP</code> or <code>FT...</code>).\n\nየከፈሉበትን የደረሰኝ ስክሪንሽት ፎቶ በቀጥታ እዚህ ይላኩ፤ ወይም የግብይት ቁጥሩን ይጻፉ።</blockquote>`,
+ `<b>Upload Payment Receipt / የክፍያ ደረሰኝ ይላኩ</b>\n\n<blockquote>📸 <b>3 Easy Ways to Verify:</b>\n1. Upload the <b>full uncropped screenshot</b> showing the receipt QR code (recommended for BoA/Dashen/CBE/Telebirr)\n2. Forward or paste your <b>bank SMS / receipt link</b>\n3. Send the transaction code (e.g. <code>DKM7J1EXAP</code> or <code>FT...</code>)\n\n1. QR ኮዱ የሚታይበትን <b>ሙሉ የደረሰኝ ፎቶ</b> ይላኩ\n2. የባንክ <b>SMS / receipt link</b> ኮፒ አድርገው ይላኩ\n3. የግብይት ቁጥሩን ይጻፉ</blockquote>`,
  [
    [{ text: 'Back to Payment Accounts / ወደ ክፍያ ቁጥሮች ተመለስ', callback_data: 'paywall_back' }],
    [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
@@ -13270,6 +13270,12 @@ All administrators of this channel can now use bot admin features, and approved 
  chat_id: chatId,
  text: `<b>Verification Failed / ክፍያው አልተረጋገጠም</b>\n\n<blockquote>${failMsg}\n\n${retryHint}</blockquote>`,
  parse_mode: 'HTML',
+ reply_markup: {
+  inline_keyboard: [
+   [{ text: 'Try Again / ሌላ ደረሰኝ ላክ', callback_data: 'payment_upload_prompt' }],
+   [{ text: 'Contact Support (@spacematchaddissupport) / ድጋፍ ያግኙ >', url: 'https://t.me/spacematchaddissupport' }],
+  ],
+ },
  });
  return NextResponse.json({ ok: true });
  }
@@ -13515,8 +13521,14 @@ All administrators of this channel can now use bot admin features, and approved 
  : `Paid amount (${Number(verifyRes.paidAmount ?? 0).toFixed(2)} ETB) is below the required 100 ETB fee.\n\nየተከፈለው መጠን (${Number(verifyRes.paidAmount ?? 0).toFixed(2)} ETB) ከሚያስፈልገው 100 ETB ያነሰ ነው።`;
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `<b>Verification Failed / ክፍያው አልተረጋገጠም</b>\n\n<blockquote>${failMsg}\n\nPlease upload a clear screenshot or double-check your transaction reference code and try again.\nእባክዎ የደረሰኝ ፎቶ ወይም ቁጥርዎን ደግመው ይላኩ።</blockquote>`,
+ text: `<b>Verification Failed / ክፍያው አልተረጋገጠም</b>\n\n<blockquote>${failMsg}\n\nPlease upload a full uncropped screenshot (showing QR code), forward your bank SMS link, or double-check your transaction code.\nእባክዎ ሙሉ የደረሰኝ ፎቶ (QR ኮድ ያለበት) ወይም የSMS ማስፈንጠሪያ ደግመው ይላኩ።</blockquote>`,
  parse_mode: 'HTML',
+ reply_markup: {
+  inline_keyboard: [
+   [{ text: 'Try Again / ሌላ ደረሰኝ ላክ', callback_data: 'payment_upload_prompt' }],
+   [{ text: 'Contact Support (@spacematchaddissupport) / ድጋፍ ያግኙ >', url: 'https://t.me/spacematchaddissupport' }],
+  ],
+ },
  });
  return NextResponse.json({ ok: true });
  }
