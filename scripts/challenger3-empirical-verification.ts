@@ -230,7 +230,7 @@ async function runEmpiricalProbes() {
   assert(Boolean(matchCall), 'Mutual match celebration message dispatched to requester');
   if (matchCall) {
     const text = matchCall.payload.text as string;
-    assert(text.includes('@WWEHID'), 'Contact handle correctly routes to coordinator @WWEHID');
+    assert(text.includes('@spacematchaddissupport'), 'Contact handle correctly routes to coordinator @spacematchaddissupport');
     assert(
       text.includes('SpaceMatch Coordinator') || text.includes('በስፔስማች አስተዳዳሪ'),
       'Phone placeholder sanitized to official coordinator routing'

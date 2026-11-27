@@ -117,7 +117,7 @@ export async function POST(request: Request) {
     const firstName = nameParts[0] || 'Roommate';
     const lastName = nameParts.slice(1).join(' ') || '';
     const rawHandle = (telegramHandle || '').replace(/^@/, '').trim();
-    const cleanUsername = /^[a-zA-Z0-9_]{5,32}$/.test(rawHandle) ? rawHandle : 'WWEHID';
+    const cleanUsername = /^[a-zA-Z0-9_]{5,32}$/.test(rawHandle) ? rawHandle : 'spacematchaddissupport';
     const safePrefGender = ['Male', 'Female', 'Any'].includes(preferredGender) ? preferredGender : 'Any';
 
     // 2. Step A: Upsert synthetic user record (required by foreign key)

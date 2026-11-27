@@ -24,7 +24,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## 3. Contact Dossier Sanitization
 - Never leak raw admin IDs, concierge placeholders (e.g., `admin:123456`, `admin_123456`), or invalid Telegram handles into match notification dossiers.
 - Validate Telegram handles against RFC rules (`^[a-zA-Z0-9_]{5,32}$`).
-- For synthetic, concierge, or admin listings, automatically route contact details to the verified SpaceMatch Coordinator (`@WWEHID`).
+- For synthetic, concierge, or admin listings, automatically route contact details to the verified SpaceMatch Coordinator (`@spacematchaddissupport`).
 
 ## 4. Multi-Tier Resilient Fayda Identity Verification (Zero Biometric / Zero Admin Friction)
 - Fayda National ID verification is 100% automated via a multi-tier in-memory verification engine:
@@ -49,12 +49,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   1. `Connect with this roommate / ከዚህ አጋር ጋር ተገናኝ >`
   2. `Search Roommate for Me / የቤት አጋር ፈልግልኝ >`
   3. `Post My Profile / መረጃዬን ልለጥፍ >` (`?start=post_profile`)
-- Under `Post My Profile`, present 2 options: **Need Roommate (Look Together)** (full Seeker workflow -> admin review) and **Have a Room & Need Roommate** (zero questionnaire prompts; immediately present Admin Wahid `@WWEHID` / `https://t.me/WWEHID` direct contact card).
+- Under `Post My Profile`, present 2 options: **Need Roommate (Look Together)** (full Seeker workflow -> admin review) and **Have a Room & Need Roommate** (zero questionnaire prompts; immediately present Admin `@spacematchaddissupport` / `https://t.me/spacematchaddissupport` direct contact card).
 - Public channel posts must omit candidate Age (revealing Age only inside connect/match requests), place `ABOUT ME / ስለ እኔ` between `WHAT I'M LOOKING FOR` and `ROOMMATE PREFERENCES`, and include user-submitted `House Rules`.
 - Never display developer credit (`@birukadiyee`) inside user-facing bot menus, image footers, or error messages.
-- Public channel posts and the `Post My Profile` branch selector must NOT tell Seekers to contact `@WWEHID` directly; channel posts must instead point readers to tap the **`Post My Profile / መረጃዬን ልለጥፍ >`** button below:
+- Public channel posts and the `Post My Profile` branch selector must NOT tell Seekers to contact `@spacematchaddissupport` directly; channel posts must instead point readers to tap the **`Post My Profile / መረጃዬን ልለጥፍ >`** button below:
   `📢 Want to post your profile? Tap "Post My Profile" below! / መረጃዎን ለመለጠፍ ከታች "መረጃዬን ልለጥፍ" የሚለውን ይጫኑ!`
-- Direct contact to Admin Wahid (`@WWEHID` / `https://t.me/WWEHID`, instructing *"Contact with the admin to post your profile"*) is displayed inside the bot **only** after clicking **Have a Room & Need Roommate**.
+- Direct contact to Admin (`@spacematchaddissupport` / `https://t.me/spacematchaddissupport`, instructing *"Contact with the admin to post your profile"*) is displayed inside the bot **only** after clicking **Have a Room & Need Roommate**.
 
 ## 7. Subscription Duration & Pricing Invariant
 - The SpaceMatch All-Access Membership Pass is strictly **100 ETB for 3 Months (90 days)**.

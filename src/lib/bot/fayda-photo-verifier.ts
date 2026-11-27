@@ -128,9 +128,9 @@ export const FAYDA_ERROR_GUIDANCE: Record<
     shortAm: 'ትክክለኛ የኢትዮጵያ ፋይዳ ብሔራዊ መታወቂያ አልተገኘም።',
   },
   UNSUPPORTED_VERSION: {
-    bilingual: `<b>Unsupported Fayda Version / ያልተደገፈ የፋይዳ ቅጂ</b>\n\n<blockquote>This Fayda document format version is not supported.\n\nየፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።</blockquote>\n\nContact support: @WWEHID`,
-    en: `<b>Unsupported Fayda Version</b>\n\n<blockquote>This Fayda document format version is not supported.</blockquote>\n\nContact support: @WWEHID`,
-    am: `<b>ያልተደገፈ የፋይዳ ቅጂ</b>\n\n<blockquote>የፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።</blockquote>\n\nእባክዎ ድጋፍ ለማግኘት @WWEHID ያነጋግሩ።`,
+    bilingual: `<b>Unsupported Fayda Version / ያልተደገፈ የፋይዳ ቅጂ</b>\n\n<blockquote>This Fayda document format version is not supported.\n\nየፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።</blockquote>\n\nContact support: @spacematchaddissupport`,
+    en: `<b>Unsupported Fayda Version</b>\n\n<blockquote>This Fayda document format version is not supported.</blockquote>\n\nContact support: @spacematchaddissupport`,
+    am: `<b>ያልተደገፈ የፋይዳ ቅጂ</b>\n\n<blockquote>የፋይዳ ሰነድዎ ቅጂ በአሁኑ ሰዓት በሲስተሙ አልተደገፈም።</blockquote>\n\nእባክዎ ድጋፍ ለማግኘት @spacematchaddissupport ያነጋግሩ።`,
     shortEn: 'Unsupported Fayda document version.',
     shortAm: 'ያልተደገፈ የፋይዳ ቅጂ።',
   },

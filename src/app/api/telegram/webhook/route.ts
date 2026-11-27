@@ -2909,7 +2909,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
           callback_data: 'post_branch_seeker',
         },
       ],
-      // Option 2: Have a room -> directly handled by Admin Wahid (@WWEHID)
+      // Option 2: Have a room -> directly handled by Admin (@spacematchaddissupport)
       [
         {
           text: 'Have a Room & Need Roommate / ክፍል አለኝ',
@@ -2966,14 +2966,14 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
     await clearSession(chatId);
     const text = `<b>Contact with the Admin to Post Your Profile / መረጃዎን ለመለጠፍ አድሚንን ያነጋግሩ</b>
 
-<blockquote>Please contact with the admin (@WWEHID) to post your profile and room details on the channel.
+<blockquote>Please contact with the admin (@spacematchaddissupport) to post your profile and room details on the channel.
 
-መረጃዎን እና የክፍል ዝርዝርዎን ቻናሉ ላይ ለመለጠፍ እባክዎ ከታች ያለውን ቁልፍ ተጭነው ከአድሚን @WWEHID ጋር በቀጥታ ይገናኙ!</blockquote>
+መረጃዎን እና የክፍል ዝርዝርዎን ቻናሉ ላይ ለመለጠፍ እባክዎ ከታች ያለውን ቁልፍ ተጭነው ከአድሚን @spacematchaddissupport ጋር በቀጥታ ይገናኙ!</blockquote>
 
-<b>Admin / አድሚን:</b> @WWEHID`;
+<b>Admin / አድሚን:</b> @spacematchaddissupport`;
 
     const inlineKeyboard = [
-      [{ text: 'Contact Admin Wahid (@WWEHID) / አድሚን ዋሂድን ያናግሩ >', url: 'https://t.me/WWEHID' }],
+      [{ text: 'Contact Admin (@spacematchaddissupport) / አድሚኑን ያናግሩ >', url: 'https://t.me/spacematchaddissupport' }],
       [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
     ];
 
@@ -3652,7 +3652,7 @@ Please reply with the house rules for this post (e.g. <code>Clean, no smoking, q
  updated_at: new Date().toISOString(),
  });
 
- let adminHandle = 'WWEHID';
+ let adminHandle = 'spacematchaddissupport';
  try {
  const { data: adminUser } = await supabaseAdmin
  .from('users')
@@ -3718,7 +3718,7 @@ Example: <code>Selamawit Tadesse | 0911223344 | @selam_t</code>
  const isSpace = draft.category === 'entire' || draft.category === 'room_avail';
  const isConcierge = draft.is_concierge !== false;
  const contactPreview = isConcierge
- ? `SpaceMatch Concierge (@${draft.contact_username || 'WWEHID'})`
+ ? `SpaceMatch Concierge (@${draft.contact_username || 'spacematchaddissupport'})`
  : `${draft.contact_name || 'Resident'} (${draft.contact_phone || 'N/A'}${draft.contact_username ? `, @${draft.contact_username}` : ''})`;
 
  const postDraft = {
@@ -6948,7 +6948,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  if (callbackData === 'admin_post_contact_concierge') {
  const session = getSession(chatId);
  const draft = session.draft_data || {};
- let adminUsername = 'WWEHID';
+ let adminUsername = 'spacematchaddissupport';
  try {
  const { data: adminUser } = await supabaseAdmin
  .from('users')
@@ -7036,7 +7036,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  const cleanHouseRules = (draft.house_rules || extractHouseRulesFromTraits(rawBio) || 'Clean, quiet & no smoking').trim();
  const bioStr = `Prefers: ${prefGenderFormatted} | Rules: ${cleanHouseRules} | ${cleanBio}`;
 
- let adminUsername = 'WWEHID';
+ let adminUsername = 'spacematchaddissupport';
  try {
  const { data: adminUser } = await supabaseAdmin
  .from('users')
@@ -8370,7 +8370,7 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  kyc_status: 'verified',
  status: 'active',
  onboarding_step: 'completed',
- telegram_username: 'WWEHID',
+ telegram_username: 'spacematchaddissupport',
  phone_number: 'SpaceMatch Concierge',
  full_name: 'SpaceMatch Verified Listing (Concierge)',
  }, { onConflict: 'display_code' })
@@ -9232,7 +9232,7 @@ Your phone and Telegram handle remain 100% hidden until both parties accept a co
  return NextResponse.json({ ok: true });
  }
 
- // Secondary Homeowner Space Callbacks -> Direct to Admin Wahid (@WWEHID)
+ // Secondary Homeowner Space Callbacks -> Direct to Admin (@spacematchaddissupport)
  if (callbackData === 'property_type' || callbackData.startsWith('prop_type:')) {
  await sendHaveRoomAdminDirectCard(chatId, msgId);
  return NextResponse.json({ ok: true });
@@ -10195,7 +10195,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  kyc_status: 'verified',
  status: 'active',
  onboarding_step: 'completed',
- telegram_username: 'WWEHID',
+ telegram_username: 'spacematchaddissupport',
  phone_number: 'SpaceMatch Concierge',
  full_name: 'SpaceMatch Verified Listing (Concierge)',
  }, { onConflict: 'display_code' })
@@ -10798,7 +10798,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  chatId,
  isDuplicate
  ? `<b>Reference Already Used / ይህ የደረሰኝ ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል</b>\n\n<blockquote>This transaction reference has already been redeemed.\nይህ የግብይት ቁጥር ቀደም ሲል ተመዝግቧል።</blockquote>`
- : `<b>Could Not Record Order / ክፍያውን መመዝገብ አልተቻለም</b>\n\n<blockquote>Please try again in a moment or contact @WWEHID.\nእባክዎ ትንሽ ቆይተው ይሞክሩ ወይም @WWEHID ያነጋግሩ።</blockquote>`
+ : `<b>Could Not Record Order / ክፍያውን መመዝገብ አልተቻለም</b>\n\n<blockquote>Please try again in a moment or contact @spacematchaddissupport.\nእባክዎ ትንሽ ቆይተው ይሞክሩ ወይም @spacematchaddissupport ያነጋግሩ።</blockquote>`
  );
  return NextResponse.json({ ok: true });
  }
@@ -13264,7 +13264,7 @@ All administrators of this channel can now use bot admin features, and approved 
  ? ((verifyRes.messageAm && verifyRes.message) ? `${verifyRes.message}\n\n${verifyRes.messageAm}` : (verifyRes.message || 'Verification failed'))
  : `Paid amount (${Number(verifyRes.paidAmount ?? 0).toFixed(2)} ETB) is below the required 100 ETB 3-Month Pass fee.\n\nየተከፈለው መጠን (${Number(verifyRes.paidAmount ?? 0).toFixed(2)} ETB) ከሚያስፈልገው 100 ETB ያነሰ ነው።`;
  const retryHint = verifyRes.errorCode === 'CONFIG_ERROR' || verifyRes.errorCode === 'SERVICE_MAINTENANCE'
- ? `Please try again shortly or contact Admin @WWEHID if the issue persists.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ ወይም @WWEHID ያነጋግሩ።`
+ ? `Please try again shortly or contact Admin @spacematchaddissupport if the issue persists.\nእባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ ወይም @spacematchaddissupport ያነጋግሩ።`
  : `Please upload a clear screenshot of your receipt or send a valid transaction code / receipt link and try again.\nእባክዎ ግልጽ የደረሰኝ ፎቶ ወይም ትክክለኛ የግብይት ቁጥር ደግመው ይላኩ።`;
  await sendTelegram('sendMessage', {
  chat_id: chatId,
@@ -13335,7 +13335,7 @@ All administrators of this channel can now use bot admin features, and approved 
  console.error('[webhook] Error saving membership order:', err);
  await sendTelegram('sendMessage', {
  chat_id: chatId,
- text: `<b>Order Processing Error / የክፍያ ምዝገባ ስህተት</b>\n\n<blockquote>Please retry in a moment or contact @WWEHID.\nእባክዎ ትንሽ ቆይተው ይሞክሩ።</blockquote>`,
+ text: `<b>Order Processing Error / የክፍያ ምዝገባ ስህተት</b>\n\n<blockquote>Please retry in a moment or contact @spacematchaddissupport.\nእባክዎ ትንሽ ቆይተው ይሞክሩ።</blockquote>`,
  parse_mode: 'HTML',
  });
  return NextResponse.json({ ok: true });
@@ -13574,7 +13574,7 @@ All administrators of this channel can now use bot admin features, and approved 
  chat_id: chatId,
  text: isDuplicate
  ? `<b>Reference Already Used / ይህ የደረሰኝ ቁጥር ቀደም ሲል ጥቅም ላይ ውሏል</b>\n\n<blockquote>This transaction reference has already been redeemed.\nይህ የግብይት ቁጥር ቀደም ሲል ተመዝግቧል።</blockquote>`
- : `<b>Order Processing Error / የክፍያ ምዝገባ ስህተት</b>\n\n<blockquote>Please retry in a moment or contact @WWEHID.\nእባክዎ ትንሽ ቆይተው ይሞክሩ።</blockquote>`,
+ : `<b>Order Processing Error / የክፍያ ምዝገባ ስህተት</b>\n\n<blockquote>Please retry in a moment or contact @spacematchaddissupport.\nእባክዎ ትንሽ ቆይተው ይሞክሩ።</blockquote>`,
  parse_mode: 'HTML',
  });
  return NextResponse.json({ ok: true });

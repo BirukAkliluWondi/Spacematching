@@ -13,7 +13,7 @@
 ## 3. Contact Dossier Sanitization
 - Never leak raw admin IDs, concierge placeholders (e.g., `admin:123456`, `admin_123456`), or invalid Telegram handles into match notification dossiers.
 - Validate Telegram handles against RFC rules (`^[a-zA-Z0-9_]{5,32}$`).
-- For synthetic, concierge, or admin listings, automatically route contact details to the verified SpaceMatch Coordinator (`@WWEHID`).
+- For synthetic, concierge, or admin listings, automatically route contact details to the verified SpaceMatch Coordinator (`@spacematchaddissupport`).
 
 ## 10. Verify.ET & Payment Anti-Replay Safety
 - `extractTransactionReference()` must return `''` when no bank URL or Telebirr/CBE/BoA/Dashen reference token matches; never fall back to returning raw prose or OCR text dumps as a transaction code.

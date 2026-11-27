@@ -168,9 +168,9 @@ async function runTests() {
     telegramUsername: 'admin:123456',
     telegramId: -1001234567,
   });
-  assert(synthContact.fullName.includes('@WWEHID'), 'Synthetic listing routed to coordinator @WWEHID');
-  assert(synthContact.telegramUsername === 'WWEHID', 'Username sanitized to WWEHID');
-  assert(synthContact.telegramUrl === 'https://t.me/WWEHID', 'URL routes to https://t.me/WWEHID');
+  assert(synthContact.fullName.includes('@spacematchaddissupport'), 'Synthetic listing routed to coordinator @spacematchaddissupport');
+  assert(synthContact.telegramUsername === 'spacematchaddissupport', 'Username sanitized to spacematchaddissupport');
+  assert(synthContact.telegramUrl === 'https://t.me/spacematchaddissupport', 'URL routes to https://t.me/spacematchaddissupport');
   assert(!synthContact.fullName.includes('-100'), 'Negative telegram ID never leaked');
 
   // Case B: Concierge placeholder handle
@@ -179,7 +179,7 @@ async function runTests() {
     phoneNumber: '0911223344',
     telegramUsername: 'admin_biruk',
   });
-  assert(conciergeContact.telegramUsername === 'WWEHID', 'Admin placeholder handle routed to WWEHID');
+  assert(conciergeContact.telegramUsername === 'spacematchaddissupport', 'Admin placeholder handle routed to spacematchaddissupport');
 
   // Case C: Invalid RFC handle (less than 5 chars or invalid chars)
   const invalidHandleContact = sanitizeContactDossier({

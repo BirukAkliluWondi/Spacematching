@@ -559,7 +559,7 @@ export interface SanitizedContact {
  * Contact Dossier Sanitization Helper (Invariants Rule 3):
  * - Never leaks raw admin IDs, concierge placeholders (e.g. admin:123456, admin_123456), or invalid handles.
  * - Validates Telegram handles against RFC rules (^[a-zA-Z0-9_]{5,32}$).
- * - For synthetic, concierge, or admin listings, automatically routes contact details to @WWEHID.
+ * - For synthetic, concierge, or admin listings, automatically routes contact details to @spacematchaddissupport.
  */
 export function sanitizeContactDossier(input: {
   fullName?: string | null;
@@ -584,10 +584,10 @@ export function sanitizeContactDossier(input: {
 
   if (isConciergeOrSynthetic) {
     return {
-      fullName: 'SpaceMatch Coordinator / ስፔስማች አስተባባሪ (@WWEHID)',
-      phoneNumber: 'Via SpaceMatch Coordinator (@WWEHID)',
-      telegramUsername: 'WWEHID',
-      telegramUrl: 'https://t.me/WWEHID',
+      fullName: 'SpaceMatch Coordinator / ስፔስማች አስተባባሪ (@spacematchaddissupport)',
+      phoneNumber: 'Via SpaceMatch Coordinator (@spacematchaddissupport)',
+      telegramUsername: 'spacematchaddissupport',
+      telegramUrl: 'https://t.me/spacematchaddissupport',
       isConciergeOrSynthetic: true,
     };
   }
