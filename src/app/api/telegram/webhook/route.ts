@@ -1639,12 +1639,17 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
    return nextStepMsgId;
  }
  if (returnFlow === 'confirm_match' && returnMeta.targetProfileId) {
+   const returnPostCtx: ListingPostContext = {
+     listingCode: returnMeta.targetDisplayCode || returnMeta.target_code || null,
+     channelMessageId: returnMeta.targetChannelMessageId ?? null,
+     postTimestamp: returnMeta.targetPostAt || null,
+   };
    await clearSession(chatId);
    const pass = await getUserMembershipStatus(chatId);
    if (!pass.isActive) {
-     await sendMembershipPaywallCard(chatId, 'connect_request', { targetProfileId: returnMeta.targetProfileId, targetDisplayCode: returnMeta.targetDisplayCode }, nextStepMsgId);
+     await sendMembershipPaywallCard(chatId, 'connect_request', { targetProfileId: returnMeta.targetProfileId, targetDisplayCode: returnMeta.targetDisplayCode, targetChannelMessageId: returnMeta.targetChannelMessageId, targetPostAt: returnMeta.targetPostAt }, nextStepMsgId);
    } else {
-     await executeDirectMatchRequest(chatId, returnMeta.targetProfileId, nextStepMsgId);
+     await executeDirectMatchRequest(chatId, returnMeta.targetProfileId, nextStepMsgId, returnPostCtx);
    }
    return nextStepMsgId;
  }
@@ -1666,7 +1671,11 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  const targetId = pendingMeta.targetProfileId || pendingMeta.target_id;
  if (pendingPurpose === 'connect_request' && targetId) {
  await clearSession(chatId);
- await executeDirectMatchRequest(chatId, targetId, nextStepMsgId);
+ await executeDirectMatchRequest(chatId, targetId, nextStepMsgId, {
+ listingCode: pendingMeta.targetDisplayCode || pendingMeta.target_code || null,
+ channelMessageId: pendingMeta.targetChannelMessageId ?? null,
+ postTimestamp: pendingMeta.targetPostAt || null,
+ });
  return nextStepMsgId;
  }
  } else if (returnFlow === 'submit_space') {
@@ -2332,6 +2341,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       draft_data: {
         ...(currSess.draft_data || {}),
         ...profileData,
+        is_new_post: false,
         edit_return_preview: false,
         card_msg_id: newMsgId || messageIdToEdit || currSess.draft_data?.card_msg_id,
       },
@@ -2349,6 +2359,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  let displayCode = draft.display_code;
  let existingProfStatus: string | null = null;
  let existingProfCode: string | null = null;
+ const isNewChannelPost = Boolean(draft.is_new_post && (!draft.display_code || !String(draft.display_code).toUpperCase().startsWith('SPMARBR')));
  try {
  const { data: existingProf } = await supabaseAdmin
  .from('profiles')
@@ -2357,7 +2368,9 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  .maybeSingle();
  existingProfStatus = existingProf?.status || null;
  existingProfCode = existingProf?.display_code || null;
- if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
+ if (isNewChannelPost) {
+   displayCode = await getNextSpmarbrCode('seeker');
+ } else if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
    if (existingProf?.display_code && existingProf.display_code.toUpperCase().startsWith('SPMARBR')) {
      displayCode = existingProf.display_code;
    } else {
@@ -2408,6 +2421,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  existingProfCode && existingProfCode.toUpperCase().startsWith('SPMARWR') && isChannelDraftOnly
  ? existingProfCode
  : displayCode;
+ const isCodeChanged = Boolean(isChannelDraftOnly && existingProfCode && preservedProfileCode.toUpperCase() !== existingProfCode.toUpperCase());
  const profileStatusForSave = isChannelDraftOnly
  ? (existingProfStatus === 'active' ? 'active' : 'paused')
  : 'active';
@@ -2419,6 +2433,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  const profilePayload: Record<string, any> = {
  telegram_id: chatId,
  display_code: preservedProfileCode,
+ ...(isCodeChanged ? { channel_message_id: null } : {}),
  onboarding_step: profileOnboardingStepForSave,
  gender: userGender,
  locations: preferredSubs,
@@ -2707,18 +2722,22 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  return;
  }
 
- // Check if match already requested (only after active membership confirmed)
- const { data: existingMatch } = await supabaseAdmin
- .from('matches')
- .select('id, status')
- .eq('requester_id', myProfileId)
- .eq('target_id', targetProfile.id)
- .maybeSingle();
+ // Check if match already requested under this channel post (only after active membership confirmed)
+ const onboardingPostContext: ListingPostContext = {
+ listingCode: targetProfile.display_code || draft.target_code || targetCode || null,
+ channelMessageId: draft.target_channel_message_id ?? targetProfile.channel_message_id ?? null,
+ postTimestamp: draft.target_post_at || targetProfile.listing_updated_at || targetProfile.listing_created_at || targetProfile.created_at || null,
+ };
+ const enrichedOnboardingCtx = await enrichListingPostContext(targetProfile, onboardingPostContext);
+ const onboardingMatchCheck = await resolveListingMatchPolicy(myProfileId, targetProfile.id, enrichedOnboardingCtx);
 
- if (existingMatch) {
+ if (onboardingMatchCheck.action === 'block' && onboardingMatchCheck.existingMatch) {
  await sendOrEditCard(
  chatId,
- `You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
+ formatBlockedMatchText(
+ targetProfile.display_code || enrichedOnboardingCtx.listingCode || targetCode || 'Listing',
+ onboardingMatchCheck.existingMatch.status
+ ),
  [[{ text: 'Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu', callback_data: 'nav_start' }]],
  activeMsgId
  );
@@ -2726,7 +2745,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
  return;
  }
 
- await executeDirectMatchRequest(chatId, targetProfile.id, activeMsgId);
+ await executeDirectMatchRequest(chatId, targetProfile.id, activeMsgId, enrichedOnboardingCtx);
  await clearSession(chatId);
  return;
  }
@@ -4074,8 +4093,9 @@ ${postPreview}
  const { data: pData } = await supabaseAdmin.from('profiles').select('*').eq('telegram_id', chatId).maybeSingle();
  prof = pData;
 
- let displayCode = (metadata?.displayCode || prof?.display_code || draft.display_code || '').replace(/^#/, '');
- if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
+ let displayCode = (metadata?.displayCode || draft.display_code || prof?.display_code || '').replace(/^#/, '');
+ const shouldMintFreshCode = Boolean((metadata?.is_new_post || draft.is_new_post) && !metadata?.displayCode && !draft.display_code);
+ if (shouldMintFreshCode || !displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
  displayCode = await getNextSpmarbrCode('seeker');
  }
 
@@ -4095,9 +4115,12 @@ ${postPreview}
  const ageStr = `${userAge} yrs`;
  const resolvedSubmitPhone = normalizeEthiopianPhone(draft.phone_number || draft.contact_phone || prof?.phone_number) || (await getSavedUserPhone(chatId)) || null;
 
+ const nextSeekerCode = prof?.display_code && String(prof.display_code).toUpperCase().startsWith('SPMARWR') ? prof.display_code : displayCode;
+ const seekerCodeChanged = Boolean(prof?.display_code && nextSeekerCode.toUpperCase() !== String(prof.display_code).toUpperCase());
  const { error: profUpsertErr } = await supabaseAdmin.from('profiles').upsert({
  telegram_id: chatId,
- display_code: prof?.display_code && String(prof.display_code).toUpperCase().startsWith('SPMARWR') ? prof.display_code : displayCode,
+ display_code: nextSeekerCode,
+ ...(seekerCodeChanged ? { channel_message_id: null } : {}),
  gender: genderStr,
  locations: Array.isArray(subcities) ? subcities : [subcities],
  budget_min: budgetMin,
@@ -4435,11 +4458,151 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  }
  };
 
+ type ListingPostContext = {
+ listingCode?: string | null;
+ channelMessageId?: number | null;
+ postTimestamp?: string | null;
+ };
+
+ const isMissingColumnError = (err: any): boolean => {
+ if (!err) return false;
+ const code = String(err.code || '');
+ const msg = String(err.message || '');
+ return code === '42703' || code === 'PGRST204' || /schema cache|does not exist/i.test(msg);
+ };
+
+ const parseListingCodeSeq = (code?: string | null): number | null => {
+ const m = String(code || '').toUpperCase().replace(/^#/, '').match(/^SPMAR(?:BR|WR)(\d+)$/);
+ if (!m) return null;
+ const num = parseInt(m[1], 10);
+ return Number.isFinite(num) ? num : null;
+ };
+
+ const formatBlockedMatchText = (displayCode: string, status: string): string => {
+ const cleanCode = String(displayCode || 'Listing').replace(/^#/, '').trim();
+ const normStatus = String(status || '').toLowerCase();
+ if (normStatus === 'completed') {
+ return `<b>Already Connected / ቀድሞውኑ ተገናኝተዋል</b>\n\n<blockquote>You already completed a match with Roommate <b>#${escapeHtml(cleanCode)}</b>. Check <b>My Listings</b> / <b>Unlocked Contacts</b> to view their contact details.\nከዚህ የቤት አጋር <b>#${escapeHtml(cleanCode)}</b> ጋር ቀድሞውኑ ተገናኝተዋል። አድራሻቸውን ከተከፈቱ አድራሻዎች ይመልከቱ።</blockquote>`;
+ }
+ if (normStatus === 'declined') {
+ return `<b>Request Already Declined / ጥያቄው አልተቀበሉትም</b>\n\n<blockquote>You already sent a match request for this listing (<b>#${escapeHtml(cleanCode)}</b>) and it was declined. You can send a new request if they publish a brand-new post, or browse other roommates below.\nለዚህ ማስታወቂያ (<b>#${escapeHtml(cleanCode)}</b>) የላኩት ጥያቄ አልተቀበሉትም። አዲስ ማስታወቂያ ሲለጥፉ እንደገና መላክ ይችላሉ ወይም ሌሎች ጓደኞችን ይፈልጉ።</blockquote>`;
+ }
+ return `You already sent a match request to Roommate <b>#${escapeHtml(cleanCode)}</b>.\nStatus: <b>${escapeHtml(normStatus.replace('_', ' '))}</b>`;
+ };
+
+ const enrichListingPostContext = async (
+ targetProfile: Record<string, any> | null,
+ baseCtx: ListingPostContext = {}
+ ): Promise<ListingPostContext> => {
+ const listingCode = (baseCtx.listingCode || targetProfile?.display_code || '').toString().replace(/^#/, '').trim() || null;
+ let channelMessageId = baseCtx.channelMessageId ?? targetProfile?.channel_message_id ?? null;
+ let postTimestamp =
+ baseCtx.postTimestamp ||
+ targetProfile?.listing_updated_at ||
+ targetProfile?.listing_created_at ||
+ targetProfile?.updated_at ||
+ targetProfile?.created_at ||
+ null;
+
+ if (listingCode) {
+ try {
+ const draft = await getRoommateDraft(listingCode);
+ if (draft) {
+ if (!channelMessageId && draft.channel_message_id) {
+ channelMessageId = Number(draft.channel_message_id);
+ }
+ const draftTs = draft.updated_at || draft.created_at;
+ if (draftTs) {
+ postTimestamp = draftTs;
+ }
+ }
+ } catch {}
+ }
+ return {
+ listingCode,
+ channelMessageId: channelMessageId ? Number(channelMessageId) : null,
+ postTimestamp,
+ };
+ };
+
+ const resolveListingMatchPolicy = async (
+ requesterId: string,
+ targetId: string,
+ postCtx: ListingPostContext = {}
+ ): Promise<{ action: 'insert' | 'reopen' | 'block'; existingMatch?: any }> => {
+ let matchRows: any[] = [];
+ const primaryRes = await supabaseAdmin
+ .from('matches')
+ .select('id, status, created_at, completed_at, updated_at, target_display_code, target_channel_message_id')
+ .eq('requester_id', requesterId)
+ .eq('target_id', targetId)
+ .order('created_at', { ascending: false })
+ .limit(5);
+
+ if (primaryRes.error) {
+ const fbRes = await supabaseAdmin
+ .from('matches')
+ .select('id, status, created_at, completed_at')
+ .eq('requester_id', requesterId)
+ .eq('target_id', targetId)
+ .order('created_at', { ascending: false })
+ .limit(5);
+ matchRows = fbRes.data || [];
+ } else {
+ matchRows = primaryRes.data || [];
+ }
+
+ const completedMatch = matchRows.find((r) => r.status === 'completed');
+ if (completedMatch) {
+ return { action: 'block', existingMatch: completedMatch };
+ }
+
+ const latestMatch = matchRows[0];
+ if (!latestMatch) {
+ return { action: 'insert' };
+ }
+
+ if (latestMatch.status !== 'declined') {
+ return { action: 'block', existingMatch: latestMatch };
+ }
+
+ const reqCode = String(postCtx.listingCode || '').toUpperCase().replace(/^#/, '').trim();
+ const matchCode = String(latestMatch.target_display_code || '').toUpperCase().replace(/^#/, '').trim();
+ const reqMsgId = Number(postCtx.channelMessageId || 0);
+ const matchMsgId = Number(latestMatch.target_channel_message_id || 0);
+ const reqTs = postCtx.postTimestamp ? Date.parse(String(postCtx.postTimestamp)) : NaN;
+ const matchRefTs = latestMatch.updated_at || latestMatch.created_at;
+ const matchTs = matchRefTs ? Date.parse(String(matchRefTs)) : NaN;
+
+ let isNewerChannelPost = false;
+ if (matchMsgId > 0 && reqMsgId > 0 && reqMsgId > matchMsgId) {
+ isNewerChannelPost = true;
+ } else if (matchCode && reqCode && reqCode !== matchCode) {
+ const reqSeq = parseListingCodeSeq(reqCode);
+ const matchSeq = parseListingCodeSeq(matchCode);
+ if (reqSeq !== null && matchSeq !== null) {
+ isNewerChannelPost = reqSeq > matchSeq;
+ } else if (Number.isFinite(reqTs) && Number.isFinite(matchTs)) {
+ isNewerChannelPost = reqTs > matchTs + 5000;
+ } else {
+ isNewerChannelPost = true;
+ }
+ } else if (Number.isFinite(reqTs) && Number.isFinite(matchTs) && reqTs > matchTs + 5000) {
+ isNewerChannelPost = true;
+ }
+
+ if (isNewerChannelPost) {
+ return { action: 'reopen', existingMatch: latestMatch };
+ }
+ return { action: 'block', existingMatch: latestMatch };
+ };
+
  // Helper: Execute Direct Match Request (Free when Pass is Active)
  const executeDirectMatchRequest = async (
  chatId: number,
  targetProfileId: string,
- messageIdToEdit?: number
+ messageIdToEdit?: number,
+ targetPostContext?: ListingPostContext
  ) => {
  // Defense-in-depth: Verify Fayda ID & 3-Month Pass before sending any connection request
  if (!(await isUserFaydaVerified(chatId))) {
@@ -4647,6 +4810,18 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  }
  }
 
+ const preCanonPostCtx: ListingPostContext = {
+ listingCode: targetPostContext?.listingCode || targetProfile?.display_code || null,
+ channelMessageId: targetPostContext?.channelMessageId ?? targetProfile?.channel_message_id ?? null,
+ postTimestamp:
+ targetPostContext?.postTimestamp ||
+ targetProfile?.listing_updated_at ||
+ targetProfile?.listing_created_at ||
+ targetProfile?.updated_at ||
+ targetProfile?.created_at ||
+ null,
+ };
+
  if (targetProfile && targetProfile.telegram_id) {
  const { data: pExisting } = await supabaseAdmin
  .from('profiles')
@@ -4681,24 +4856,82 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  }
  }
 
- const { data: existingMatch } = await supabaseAdmin
- .from('matches')
- .select('id, status')
- .eq('requester_id', requesterProfile.id)
- .eq('target_id', targetProfile.id)
- .maybeSingle();
+ const resolvedPostCtx = await enrichListingPostContext(targetProfile, preCanonPostCtx);
+ const displayCodeForMatch = (resolvedPostCtx.listingCode || targetProfile.display_code || 'Listing').replace(/^#/, '');
+ const matchPolicy = await resolveListingMatchPolicy(requesterProfile.id, targetProfile.id, resolvedPostCtx);
 
- if (existingMatch) {
+ if (matchPolicy.action === 'block' && matchPolicy.existingMatch) {
  await sendOrEditCard(
  chatId,
- `You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
+ formatBlockedMatchText(displayCodeForMatch, matchPolicy.existingMatch.status),
  [[{ text: 'Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu', callback_data: 'nav_start' }]],
  messageIdToEdit
  );
  return;
  }
 
- const { data: newMatch, error: matchError } = await supabaseAdmin
+ let newMatch: { id: string } | null = null;
+ let matchError: any = null;
+ const nowIso = new Date().toISOString();
+
+ if (matchPolicy.action === 'reopen' && matchPolicy.existingMatch?.id) {
+ const reopenPayloadWithCols: Record<string, any> = {
+ status: 'pending_acceptance',
+ payment_status: 'one_paid',
+ requester_paid: true,
+ target_paid: false,
+ completed_at: null,
+ created_at: nowIso,
+ updated_at: nowIso,
+ ...(resolvedPostCtx.listingCode ? { target_display_code: resolvedPostCtx.listingCode } : {}),
+ ...(resolvedPostCtx.channelMessageId ? { target_channel_message_id: resolvedPostCtx.channelMessageId } : {}),
+ };
+ const reopenRes = await supabaseAdmin
+ .from('matches')
+ .update(reopenPayloadWithCols)
+ .eq('id', matchPolicy.existingMatch.id)
+ .select('id')
+ .single();
+
+ if (reopenRes.error && isMissingColumnError(reopenRes.error)) {
+ const fbReopenRes = await supabaseAdmin
+ .from('matches')
+ .update({
+ status: 'pending_acceptance',
+ payment_status: 'one_paid',
+ requester_paid: true,
+ target_paid: false,
+ completed_at: null,
+ created_at: nowIso,
+ })
+ .eq('id', matchPolicy.existingMatch.id)
+ .select('id')
+ .single();
+ newMatch = fbReopenRes.data;
+ matchError = fbReopenRes.error;
+ } else {
+ newMatch = reopenRes.data;
+ matchError = reopenRes.error;
+ }
+ } else {
+ const insertPayloadWithCols: Record<string, any> = {
+ requester_id: requesterProfile.id,
+ target_id: targetProfile.id,
+ status: 'pending_acceptance',
+ payment_status: 'one_paid',
+ requester_paid: true,
+ ...(resolvedPostCtx.listingCode ? { target_display_code: resolvedPostCtx.listingCode } : {}),
+ ...(resolvedPostCtx.channelMessageId ? { target_channel_message_id: resolvedPostCtx.channelMessageId } : {}),
+ updated_at: nowIso,
+ };
+ const insertRes = await supabaseAdmin
+ .from('matches')
+ .insert(insertPayloadWithCols)
+ .select('id')
+ .single();
+
+ if (insertRes.error && isMissingColumnError(insertRes.error)) {
+ const fbInsertRes = await supabaseAdmin
  .from('matches')
  .insert({
  requester_id: requesterProfile.id,
@@ -4709,6 +4942,13 @@ Admin Reference: User ${userIdentifier} (<code>${chatId}</code>)
  })
  .select('id')
  .single();
+ newMatch = fbInsertRes.data;
+ matchError = fbInsertRes.error;
+ } else {
+ newMatch = insertRes.data;
+ matchError = insertRes.error;
+ }
+ }
 
  if (matchError || !newMatch) {
  console.error('[executeDirectMatchRequest] match insert error:', matchError);
@@ -7102,7 +7342,7 @@ ${res.message}
  return NextResponse.json({ ok: true });
  }
  const session = getSession(chatId);
- await sendDynamicCardStep1Age(chatId, buildCleanFlowDraft(chatId, session.draft_data, { mode: 'post_to_channel', listing_category: 'seeker', card_msg_id: msgId }), msgId);
+ await sendDynamicCardStep1Age(chatId, buildCleanFlowDraft(chatId, session.draft_data, { mode: 'post_to_channel', listing_category: 'seeker', is_new_post: true, card_msg_id: msgId }), msgId);
  return NextResponse.json({ ok: true });
  }
 
@@ -7858,8 +8098,9 @@ ${res.message}
 
  const session = getSession(chatId);
  const draft = session.draft_data || {};
- let displayCode = (draft.display_code || prof?.display_code || cleanCode || '').replace(/^#/, '');
- if (!displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
+ let displayCode = (draft.display_code || cleanCode || prof?.display_code || '').replace(/^#/, '');
+ const isFreshPostSubmit = Boolean(draft.is_new_post && !draft.display_code && !cleanCode);
+ if (isFreshPostSubmit || !displayCode || !displayCode.toUpperCase().startsWith('SPMARBR')) {
  displayCode = await getNextSpmarbrCode('seeker');
  }
  const subcities = (Array.isArray(draft.preferred_subcity) && draft.preferred_subcity.length > 0)
@@ -8077,6 +8318,8 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  // ── NEW: Match request confirmation (from deep-link preview card) ──────
  if (callbackData.startsWith('confirm_match:')) {
  const targetProfileId = callbackData.split(':')[1];
+ const preSess = getSession(chatId);
+ const preSessDraft = preSess.draft_data || {};
 
  // Universal Gate: Fayda Verification required & fetch requester profile in parallel
  const [isVerified, { data: requesterProfile }] = await Promise.all([
@@ -8091,7 +8334,12 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  if (!isVerified) {
  await sendFaydaGateCard(chatId, 'send mutual match requests', msgId, {
    return_flow: 'confirm_match',
-   return_meta: { targetProfileId },
+   return_meta: {
+     targetProfileId,
+     targetDisplayCode: preSessDraft.target_code || null,
+     targetChannelMessageId: preSessDraft.target_channel_message_id ?? null,
+     targetPostAt: preSessDraft.target_post_at || null,
+   },
  });
  return NextResponse.json({ ok: true });
  }
@@ -8311,6 +8559,22 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  return NextResponse.json({ ok: true });
  }
 
+ const sessPostMatchesTarget =
+ preSessDraft.target_id &&
+ (String(preSessDraft.target_id) === String(targetProfileId) ||
+ String(preSessDraft.target_id) === String(targetProfile.id));
+ const confirmPostContext = await enrichListingPostContext(targetProfile, {
+ listingCode: (sessPostMatchesTarget ? preSessDraft.target_code : null) || targetProfile.display_code || null,
+ channelMessageId: (sessPostMatchesTarget ? preSessDraft.target_channel_message_id : null) ?? targetProfile.channel_message_id ?? null,
+ postTimestamp:
+ (sessPostMatchesTarget ? preSessDraft.target_post_at : null) ||
+ targetProfile.listing_updated_at ||
+ targetProfile.listing_created_at ||
+ targetProfile.updated_at ||
+ targetProfile.created_at ||
+ null,
+ });
+
  // Mandatory 100 ETB Pass Gate (Invariant 8) - Check FIRST!
  const userLang = getUserLanguage(chatId);
  const isAm = userLang === 'am';
@@ -8322,7 +8586,9 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  'connect_request',
  {
  targetProfileId: targetProfile.id,
- targetDisplayCode: targetProfile.display_code,
+ targetDisplayCode: confirmPostContext.listingCode || targetProfile.display_code,
+ targetChannelMessageId: confirmPostContext.channelMessageId,
+ targetPostAt: confirmPostContext.postTimestamp,
  targetProfile,
  },
  msgId
@@ -8330,25 +8596,23 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  return NextResponse.json({ ok: true });
  }
 
- // Check for existing match (only after membership pass verified)
- const { data: existingMatch } = await supabaseAdmin
- .from('matches')
- .select('id, status')
- .eq('requester_id', requesterProfile.id)
- .eq('target_id', targetProfile.id)
- .maybeSingle();
+ // Check for existing match under this listing/post (only after membership pass verified)
+ const confirmMatchPolicy = await resolveListingMatchPolicy(requesterProfile.id, targetProfile.id, confirmPostContext);
 
- if (existingMatch) {
+ if (confirmMatchPolicy.action === 'block' && confirmMatchPolicy.existingMatch) {
  await sendOrEditCard(
  chatId,
- `You already sent a match request to Roommate <b>#${targetProfile.display_code}</b>.\nStatus: <b>${existingMatch.status.replace('_', ' ')}</b>`,
+ formatBlockedMatchText(
+ confirmPostContext.listingCode || targetProfile.display_code || 'Listing',
+ confirmMatchPolicy.existingMatch.status
+ ),
  [[{ text: 'Find Other Roommates', callback_data: 'matchmaker_start' }], [{ text: 'Main Menu', callback_data: 'nav_start' }]],
  msgId
  );
  return NextResponse.json({ ok: true });
  }
 
- await executeDirectMatchRequest(chatId, targetProfile.id, msgId);
+ await executeDirectMatchRequest(chatId, targetProfile.id, msgId, confirmPostContext);
  return NextResponse.json({ ok: true });
  }
 
@@ -8518,10 +8782,16 @@ Your anonymous listing (<code>#${targetCode}</code>) has been reviewed and appro
  return NextResponse.json({ ok: true });
  }
 
+ const declineRes = await supabaseAdmin
+ .from('matches')
+ .update({ status: 'declined', updated_at: new Date().toISOString() })
+ .eq('id', matchId);
+ if (declineRes.error && isMissingColumnError(declineRes.error)) {
  await supabaseAdmin
  .from('matches')
  .update({ status: 'declined' })
  .eq('id', matchId);
+ }
 
  // Notify decliner
  if (msgId) {
@@ -9979,6 +10249,9 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  budget_max: draft.budget_max || 10000,
  roommate_traits: draft.lifestyle_bio || 'Channel Roommate Listing',
  status: draft.status || 'active',
+ channel_message_id: draft.channel_message_id || null,
+ listing_created_at: draft.created_at || null,
+ listing_updated_at: draft.updated_at || draft.created_at || null,
  };
  }
  }
@@ -10218,13 +10491,25 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  return NextResponse.json({ ok: true });
  }
 
+ const lookupDraftCode = /^SPMAR(BR|WR)/i.test(lookupCode) ? lookupCode : (targetProfile.display_code || lookupCode);
+ const lookupDraftMeta = await getRoommateDraft(lookupDraftCode);
+ if (lookupDraftMeta) {
+ if (lookupDraftMeta.channel_message_id) {
+ targetProfile.channel_message_id = lookupDraftMeta.channel_message_id;
+ }
+ targetProfile.listing_created_at = lookupDraftMeta.created_at || targetProfile.listing_created_at || null;
+ targetProfile.listing_updated_at = lookupDraftMeta.updated_at || lookupDraftMeta.created_at || targetProfile.listing_updated_at || null;
+ }
+
  // Present the Personalized Returning User Card to verified user
  await saveSession({
  telegram_id: chatId,
  step: 'returning_user_review',
  draft_data: {
  target_id: targetProfile.id,
- target_code: targetProfile.display_code || lookupCode,
+ target_code: lookupDraftCode.replace(/^#/, ''),
+ target_channel_message_id: targetProfile.channel_message_id || null,
+ target_post_at: targetProfile.listing_updated_at || targetProfile.listing_created_at || targetProfile.created_at || null,
  target_locations: targetLocations,
  target_budget: targetBudgetStr,
  lang: reqLang,
@@ -10264,6 +10549,8 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  {
  targetProfileId: targetProfile.id,
  targetDisplayCode: targetProfile.display_code || lookupCode,
+ targetChannelMessageId: targetProfile.channel_message_id || null,
+ targetPostAt: targetProfile.listing_updated_at || targetProfile.listing_created_at || targetProfile.created_at || null,
  targetProfile,
  }
  );
@@ -10271,7 +10558,7 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  }
 
  // Active Pass Holders: Present returning user preview card with instant free request button
- const reqBtnText = '⚡ Send Free Request (Pass Active) / ጥያቄ ላክ (የሚሰራ)';
+ const reqBtnText = '⚡ Send Request / ጥያቄ ላክ';
  const passBadge = `\n\n• <b>3-Month Pass / አባልነት:</b> Active (${mem.daysRemaining} days remaining) / የሚሰራ (${mem.daysRemaining} ቀናት ቀርተዋል)`;
 
  await sendOrEditCard(
@@ -10736,7 +11023,11 @@ Would you like to mark this channel post as <b>CLOSED / MATCHED</b>?
  await clearSession(chatId);
  const targetId = metadata.targetProfileId || metadata.target_id;
  if (targetId) {
- await executeDirectMatchRequest(chatId, targetId);
+ await executeDirectMatchRequest(chatId, targetId, undefined, {
+ listingCode: metadata.targetDisplayCode || metadata.target_code || null,
+ channelMessageId: metadata.targetChannelMessageId ?? null,
+ postTimestamp: metadata.targetPostAt || null,
+ });
  }
  } else {
  await clearSession(chatId);
@@ -12420,7 +12711,11 @@ All administrators of this channel can now use bot admin features, and approved 
  draft_data: buildCleanFlowDraft(chatId, updatedDraft),
  updated_at: new Date().toISOString(),
  }, true);
- await executeDirectMatchRequest(chatId, String(updatedDraft.target_id));
+ await executeDirectMatchRequest(chatId, String(updatedDraft.target_id), undefined, {
+ listingCode: (updatedDraft as any).target_code || null,
+ channelMessageId: (updatedDraft as any).target_channel_message_id ?? null,
+ postTimestamp: (updatedDraft as any).target_post_at || null,
+ });
  return NextResponse.json({ ok: true });
  }
 
@@ -13273,7 +13568,11 @@ All administrators of this channel can now use bot admin features, and approved 
  await clearSession(chatId);
  const targetId = metadata.targetProfileId || metadata.target_id;
  if (targetId) {
- await executeDirectMatchRequest(chatId, targetId);
+ await executeDirectMatchRequest(chatId, targetId, undefined, {
+ listingCode: metadata.targetDisplayCode || metadata.target_code || null,
+ channelMessageId: metadata.targetChannelMessageId ?? null,
+ postTimestamp: metadata.targetPostAt || null,
+ });
  } else {
  await sendPrimaryWelcomeMenu(chatId, undefined, message.from);
  }

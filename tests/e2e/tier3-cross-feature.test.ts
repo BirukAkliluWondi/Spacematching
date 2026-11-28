@@ -33,7 +33,8 @@ import {
 import {
   generateAuthenticFaydaQrBuffer,
 } from '../../scripts/helpers/synthetic-fayda';
-import { getSession, saveSession, clearSession } from '../../src/lib/bot-session-store';
+import { getSession, saveSession, clearSession, saveRoommateDraft, invalidateMembershipCache } from '../../src/lib/bot-session-store';
+import { supabaseAdmin } from '../../src/lib/supabase-server';
 
 export async function runTier3Tests(collector: TestExecutionCollector): Promise<void> {
   setupTelegramFetchMock();
@@ -381,6 +382,195 @@ export async function runTier3Tests(collector: TestExecutionCollector): Promise<
       // Endpoint responds with success true or simulated delivery
       if (res.status !== 200) {
         throw new Error(`Expected HTTP 200, got ${res.status}`);
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 8. Per-Post Match Retry After Declined Old Post & Fresh Code Minting
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  await executeTest(
+    'Per-Post Match Retry',
+    'Blocked on same declined post, allowed when host publishes a brand-new post, and completed stays blocked',
+    async () => {
+      const reqTg = 99003101;
+      const hostTg = 99003102;
+      const oldCode = 'SPMARBR99901';
+      const newCode = 'SPMARBR99902';
+      const oldTime = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+      const declineTime = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+      const newPostTime = new Date().toISOString();
+
+      try {
+        await clearSession(reqTg);
+        await clearSession(hostTg);
+
+        // Seed verified users + active 3-month pass for requester
+        await supabaseAdmin.from('users').upsert([
+          { telegram_id: reqTg, first_name: 'ReqTest', fayda_status: 'verified', fayda_id_number: '4829104728193841' },
+          { telegram_id: hostTg, first_name: 'HostTest', fayda_status: 'verified', fayda_id_number: '4829104728193842' },
+        ], { onConflict: 'telegram_id' });
+
+        const { data: reqProf } = await supabaseAdmin
+          .from('profiles')
+          .upsert({
+            telegram_id: reqTg,
+            display_code: 'SPMARBR99900',
+            gender: 'Male',
+            locations: ['Bole'],
+            budget_min: 5000,
+            budget_max: 15000,
+            phone_number: '0911223344',
+            kyc_status: 'verified',
+            status: 'active',
+            onboarding_step: 'completed',
+          }, { onConflict: 'telegram_id' })
+          .select('id')
+          .single();
+
+        const { data: hostProf } = await supabaseAdmin
+          .from('profiles')
+          .upsert({
+            telegram_id: hostTg,
+            display_code: oldCode,
+            gender: 'Male',
+            locations: ['Bole'],
+            budget_min: 5000,
+            budget_max: 15000,
+            phone_number: '0922334455',
+            kyc_status: 'verified',
+            status: 'active',
+            onboarding_step: 'completed',
+            channel_message_id: 9001,
+          }, { onConflict: 'telegram_id' })
+          .select('id')
+          .single();
+
+        if (!reqProf?.id || !hostProf?.id) {
+          throw new Error('Failed to seed synthetic requester/host profiles');
+        }
+
+        // Clean any leftover matches or orders for synthetic profiles
+        await supabaseAdmin.from('matches').delete().eq('requester_id', reqProf.id).eq('target_id', hostProf.id);
+        await supabaseAdmin.from('orders').delete().eq('buyer_telegram_id', reqTg);
+        invalidateMembershipCache(reqTg);
+        const { error: seedOrderErr } = await supabaseAdmin.from('orders').insert({
+          buyer_telegram_id: reqTg,
+          target_id: reqProf.id,
+          amount: 100,
+          payment_status: 'completed',
+          verified_at: new Date().toISOString(),
+          transaction_reference: `TESTPASS_${Date.now()}`,
+        });
+        if (seedOrderErr) throw new Error(`Failed seeding test order: ${seedOrderErr.message}`);
+
+        await saveRoommateDraft({
+          id: oldCode,
+          display_code: oldCode,
+          user_telegram_id: hostTg,
+          user_name: 'HostTest',
+          username: null,
+          unlock_fee: 100,
+          preferred_subcity: ['Bole'],
+          my_gender: 'Male',
+          preferred_gender: 'Any',
+          budget_min: 5000,
+          budget_max: 15000,
+          lifestyle_bio: 'Prefers: Any Gender | Rules: Clean & quiet | Old post',
+          fayda_status: 'verified',
+          status: 'approved',
+          channel_message_id: 9001,
+          created_at: oldTime,
+          updated_at: oldTime,
+        });
+        await supabaseAdmin.from('pending_roommate_drafts').update({ created_at: oldTime, updated_at: oldTime }).eq('id', oldCode);
+        await supabaseAdmin.from('profiles').update({ created_at: oldTime }).eq('id', hostProf.id);
+
+        // 1. Send initial request on oldCode -> succeeds
+        await dispatchWebhookUpdate(createTelegramMessageUpdate(reqTg, `/start req_${oldCode}`));
+        clearCapturedTelegramCalls();
+        await dispatchWebhookUpdate(createTelegramCallbackUpdate(reqTg, `confirm_match:${hostProf.id}`));
+        const firstTexts = getCapturedTelegramCalls().map((c) => c.payload?.text || '').join('\n');
+        if (!firstTexts.includes('Match Request Delivered')) {
+          throw new Error(`Expected initial match delivery, got: ${firstTexts}`);
+        }
+
+        // Backdate the match row and mark it declined 5 days ago
+        const { data: createdMatch } = await supabaseAdmin
+          .from('matches')
+          .select('id')
+          .eq('requester_id', reqProf.id)
+          .eq('target_id', hostProf.id)
+          .single();
+        if (!createdMatch?.id) throw new Error('Match row was not created');
+
+        await supabaseAdmin
+          .from('matches')
+          .update({ status: 'declined', created_at: declineTime })
+          .eq('id', createdMatch.id);
+
+        // 2. Re-click exact SAME declined oldCode -> MUST stay blocked
+        await dispatchWebhookUpdate(createTelegramMessageUpdate(reqTg, `/start req_${oldCode}`));
+        clearCapturedTelegramCalls();
+        await dispatchWebhookUpdate(createTelegramCallbackUpdate(reqTg, `confirm_match:${hostProf.id}`));
+        const blockedTexts = getCapturedTelegramCalls().map((c) => c.payload?.text || '').join('\n');
+        if (!blockedTexts.includes('Request Already Declined')) {
+          throw new Error(`Expected block on same declined post ${oldCode}, got: ${blockedTexts}`);
+        }
+
+        // 3. Host publishes brand-new post (newCode + newer timestamp + higher channel_message_id)
+        await supabaseAdmin
+          .from('profiles')
+          .update({ display_code: newCode, channel_message_id: 9002 })
+          .eq('id', hostProf.id);
+
+        await saveRoommateDraft({
+          id: newCode,
+          display_code: newCode,
+          user_telegram_id: hostTg,
+          user_name: 'HostTest',
+          username: null,
+          unlock_fee: 100,
+          preferred_subcity: ['Bole'],
+          my_gender: 'Male',
+          preferred_gender: 'Any',
+          budget_min: 5000,
+          budget_max: 15000,
+          lifestyle_bio: 'Prefers: Any Gender | Rules: Clean & quiet | Brand new post',
+          fayda_status: 'verified',
+          status: 'approved',
+          channel_message_id: 9002,
+          created_at: newPostTime,
+          updated_at: newPostTime,
+        });
+
+        await dispatchWebhookUpdate(createTelegramMessageUpdate(reqTg, `/start req_${newCode}`));
+        clearCapturedTelegramCalls();
+        await dispatchWebhookUpdate(createTelegramCallbackUpdate(reqTg, `confirm_match:${hostProf.id}`));
+        const retryTexts = getCapturedTelegramCalls().map((c) => c.payload?.text || '').join('\n');
+        if (!retryTexts.includes('Match Request Delivered')) {
+          throw new Error(`Expected new post ${newCode} to allow fresh match request, got: ${retryTexts}`);
+        }
+
+        // 4. Mark match completed -> subsequent request must stay blocked as Already Connected
+        await supabaseAdmin
+          .from('matches')
+          .update({ status: 'completed', completed_at: new Date().toISOString() })
+          .eq('id', createdMatch.id);
+        clearCapturedTelegramCalls();
+        await dispatchWebhookUpdate(createTelegramCallbackUpdate(reqTg, `confirm_match:${hostProf.id}`));
+        const compTexts = getCapturedTelegramCalls().map((c) => c.payload?.text || '').join('\n');
+        if (!compTexts.includes('Already Connected')) {
+          throw new Error(`Expected completed match to remain blocked, got: ${compTexts}`);
+        }
+      } finally {
+        await clearSession(reqTg).catch(() => {});
+        await clearSession(hostTg).catch(() => {});
+        try { await supabaseAdmin.from('pending_roommate_drafts').delete().in('id', [oldCode, newCode]); } catch {}
+        try { await supabaseAdmin.from('orders').delete().eq('buyer_telegram_id', reqTg); } catch {}
+        try { await supabaseAdmin.from('profiles').delete().in('telegram_id', [reqTg, hostTg]); } catch {}
+        try { await supabaseAdmin.from('users').delete().in('telegram_id', [reqTg, hostTg]); } catch {}
       }
     }
   );
