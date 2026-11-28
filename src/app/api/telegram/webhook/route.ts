@@ -2077,7 +2077,7 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
    }, true);
  };
 
- // Step 7b: House Rules (Quick Tap or Custom Text Input)
+ // Step 7b: House Rules (Custom Text Description)
  const sendDynamicCardStepHouseRules = async (
     chatId: number,
     draft: Record<string, any>,
@@ -2094,16 +2094,11 @@ ${postLink ? `• <b>Channel Link / የቻናል ማስፈንጠሪያ:</b> <a h
       updated_at: new Date().toISOString(),
     });
 
-    const promptText = '<b>House Rules / የቤት ህጎች</b>\n\n<blockquote>Tap a common house rule below or type your own (e.g. Clean, no smoking, quiet after 10 PM, no guests):\nየቤት ህጎችዎን ከታች ይምረጡ ወይም ይጻፉ (ምሳሌ: ንጹህ፣ ሲጋራ አይፈቀድም፣ ከምሽቱ 4 ሰዓት በኋላ ጸጥታ):</blockquote>';
+    const promptText = '<b>House Rules / የቤት ህጎች</b>\n\n<blockquote>Please type your house rules in your own words (e.g. Clean, no smoking, quiet after 10 PM, no guests):\nእባክዎ የቤት ህጎችዎን በራስዎ ቃላት ይጻፉ (ምሳሌ: ንጹህ፣ ሲጋራ አይፈቀድም፣ ከምሽቱ 4 ሰዓት በኋላ ጸጥታ):</blockquote>';
     const errBlock = errorMsg ? (/</.test(errorMsg) ? errorMsg : `<b>${escapeHtml(errorMsg)}</b>`) : '';
     const text = `${errBlock ? `${errBlock}\n\n` : ''}${promptText}`.trim();
 
  const inlineKeyboard = [
- [{ text: 'Clean & Quiet / ንጹህና ጸጥተኛ', callback_data: 'dyn_house_rules:Clean, quiet & respectful' }],
- [{ text: 'No Smoking / ሲጋራ ክልክል', callback_data: 'dyn_house_rules:No smoking, clean & tidy' }],
- [
- { text: 'No Parties / ጫጫታ የሌለበት', callback_data: 'dyn_house_rules:Quiet hours after 10 PM, no parties' },
- ],
  [
  { text: 'Back / ተመለስ', callback_data: 'dyn_back_to_traits' },
  { text: 'Cancel / ሰርዝ', callback_data: 'nav_start' },
@@ -3608,11 +3603,10 @@ Please reply with the description, perks, or notes for this channel post.
 
  const text = `<b>SpaceMatch Admin · Step 6b: House Rules</b>
 
-Please reply with the house rules for this post (e.g. <code>Clean, no smoking, quiet after 10 PM</code>) or tap a quick option below:
+Please reply with the house rules description for this post (e.g. <code>Clean, no smoking, quiet after 10 PM</code>):
  `.trim();
 
  const inlineKeyboard = [
- [{ text: 'Clean, Quiet & No Smoking', callback_data: 'admin_post_house_rules:Clean, quiet & no smoking' }],
  [{ text: 'Back to Description', callback_data: 'admin_post_back_to_bio' }],
  [{ text: 'Cancel', callback_data: 'nav_start' }],
  ];
@@ -5546,7 +5540,7 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
  });
  };
 
- // Matchmaker Step 8b: House Rules (Completed BEFORE showing roommate matches)
+ // Matchmaker Step 8b: House Rules (Custom Text Description before showing roommate matches)
  const sendMatchmakerHouseRulesStep = async (
     chatId: number,
     currentDraft: Record<string, any> = {},
@@ -5555,14 +5549,9 @@ ${cleanTraitsForMatch ? `\n<blockquote>"${escapeHtml(cleanTraitsForMatch)}"</blo
   ) => {
     const lang = getLanguage(currentDraft, chatId);
     const header = errorMessage ? `<b>${errorMessage}</b>\n\n` : '';
-    const text = `${header}<b>House Rules / የቤት ህጎች</b>\n\n<blockquote>Tap your preferred house rules or type your own (e.g. No smoking, quiet after 10 PM) to see your matches:\nየሚፈልጉትን የቤት ህግ ከታች ይምረጡ ወይም ይጻፉ (ምሳሌ: ሲጋራ ክልክል፣ ከምሽቱ 4 ሰዓት በኋላ ጸጥታ):</blockquote>`;
+    const text = `${header}<b>House Rules / የቤት ህጎች</b>\n\n<blockquote>Please type your preferred house rules in your own words (e.g. No smoking, quiet after 10 PM) to see your matches:\nየሚፈልጉትን የቤት ህግ በራስዎ ቃላት ይጻፉ (ምሳሌ: ሲጋራ ክልክል፣ ከምሽቱ 4 ሰዓት በኋላ ጸጥታ):</blockquote>`;
 
  const keyboard = [
- [{ text: 'Clean & Quiet / ንጹህና ጸጥተኛ', callback_data: 'match_set_house_rules:Clean, quiet & respectful' }],
- [{ text: 'No Smoking / ሲጋራ ክልክል', callback_data: 'match_set_house_rules:No smoking, clean & tidy' }],
- [
- { text: 'No Parties / ጫጫታ የሌለበት', callback_data: 'match_set_house_rules:Quiet hours after 10 PM, no parties' },
- ],
  [{ text: 'Back / ወደ ኋላ', callback_data: 'match_goto_traits' }],
  [{ text: 'Main Menu / ዋና ማውጫ', callback_data: 'nav_start' }],
  ];
